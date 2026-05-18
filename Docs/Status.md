@@ -124,6 +124,8 @@ compose.
   Code skill folders.
 - `loupe start` wraps `loupe launch --inject` and starts the in-app Loupe
   runtime server without requiring users to think about `DYLD_INSERT_LIBRARIES`.
+- `loupe cleanup` removes stale runtime host records and old trace bundles.
+  Recordings are kept by default and pruned only when requested.
 - Runtime actions currently delegate HID dispatch to AXe.
 - Selector-based runtime actions resolve through the accessibility tree first,
   using a valid accessibility activation point when it lies inside the element
@@ -191,6 +193,7 @@ loupe diff before-snapshot.json after-snapshot.json
 loupe trace-summary /tmp/loupe-trace
 loupe skills install --target codex
 loupe start --bundle-id dev.loupe.example --device booted
+loupe cleanup --dry-run
 loupe wait-for-visible --test-id example.detail --timeout 5
 loupe wait-for-gone --test-id example.loading --timeout 5
 loupe wait-for-value --test-id example.components.switch --key uiKit.switch.isOn --equals true

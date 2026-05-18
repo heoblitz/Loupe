@@ -82,6 +82,7 @@ loupe trace-summary /tmp/loupe-trace
 loupe diff /tmp/loupe-trace/before-snapshot.json /tmp/loupe-trace/after-snapshot.json
 loupe audit /tmp/loupe-trace/after-snapshot.json
 loupe compare-design /tmp/loupe-trace/after-snapshot.json figma-export.json
+loupe cleanup --dry-run
 ```
 
 The skill path should keep model context small: use `tree` and `compact` first,
@@ -174,3 +175,14 @@ loupe skills install --target claude
 
 `skills install` upserts this skill into existing Codex or Claude Code skill
 folders and skips missing clients.
+
+## Cleanup
+
+```bash
+loupe cleanup
+loupe cleanup --traces-older-than 14d
+loupe cleanup --recordings-older-than 30d
+```
+
+Use `cleanup` to prune stale runtime records and old trace bundles. Recordings
+are preserved unless explicitly requested.

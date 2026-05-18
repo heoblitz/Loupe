@@ -56,6 +56,9 @@ harness.
 - Runtime start wrapper:
   `loupe start --bundle-id <id> [--port <port>]` launches with injection and
   waits for the in-app Loupe server to answer `/runtime`.
+- Cleanup:
+  `loupe cleanup` prunes stale runtime records and trace bundles older than 7
+  days; recordings are only pruned with `--recordings-older-than`.
 - Runtime registry:
   `loupe runtimes` / `loupe apps` lists known simulator hosts and live state.
 - Runtime identity handshake:

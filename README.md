@@ -2,6 +2,11 @@
 
 Runtime E2E inspection and action harness for iOS Simulator apps.
 
+![Loupe](Docs/Assets/loupe-logo.svg)
+
+Loupe starts a small HTTP server inside the simulator app process, captures
+UIKit and accessibility state on demand, and delegates simulator input to AXe.
+
 ## Install
 
 ```bash
@@ -9,113 +14,88 @@ brew tap heoblitz/loupe https://github.com/heoblitz/Loupe.git
 brew install loupe
 ```
 
-The Homebrew formula installs AXe as a dependency for runtime actions.
+## Start
 
-## Launch
+Build and install your iOS app on a simulator, then launch it through Loupe:
 
 ```bash
-loupe doctor
-loupe injector-path
-
-loupe start \
-  --bundle-id dev.loupe.example \
-  --device booted
+loupe start --bundle-id com.example.App --device booted
+loupe runtime --udid booted
 ```
 
-`start` launches the simulator app with Loupe injection. That injection starts
-the Loupe HTTP server inside the app process; there is no separate host daemon
-to run. When no port is provided, Loupe assigns and records a stable localhost
-port for that simulator. Later commands can use `--udid` without passing
-`--host`.
+`start` injects Loupe into the app and waits for the in-app runtime server. When
+multiple simulators are booted, pass the exact simulator UDID.
+
+## Observe
 
 ```bash
-loupe start --bundle-id dev.loupe.example --device <UDID>
-loupe launch --bundle-id dev.loupe.example --device <UDID> --inject
-loupe runtime --udid <UDID>
-```
-
-Use `loupe start --port <port>` only when you need a fixed port.
-
-## Inspect
-
-```bash
+loupe tree --udid <UDID> --accessibility --depth 3
+loupe tree --udid <UDID> --view --depth 3
 loupe fetch http://127.0.0.1:8765/snapshot --output snapshot.json
-loupe compact snapshot.json
-loupe runtimes
-loupe tree --udid booted --view --depth 3
-loupe tree snapshot.json --accessibility --test-id checkout.payButton --depth 2
-loupe query snapshot.json --test-id checkout.payButton
-loupe query snapshot.json --tree accessibility --test-id checkout.payButton
-loupe accessibility snapshot.json
 loupe inspect snapshot.json --test-id checkout.payButton
-loupe subtree snapshot.json --test-id checkout.form --depth 3
-loupe audit snapshot.json
-loupe compare-design snapshot.json figma-export.json
-loupe diff before-snapshot.json after-snapshot.json
-loupe trace-summary /tmp/loupe-trace
-loupe wait-for-visible --host http://127.0.0.1:8765 --test-id checkout.payButton --timeout 5
-loupe wait-for-gone --host http://127.0.0.1:8765 --test-id checkout.loading
-loupe wait-for-value --host http://127.0.0.1:8765 --test-id checkout.switch --key uiKit.switch.isOn --equals true
+loupe compact snapshot.json
 ```
+
+Use the accessibility tree for movement and input targets. Use the view tree for
+layout, UIKit properties, color, size, and design checks.
 
 ## Act
 
 ```bash
-loupe tap --host http://127.0.0.1:8765 --udid booted --test-id checkout.payButton --expect-visible checkout.confirmation
-loupe tap --udid booted --ref n83
-loupe tap --udid booted --x 201 --y 274
-loupe swipe --udid booted --from 220,760 --to 220,190 --width 438 --height 954
-loupe drag --udid booted --from 4,430 --to 390,430 --duration 0.8
-loupe type "Ada" --udid booted
-loupe screenshot --udid booted --output screen.png
+loupe tap --udid <UDID> --test-id checkout.payButton --expect-visible checkout.confirmation
+loupe tap --udid <UDID> --ref n83
+loupe tap --udid <UDID> --x 201 --y 274
+loupe swipe --udid <UDID> --from 220,760 --to 220,190
+loupe type "Ada" --udid <UDID>
 ```
+
+`tap` intentionally does not accept text selectors. Prefer stable
+`accessibilityIdentifier` / `testID`, then Loupe refs, then coordinates.
+
+## Debug
+
+```bash
+loupe trace-summary /tmp/loupe-trace
+loupe diff /tmp/loupe-trace/before-snapshot.json /tmp/loupe-trace/after-snapshot.json
+loupe audit snapshot.json
+loupe compare-design snapshot.json figma-export.json
+```
+
+Failed actions automatically write traces under the system temporary
+`loupe-traces` directory. Successful traced actions include `target-crop.png`
+when Loupe resolved a framed target.
 
 ## Record
 
 ```bash
-loupe record start checkout-flow --host http://127.0.0.1:8765
-loupe record stop --host http://127.0.0.1:8765
-loupe recordings
-
-loupe replay checkout-flow \
-  --host http://127.0.0.1:8765 \
-  --udid booted \
-  --width 438 \
-  --height 954
+loupe record start checkout-flow --udid <UDID>
+loupe record stop --udid <UDID>
+loupe replay checkout-flow --udid <UDID> --width 438 --height 954
 ```
 
-## Skills
+## Maintenance
 
 ```bash
 loupe skills install
-loupe skills install --target codex
-loupe skills install --target claude
+loupe cleanup --dry-run
+loupe cleanup
 ```
 
-`skills install` upserts `skills/loupe` into existing `~/.codex/skills/loupe`
-or `~/.claude/skills/loupe` folders. It skips a client when that client's home
-folder does not exist.
-
-Use `--udid <UDID>` on `runtime`, `logs`, `record`, and `recording` when you
-want Loupe to verify that the host belongs to the expected simulator.
-
-`loupe tap` intentionally does not accept text selectors. Use stable
-`accessibilityIdentifier` / `testID`, a Loupe `ref`, or explicit coordinates.
-Failed runtime actions automatically save a trace under `/tmp/loupe-traces`.
-Action traces also include `target-crop.png` when the resolved target has a
-frame.
+`skills install` upserts the Loupe skill into existing Codex or Claude Code
+skill folders. `cleanup` removes stale runtime records and old trace bundles;
+recordings are preserved unless explicitly requested.
 
 ## Verify
 
 ```bash
 swift test
-Examples/LoupeExample/run-injected.sh
-Examples/LoupeExample/run-runtime-e2e.sh
-Examples/LoupeExample/run-axe-scenarios.sh
 Examples/LoupeExample/run-bookmark-e2e.sh
-Examples/LoupeExample/run-loupe-driven-ui-test.sh
 ```
 
-Current status and design notes live in `Docs/Status.md`, `Docs/TestPlan.md`,
-`Docs/RuntimeCommunication.md`, `Docs/FigmaComparison.md`, and
-`Docs/Homebrew.md`.
+## Docs
+
+- [Status](Docs/Status.md)
+- [Test Plan](Docs/TestPlan.md)
+- [Runtime Communication](Docs/RuntimeCommunication.md)
+- [Homebrew Distribution](Docs/Homebrew.md)
+- [Development Homebrew Overlay](Docs/DevHomebrewOverlay.md)

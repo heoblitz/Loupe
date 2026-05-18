@@ -1,0 +1,16 @@
+<svg width="960" height="320" viewBox="0 0 960 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Loupe</title>
+  <desc id="desc">Loupe logo for the iOS Simulator runtime E2E harness.</desc>
+  <rect width="960" height="320" rx="40" fill="#F7F8FA"/>
+  <g transform="translate(96 58)">
+    <circle cx="102" cy="102" r="78" fill="#FFFFFF" stroke="#111827" stroke-width="16"/>
+    <circle cx="102" cy="102" r="42" fill="#D9F99D" stroke="#111827" stroke-width="12"/>
+    <path d="M158 158L220 220" stroke="#111827" stroke-width="22" stroke-linecap="round"/>
+    <circle cx="78" cy="77" r="13" fill="#38BDF8"/>
+    <path d="M62 140C82 155 119 158 142 132" stroke="#111827" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(372 84)">
+    <text x="0" y="86" fill="#111827" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="78" font-weight="800" letter-spacing="0">Loupe</text>
+    <text x="4" y="138" fill="#4B5563" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="520" letter-spacing="0">Runtime E2E for iOS Simulator</text>
+  </g>
+</svg>

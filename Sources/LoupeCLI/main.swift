@@ -25,6 +25,8 @@ struct LoupeCLI {
             try compact(arguments)
         case "compare-design":
             try compareDesign(arguments)
+        case "cleanup":
+            try await cleanup(arguments)
         case "diff":
             try diff(arguments)
         case "doctor":
@@ -376,6 +378,92 @@ struct LoupeCLI {
         }
     }
 
+    private static func cleanup(_ arguments: [String]) async throws {
+        let options = try CleanupOptions(arguments)
+        var report = CleanupReport()
+
+        if options.pruneRuntimes {
+            report.runtimeRecordsRemoved = try await cleanupRuntimeRecords(options: options)
+        }
+        if options.pruneTraces {
+            report.traceBundlesRemoved = try cleanupDirectory(
+                traceRootDirectory(),
+                olderThan: options.tracesOlderThan,
+                dryRun: options.dryRun
+            )
+        }
+        if let recordingsOlderThan = options.recordingsOlderThan {
+            report.recordingsRemoved = try cleanupDirectory(
+                recordingDirectory(),
+                olderThan: recordingsOlderThan,
+                dryRun: options.dryRun
+            )
+        }
+
+        print("\(options.dryRun ? "would remove" : "removed") runtimeRecords=\(report.runtimeRecordsRemoved) traceBundles=\(report.traceBundlesRemoved) recordings=\(report.recordingsRemoved)")
+    }
+
+    private static func cleanupRuntimeRecords(options: CleanupOptions) async throws -> Int {
+        let records = try loadRuntimeHostRecords()
+        var removed = 0
+
+        for record in records {
+            var shouldRemove = true
+            if let host = URL(string: record.host),
+               let state = try? await fetchRuntimeState(host: host, timeout: options.timeout),
+               state.identity.simulatorUDID == record.udid,
+               state.identity.bundleIdentifier == record.bundleID {
+                shouldRemove = false
+            }
+
+            guard shouldRemove else {
+                continue
+            }
+
+            removed += 1
+            if !options.dryRun {
+                try? FileManager.default.removeItem(at: runtimeHostRecordURL(udid: record.udid))
+            }
+        }
+
+        return removed
+    }
+
+    private static func cleanupDirectory(_ directory: URL, olderThan age: TimeInterval, dryRun: Bool) throws -> Int {
+        guard age >= 0 else {
+            throw CLIError("cleanup age must be non-negative")
+        }
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        let cutoff = Date().addingTimeInterval(-age)
+        var removed = 0
+        for url in urls {
+            guard itemModificationDate(url) <= cutoff else {
+                continue
+            }
+            removed += 1
+            if !dryRun {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
+        return removed
+    }
+
+    private static func itemModificationDate(_ url: URL) -> Date {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+        return values?.contentModificationDate ?? Date.distantPast
+    }
+
+    private static func traceRootDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("loupe-traces", isDirectory: true)
+    }
+
     private static func start(_ arguments: [String]) async throws {
         var launchArguments: [String] = []
         var index = 0
@@ -525,6 +613,9 @@ struct LoupeCLI {
 
               compact <snapshot.json>
                   Print the LLM-facing compact observation for a full app snapshot.
+
+              cleanup [--dry-run] [--traces-older-than 7d] [--recordings-older-than 30d]
+                  Remove stale runtime records and old trace bundles. Recordings are kept unless requested.
 
               compare-design <snapshot.json> <design.json> [--json]
                   Compare a Loupe snapshot against an exported Figma-style design JSON.
@@ -1405,8 +1496,7 @@ struct LoupeCLI {
         let stamp = formatter.string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
             .replacingOccurrences(of: ".", with: "-")
-        return FileManager.default.temporaryDirectory
-            .appendingPathComponent("loupe-traces", isDirectory: true)
+        return traceRootDirectory()
             .appendingPathComponent("\(stamp)-\(command)", isDirectory: true)
     }
 
@@ -2636,6 +2726,105 @@ private struct InstallSkillsOptions {
         index = valueIndex
         return arguments[valueIndex]
     }
+}
+
+private struct CleanupOptions {
+    var dryRun: Bool
+    var pruneRuntimes: Bool
+    var pruneTraces: Bool
+    var tracesOlderThan: TimeInterval
+    var recordingsOlderThan: TimeInterval?
+    var timeout: TimeInterval
+
+    init(_ arguments: [String]) throws {
+        dryRun = false
+        pruneRuntimes = true
+        pruneTraces = true
+        tracesOlderThan = 7 * 24 * 60 * 60
+        recordingsOlderThan = nil
+        timeout = 1
+
+        var index = 0
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--dry-run":
+                dryRun = true
+            case "--no-runtimes":
+                pruneRuntimes = false
+            case "--no-traces":
+                pruneTraces = false
+            case "--traces-older-than":
+                tracesOlderThan = try Self.duration(after: "--traces-older-than", in: arguments, index: &index)
+            case "--all-traces":
+                tracesOlderThan = 0
+            case "--recordings-older-than":
+                recordingsOlderThan = try Self.duration(after: "--recordings-older-than", in: arguments, index: &index)
+            case "--include-recordings":
+                recordingsOlderThan = 30 * 24 * 60 * 60
+            case "--timeout":
+                timeout = try Self.double(after: "--timeout", in: arguments, index: &index)
+            default:
+                throw CLIError("Unknown cleanup option: \(arguments[index])")
+            }
+            index += 1
+        }
+    }
+
+    private static func duration(after option: String, in arguments: [String], index: inout Int) throws -> TimeInterval {
+        let raw = try value(after: option, in: arguments, index: &index)
+        return try parseDuration(raw, option: option)
+    }
+
+    private static func double(after option: String, in arguments: [String], index: inout Int) throws -> Double {
+        let raw = try value(after: option, in: arguments, index: &index)
+        guard let value = Double(raw), value >= 0 else {
+            throw CLIError("\(option) expects a non-negative number")
+        }
+        return value
+    }
+
+    private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
+        let valueIndex = index + 1
+        guard valueIndex < arguments.count else {
+            throw CLIError("\(option) requires a value")
+        }
+        index = valueIndex
+        return arguments[valueIndex]
+    }
+
+    private static func parseDuration(_ rawValue: String, option: String) throws -> TimeInterval {
+        let raw = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !raw.isEmpty else {
+            throw CLIError("\(option) expects a duration like 7d, 12h, 30m, or 60s")
+        }
+
+        let unit = raw.last.flatMap { character -> Character? in
+            character.isLetter ? character : nil
+        }
+        let numberPart = unit == nil ? raw : String(raw.dropLast())
+        guard let value = Double(numberPart), value >= 0 else {
+            throw CLIError("\(option) expects a non-negative duration")
+        }
+
+        switch unit {
+        case nil, "s":
+            return value
+        case "m":
+            return value * 60
+        case "h":
+            return value * 60 * 60
+        case "d":
+            return value * 24 * 60 * 60
+        default:
+            throw CLIError("\(option) duration unit must be s, m, h, or d")
+        }
+    }
+}
+
+private struct CleanupReport {
+    var runtimeRecordsRemoved = 0
+    var traceBundlesRemoved = 0
+    var recordingsRemoved = 0
 }
 
 private enum SkillInstallTargetSelection: String {
