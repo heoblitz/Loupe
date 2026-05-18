@@ -299,6 +299,8 @@ public final class LoupeAgent {
             let ref = makeRef()
             let match = matchedBarButtonView(
                 for: barButtonItem,
+                position: "left",
+                index: index,
                 candidates: candidates,
                 consumedCandidateIDs: &consumedCandidateIDs
             )
@@ -318,6 +320,8 @@ public final class LoupeAgent {
             let ref = makeRef()
             let match = matchedBarButtonView(
                 for: barButtonItem,
+                position: "right",
+                index: index,
                 candidates: candidates,
                 consumedCandidateIDs: &consumedCandidateIDs
             )
@@ -1153,7 +1157,7 @@ private func syntheticBarButtonNode(
     inheritedVisible: Bool
 ) -> LoupeNode {
     let frame = matchedView.flatMap(frameInScreen(for:))
-    let visible = inheritedVisible && item.isEnabled && frame != nil
+    let visible = inheritedVisible && item.isEnabled && frame.map(frameIntersectsScreen) == true
     var custom: [String: LoupeMetadataValue] = [
         "synthetic": .bool(true),
         "source": .string("UIBarButtonItem"),
@@ -1276,6 +1280,8 @@ private func syntheticTabBarItemNode(
 @MainActor
 private func matchedBarButtonView(
     for item: UIBarButtonItem,
+    position: String,
+    index: Int,
     candidates: [UIView],
     consumedCandidateIDs: inout Set<ObjectIdentifier>
 ) -> UIView? {
@@ -1305,7 +1311,32 @@ private func matchedBarButtonView(
         }
     }
 
-    return nil
+    let positionedCandidates = candidates
+        .filter { !consumedCandidateIDs.contains(ObjectIdentifier($0)) }
+        .filter { candidate in
+            guard let frame = frameInScreen(for: candidate) else {
+                return false
+            }
+            return frameIntersectsScreen(frame)
+        }
+        .sorted { lhs, rhs in
+            let lhsFrame = frameInScreen(for: lhs)
+            let rhsFrame = frameInScreen(for: rhs)
+            switch position {
+            case "right":
+                return (lhsFrame?.maxX ?? 0) > (rhsFrame?.maxX ?? 0)
+            default:
+                return (lhsFrame?.x ?? 0) < (rhsFrame?.x ?? 0)
+            }
+        }
+
+    guard positionedCandidates.indices.contains(index) else {
+        return nil
+    }
+
+    let fallback = positionedCandidates[index]
+    consumedCandidateIDs.insert(ObjectIdentifier(fallback))
+    return fallback
 }
 
 @MainActor
@@ -1349,6 +1380,18 @@ private func matchedTabBarItemView(
     }
 
     return nil
+}
+
+@MainActor
+private func frameIntersectsScreen(_ frame: LoupeRect) -> Bool {
+    let bounds = UIScreen.main.bounds
+    let screenFrame = LoupeRect(
+        x: bounds.origin.x.doubleValue,
+        y: bounds.origin.y.doubleValue,
+        width: bounds.width.doubleValue,
+        height: bounds.height.doubleValue
+    )
+    return frame.intersects(screenFrame)
 }
 
 @MainActor

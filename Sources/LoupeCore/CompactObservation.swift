@@ -2,11 +2,27 @@ import Foundation
 
 public struct LoupeVisibleText: Codable, Equatable {
     public var ref: String
+    public var typeName: String
+    public var className: String?
+    public var role: String?
+    public var testID: String?
     public var text: String
     public var frame: LoupeRect?
 
-    public init(ref: String, text: String, frame: LoupeRect?) {
+    public init(
+        ref: String,
+        typeName: String,
+        className: String?,
+        role: String?,
+        testID: String?,
+        text: String,
+        frame: LoupeRect?
+    ) {
         self.ref = ref
+        self.typeName = typeName
+        self.className = className
+        self.role = role
+        self.testID = testID
         self.text = text
         self.frame = frame
     }
@@ -94,7 +110,15 @@ public enum LoupeObservationCompactor {
         let visibleTexts = visibleNodes
             .compactMap { node -> LoupeVisibleText? in
                 guard let text = displayText(for: node), !text.isEmpty else { return nil }
-                return LoupeVisibleText(ref: node.ref, text: text, frame: node.frame)
+                return LoupeVisibleText(
+                    ref: node.ref,
+                    typeName: node.typeName,
+                    className: node.uiKit?.className,
+                    role: node.role,
+                    testID: node.testID,
+                    text: text,
+                    frame: node.frame
+                )
             }
             .prefix(options.maxVisibleTexts)
 

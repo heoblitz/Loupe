@@ -75,6 +75,10 @@ struct ObservationCompactorTests {
 
         #expect(observation.snapshotID == "s1")
         #expect(observation.visibleTexts.map { $0.text } == ["Checkout", "Pay now"])
+        #expect(observation.visibleTexts.map { $0.typeName } == ["UILabel", "UIButton"])
+        #expect(observation.visibleTexts[1].className == "UIButton")
+        #expect(observation.visibleTexts[1].role == "button")
+        #expect(observation.visibleTexts[1].testID == "checkout.payButton")
         #expect(observation.interactive.count == 1)
         #expect(observation.interactive[0].ref == "n3")
         #expect(observation.interactive[0].typeName == "UIButton")

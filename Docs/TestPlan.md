@@ -43,6 +43,19 @@ harness.
   `loupe wait-for-value --test-id <id> --key <path> --equals <value>`.
 - Human-readable tree preview:
   `loupe tree [snapshot.json] --view|--accessibility --depth <n>`.
+- Snapshot diff and trace summary:
+  `loupe diff before-snapshot.json after-snapshot.json` reports appeared,
+  disappeared, changed, and moved nodes; `loupe trace-summary <trace-dir>`
+  summarizes action target, errors, logs, target crop, and snapshot diff.
+- Design comparison:
+  `loupe compare-design snapshot.json figma-export.json` compares exported
+  design nodes to a Loupe snapshot by `testID`, role/text, and geometry.
+- Skill installation:
+  `loupe skills install` upserts the Loupe skill into existing Codex or Claude
+  Code skill folders and skips missing clients.
+- Runtime start wrapper:
+  `loupe start --bundle-id <id> [--port <port>]` launches with injection and
+  waits for the in-app Loupe server to answer `/runtime`.
 - Runtime registry:
   `loupe runtimes` / `loupe apps` lists known simulator hosts and live state.
 - Runtime identity handshake:
@@ -63,6 +76,7 @@ harness.
 - Failed runtime actions automatically save `error.json`, failure snapshot,
   accessibility tree, logs, screenshot, and action record under
   `/tmp/loupe-traces`.
+- Action traces save `target-crop.png` when a resolved target frame is available.
 - Basic layout audit:
   `loupe audit <snapshot.json>` and `/audit`
 - Layout audit currently checks sibling overlap, child-outside-parent,

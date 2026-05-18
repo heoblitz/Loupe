@@ -122,9 +122,17 @@ fi
 AUTO_TRACE_DIR="$(awk '/^trace: / { print $2 }' /tmp/loupe-bookmark-missing-tap.err | tail -1)"
 test -f "$AUTO_TRACE_DIR/error.json"
 test -f "$AUTO_TRACE_DIR/failure-snapshot.json"
+.build/debug/loupe trace-summary "$AUTO_TRACE_DIR" >/tmp/loupe-bookmark-failure-trace-summary.txt
+grep -q "bookmark.missing" "$AUTO_TRACE_DIR/action-failure.json"
+grep -q "No Loupe accessibility or view node matched selector" /tmp/loupe-bookmark-failure-trace-summary.txt
 
 echo "case: bookmark detail by testID tap and back by ref tap"
 .build/debug/loupe tap --host "$HOST" --udid "$DEVICE" --test-id bookmark.item.swift --trace-dir "$TRACE_DIR" --expect-visible bookmark.detail
+test -f "$TRACE_DIR/target-crop.png"
+.build/debug/loupe trace-summary "$TRACE_DIR" >/tmp/loupe-bookmark-action-trace-summary.txt
+grep -q "bookmark.detail" /tmp/loupe-bookmark-action-trace-summary.txt
+.build/debug/loupe diff "$TRACE_DIR/before-snapshot.json" "$TRACE_DIR/after-snapshot.json" >/tmp/loupe-bookmark-action-diff.txt
+grep -q "bookmark.detail" /tmp/loupe-bookmark-action-diff.txt
 .build/debug/loupe wait-for-visible --host "$HOST" --test-id bookmark.detail --timeout 5 >/tmp/loupe-bookmark-wait-detail.json
 fetch_snapshot
 assert_query bookmark.detail /tmp/loupe-bookmark-detail-query.json
@@ -142,9 +150,11 @@ grep -q '"selectedSegmentIndex" : 0' "$INSPECT_PATH"
 BACK_REF="$(query_ref bookmark.detail.back)"
 .build/debug/loupe tap --host "$HOST" --udid "$DEVICE" --ref "$BACK_REF"
 .build/debug/loupe wait-for-visible --host "$HOST" --test-id bookmark.list --timeout 5 >/tmp/loupe-bookmark-wait-list.json
+.build/debug/loupe wait-for-gone --host "$HOST" --test-id bookmark.detail --timeout 5 >/tmp/loupe-bookmark-wait-detail-gone.json
+.build/debug/loupe wait-for-visible --host "$HOST" --test-id bookmark.add --timeout 5 >/tmp/loupe-bookmark-wait-add.json
 
 echo "case: bookmark creation form by selector tap and type"
-.build/debug/loupe tap --host "$HOST" --udid "$DEVICE" --test-id bookmark.add
+.build/debug/loupe tap --host "$HOST" --udid "$DEVICE" --test-id bookmark.add --expect-visible bookmark.editor
 .build/debug/loupe wait-for-visible --host "$HOST" --test-id bookmark.editor --timeout 5 >/tmp/loupe-bookmark-wait-editor.json
 .build/debug/loupe tap --host "$HOST" --udid "$DEVICE" --test-id bookmark.editor.title
 .build/debug/loupe type "Codex Notes" --udid "$DEVICE"

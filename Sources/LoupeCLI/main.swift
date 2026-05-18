@@ -23,10 +23,16 @@ struct LoupeCLI {
             try audit(arguments)
         case "compact":
             try compact(arguments)
+        case "compare-design":
+            try compareDesign(arguments)
+        case "diff":
+            try diff(arguments)
         case "doctor":
             try doctor(arguments)
         case "fetch":
             try await fetch(arguments)
+        case "install-skills":
+            try skills(["install"] + arguments)
         case "logs":
             try await runtimeFetch(arguments, path: "/logs", usage: "loupe logs [--host <url>] [--udid <sim>] [--output <path>]")
         case "apps", "runtimes":
@@ -60,10 +66,16 @@ struct LoupeCLI {
             try await replay(arguments)
         case "screenshot":
             try screenshot(arguments)
+        case "skills":
+            try skills(arguments)
+        case "start":
+            try await start(arguments)
         case "subtree":
             try subtree(arguments)
         case "tree":
             try await tree(arguments)
+        case "trace-summary":
+            try traceSummary(arguments)
         case "tap", "swipe", "drag", "pinch", "type":
             try await action(command: command, arguments: arguments)
         case "wait-for-visible":
@@ -261,6 +273,143 @@ struct LoupeCLI {
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
+    private static func diff(_ arguments: [String]) throws {
+        let options = try DiffOptions(arguments)
+        let before = try decodeSnapshot(from: options.beforeURL)
+        let after = try decodeSnapshot(from: options.afterURL)
+        let summary = snapshotDiff(before: before, after: after)
+
+        if options.json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            FileHandle.standardOutput.write(try encoder.encode(summary))
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            return
+        }
+
+        print(renderSnapshotDiff(summary, limit: options.limit))
+    }
+
+    private static func traceSummary(_ arguments: [String]) throws {
+        let options = try TraceSummaryOptions(arguments)
+        let summary = try makeTraceSummary(directory: options.directory)
+
+        if options.json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            FileHandle.standardOutput.write(try encoder.encode(summary))
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            return
+        }
+
+        print(renderTraceSummary(summary, limit: options.limit))
+    }
+
+    private static func compareDesign(_ arguments: [String]) throws {
+        let options = try CompareDesignOptions(arguments)
+        let snapshot = try decodeSnapshot(from: options.snapshotURL)
+        let decoder = JSONDecoder()
+        let design = try decoder.decode(LoupeDesignDocument.self, from: Data(contentsOf: options.designURL))
+        let comparison = LoupeDesignComparator.compare(
+            snapshot: snapshot,
+            design: design,
+            options: LoupeDesignComparisonOptions(
+                frameTolerance: options.frameTolerance,
+                colorTolerance: options.colorTolerance,
+                cornerRadiusTolerance: options.cornerRadiusTolerance,
+                fontSizeTolerance: options.fontSizeTolerance,
+                maxMatchDistance: options.maxMatchDistance,
+                includeUnexpectedAppNodes: options.includeUnexpectedAppNodes
+            )
+        )
+
+        if options.json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            FileHandle.standardOutput.write(try encoder.encode(comparison))
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            return
+        }
+
+        print(renderDesignComparison(comparison, limit: options.limit))
+    }
+
+    private static func skills(_ arguments: [String]) throws {
+        guard let subcommand = arguments.first else {
+            throw CLIError("Usage: loupe skills install [--target all|codex|claude] [--source <skills/loupe>]")
+        }
+
+        switch subcommand {
+        case "install":
+            try installSkills(Array(arguments.dropFirst()))
+        default:
+            throw CLIError("Unknown skills command: \(subcommand)")
+        }
+    }
+
+    private static func installSkills(_ arguments: [String]) throws {
+        let options = try InstallSkillsOptions(arguments)
+        let source = try resolvedSkillSource(options.sourceURL)
+        let targets = options.target.targets
+        var installed = 0
+
+        for target in targets {
+            guard FileManager.default.fileExists(atPath: target.root.path) else {
+                print("skipped \(target.name): \(target.root.path) does not exist")
+                continue
+            }
+
+            let skillsDirectory = target.root.appendingPathComponent("skills", isDirectory: true)
+            let destination = skillsDirectory.appendingPathComponent("loupe", isDirectory: true)
+            try FileManager.default.createDirectory(at: skillsDirectory, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: source, to: destination)
+            installed += 1
+            print("installed \(target.name): \(destination.path)")
+        }
+
+        if installed == 0 {
+            throw CLIError("No supported skill folders found. Create ~/.codex or ~/.claude first, or pass --target for an installed client.")
+        }
+    }
+
+    private static func start(_ arguments: [String]) async throws {
+        var launchArguments: [String] = []
+        var index = 0
+        var hasInject = false
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            switch argument {
+            case "--port":
+                let valueIndex = index + 1
+                guard valueIndex < arguments.count else {
+                    throw CLIError("--port requires a value")
+                }
+                let rawPort = arguments[valueIndex]
+                guard let port = Int(rawPort), (1...65535).contains(port) else {
+                    throw CLIError("--port must be a valid TCP port")
+                }
+                launchArguments.append(contentsOf: ["--env", "LOUPE_PORT=\(port)"])
+                index = valueIndex
+            case "--inject":
+                hasInject = true
+                launchArguments.append(argument)
+            default:
+                launchArguments.append(argument)
+            }
+            index += 1
+        }
+
+        if !hasInject {
+            launchArguments.append("--inject")
+        }
+        try await launch(launchArguments)
+    }
+
     private static func launch(_ arguments: [String]) async throws {
         let options = try LaunchOptions(arguments)
         var environment = options.environment
@@ -377,6 +526,12 @@ struct LoupeCLI {
               compact <snapshot.json>
                   Print the LLM-facing compact observation for a full app snapshot.
 
+              compare-design <snapshot.json> <design.json> [--json]
+                  Compare a Loupe snapshot against an exported Figma-style design JSON.
+
+              diff <before-snapshot.json> <after-snapshot.json> [--json] [--limit <n>]
+                  Summarize appeared, disappeared, changed value/text/state, and moved nodes.
+
               doctor
                   Check local Loupe installation and injector discovery.
 
@@ -400,6 +555,9 @@ struct LoupeCLI {
 
               tree [snapshot.json] [--host <url>] [--udid <sim>] [--view|--accessibility] [--depth <n>]
                   Print a human-readable view or accessibility tree prefix.
+
+              trace-summary <trace-dir> [--json] [--limit <n>]
+                  Summarize an action trace bundle, including target, errors, logs, and snapshot diff.
 
               audit <snapshot.json> [--tolerance <points>] [--min-overlap-area <points2>]
                   Report layout, target-size, testID, and contrast issues.
@@ -433,6 +591,12 @@ struct LoupeCLI {
 
               screenshot --udid <sim> --output <path> [--timeout <seconds>]
                   Capture a simulator screenshot through simctl.
+
+              skills install [--target all|codex|claude] [--source <skills/loupe>]
+                  Upsert the Loupe skill into existing Codex or Claude Code skill folders.
+
+              start --bundle-id <id> [--device booted] [--port 8765] [--env KEY=VALUE]
+                  Launch and inject the app so the in-app Loupe runtime server starts.
 
               runtime [--host <url>] [--udid <sim>] [--output <path>] [--timeout <seconds>]
                   Fetch injected SDK runtime identity, recording state, and logs.
@@ -1184,9 +1348,12 @@ struct LoupeCLI {
         )
 
         let udid = try resolvedBackendUDID(options.udid)
-        try captureSimulatorScreenshot(
-            udid: udid,
-            outputURL: traceDirectory.appendingPathComponent("after.png")
+        let screenshotURL = traceDirectory.appendingPathComponent("after.png")
+        try captureSimulatorScreenshot(udid: udid, outputURL: screenshotURL)
+        try? cropTargetImage(
+            target: target,
+            screenshotURL: screenshotURL,
+            outputURL: traceDirectory.appendingPathComponent("target-crop.png")
         )
     }
 
@@ -1220,10 +1387,15 @@ struct LoupeCLI {
             to: traceDirectory.appendingPathComponent("failure-logs.json")
         )
         if let udid = try? resolvedBackendUDID(options.udid) {
-            try? captureSimulatorScreenshot(
-                udid: udid,
-                outputURL: traceDirectory.appendingPathComponent("failure.png")
-            )
+            let screenshotURL = traceDirectory.appendingPathComponent("failure.png")
+            try? captureSimulatorScreenshot(udid: udid, outputURL: screenshotURL)
+            if let target {
+                try? cropTargetImage(
+                    target: target,
+                    screenshotURL: screenshotURL,
+                    outputURL: traceDirectory.appendingPathComponent("target-crop.png")
+                )
+            }
         }
     }
 
@@ -1272,6 +1444,54 @@ struct LoupeCLI {
         process.standardOutput = Pipe()
         process.standardError = Pipe()
         try run(process, label: "simctl screenshot", timeout: 10)
+    }
+
+    private static func cropTargetImage(
+        target: ActionTarget,
+        screenshotURL: URL,
+        outputURL: URL
+    ) throws {
+        guard let frame = target.match?.trace.frame, !frame.isEmpty else {
+            return
+        }
+        let pixelSize = try pngPixelSize(screenshotURL)
+        let scaleX = pixelSize.width / max(target.screen.width, 1)
+        let scaleY = pixelSize.height / max(target.screen.height, 1)
+        let padding: Double = 8
+        let x = max(0, Int(((frame.x - padding) * scaleX).rounded(.down)))
+        let y = max(0, Int(((frame.y - padding) * scaleY).rounded(.down)))
+        let maxWidth = max(1, Int(pixelSize.width) - x)
+        let maxHeight = max(1, Int(pixelSize.height) - y)
+        let width = min(maxWidth, max(1, Int(((frame.width + padding * 2) * scaleX).rounded(.up))))
+        let height = min(maxHeight, max(1, Int(((frame.height + padding * 2) * scaleY).rounded(.up))))
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
+        process.arguments = [
+            screenshotURL.path,
+            "--cropToHeightWidth", String(height), String(width),
+            "--cropOffset", String(y), String(x),
+            "--out", outputURL.path,
+        ]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try run(process, label: "sips crop", timeout: 5)
+    }
+
+    private static func pngPixelSize(_ url: URL) throws -> LoupeSize {
+        let data = try Data(contentsOf: url)
+        guard data.count >= 24 else {
+            throw CLIError("Could not read PNG size")
+        }
+        let width = UInt32(data[16]) << 24
+            | UInt32(data[17]) << 16
+            | UInt32(data[18]) << 8
+            | UInt32(data[19])
+        let height = UInt32(data[20]) << 24
+            | UInt32(data[21]) << 16
+            | UInt32(data[22]) << 8
+            | UInt32(data[23])
+        return LoupeSize(width: Double(width), height: Double(height))
     }
 
     private static func writeRuntimeTracePayload(host: URL, path: String, to url: URL) async throws {
@@ -1641,6 +1861,312 @@ struct LoupeCLI {
         }
     }
 
+    private static func decodeSnapshot(from url: URL) throws -> LoupeSnapshot {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(LoupeSnapshot.self, from: Data(contentsOf: url))
+    }
+
+    private static func snapshotDiff(before: LoupeSnapshot, after: LoupeSnapshot) -> LoupeSnapshotDiff {
+        let beforeIndex = indexedNodes(before)
+        let afterIndex = indexedNodes(after)
+        let beforeKeys = Set(beforeIndex.keys)
+        let afterKeys = Set(afterIndex.keys)
+
+        let appeared = afterKeys.subtracting(beforeKeys)
+            .compactMap { key in afterIndex[key].map { diffNodeSummary(key: key, node: $0) } }
+            .sorted { $0.key < $1.key }
+        let disappeared = beforeKeys.subtracting(afterKeys)
+            .compactMap { key in beforeIndex[key].map { diffNodeSummary(key: key, node: $0) } }
+            .sorted { $0.key < $1.key }
+
+        let changed = beforeKeys.intersection(afterKeys)
+            .compactMap { key -> LoupeNodeChange? in
+                guard let beforeNode = beforeIndex[key], let afterNode = afterIndex[key] else {
+                    return nil
+                }
+                let changes = changedFields(before: beforeNode, after: afterNode)
+                guard !changes.isEmpty else {
+                    return nil
+                }
+                return LoupeNodeChange(key: key, summary: nodeSummary(afterNode), changes: changes)
+            }
+            .sorted { $0.key < $1.key }
+
+        return LoupeSnapshotDiff(
+            beforeSnapshotID: before.id,
+            afterSnapshotID: after.id,
+            appeared: appeared,
+            disappeared: disappeared,
+            changed: changed
+        )
+    }
+
+    private static func indexedNodes(_ snapshot: LoupeSnapshot) -> [String: LoupeNode] {
+        var counts: [String: Int] = [:]
+        var result: [String: LoupeNode] = [:]
+
+        for node in snapshot.nodes.values {
+            let baseKey = nodeIdentityKey(node)
+            let count = counts[baseKey, default: 0]
+            counts[baseKey] = count + 1
+            let key = count == 0 ? baseKey : "\(baseKey)#\(node.ref)"
+            result[key] = node
+        }
+        return result
+    }
+
+    private static func nodeIdentityKey(_ node: LoupeNode) -> String {
+        if let testID = node.testID, !testID.isEmpty {
+            return "testID:\(testID)"
+        }
+        if let identifier = node.accessibility?.identifier, !identifier.isEmpty {
+            return "axID:\(identifier)"
+        }
+        let type = node.uiKit?.className ?? node.typeName
+        let role = node.role ?? ""
+        let text = displayText(node) ?? ""
+        if let frame = node.frame {
+            return "visual:\(type):\(role):\(text):\(rectSummary(frame))"
+        }
+        return "ref:\(node.ref)"
+    }
+
+    private static func diffNodeSummary(key: String, node: LoupeNode) -> LoupeNodeDiffSummary {
+        LoupeNodeDiffSummary(
+            key: key,
+            ref: node.ref,
+            typeName: node.uiKit?.className ?? node.typeName,
+            role: node.role,
+            testID: node.testID,
+            text: displayText(node),
+            frame: node.frame
+        )
+    }
+
+    private static func nodeSummary(_ node: LoupeNode) -> String {
+        [
+            node.uiKit?.className ?? node.typeName,
+            node.testID.map { "#\($0)" },
+            displayText(node).map { "\"\($0)\"" },
+            node.frame.map(rectSummary),
+        ].compactMap(\.self).joined(separator: " ")
+    }
+
+    private static func changedFields(before: LoupeNode, after: LoupeNode) -> [LoupeNodeFieldChange] {
+        var changes: [LoupeNodeFieldChange] = []
+        appendChange("text", displayText(before), displayText(after), to: &changes)
+        appendChange("value", before.value, after.value, to: &changes)
+        appendChange("isVisible", before.isVisible, after.isVisible, to: &changes)
+        appendChange("isEnabled", before.isEnabled, after.isEnabled, to: &changes)
+        appendChange("isInteractive", before.isInteractive, after.isInteractive, to: &changes)
+        appendChange("frame", before.frame.map(rectSummary), after.frame.map(rectSummary), to: &changes)
+        appendChange("uiKit.switch.isOn", before.uiKit?.switchControl?.isOn, after.uiKit?.switchControl?.isOn, to: &changes)
+        appendChange("uiKit.segmentedControl.selectedSegmentIndex", before.uiKit?.segmentedControl?.selectedSegmentIndex, after.uiKit?.segmentedControl?.selectedSegmentIndex, to: &changes)
+        appendChange("uiKit.slider.value", before.uiKit?.slider?.value, after.uiKit?.slider?.value, to: &changes)
+        appendChange("uiKit.stepper.value", before.uiKit?.stepper?.value, after.uiKit?.stepper?.value, to: &changes)
+        appendChange("uiKit.pageControl.currentPage", before.uiKit?.pageControl?.currentPage, after.uiKit?.pageControl?.currentPage, to: &changes)
+        appendChange("uiKit.progressView.value", before.uiKit?.progressView?.value, after.uiKit?.progressView?.value, to: &changes)
+        return changes
+    }
+
+    private static func appendChange<T: Equatable>(
+        _ field: String,
+        _ before: T?,
+        _ after: T?,
+        to changes: inout [LoupeNodeFieldChange]
+    ) {
+        guard before != after else {
+            return
+        }
+        changes.append(
+            LoupeNodeFieldChange(
+                field: field,
+                before: before.map { String(describing: $0) },
+                after: after.map { String(describing: $0) }
+            )
+        )
+    }
+
+    private static func renderSnapshotDiff(_ diff: LoupeSnapshotDiff, limit: Int) -> String {
+        var lines: [String] = [
+            "diff \(diff.beforeSnapshotID) -> \(diff.afterSnapshotID)",
+            "appeared=\(diff.appeared.count) disappeared=\(diff.disappeared.count) changed=\(diff.changed.count)",
+        ]
+
+        appendSection("appeared", diff.appeared.prefix(limit).map(renderDiffNode), to: &lines)
+        appendSection("disappeared", diff.disappeared.prefix(limit).map(renderDiffNode), to: &lines)
+        appendSection("changed", diff.changed.prefix(limit).map(renderNodeChange), to: &lines)
+        return lines.joined(separator: "\n")
+    }
+
+    private static func appendSection<S: Sequence>(_ title: String, _ items: S, to lines: inout [String]) where S.Element == String {
+        let rendered = Array(items)
+        guard !rendered.isEmpty else {
+            return
+        }
+        lines.append("")
+        lines.append("\(title):")
+        lines.append(contentsOf: rendered.map { "  \($0)" })
+    }
+
+    private static func renderDiffNode(_ node: LoupeNodeDiffSummary) -> String {
+        [
+            node.key,
+            node.typeName,
+            node.role.map { "role=\($0)" },
+            node.testID.map { "testID=\($0)" },
+            node.text.map { "text=\"\($0)\"" },
+            node.frame.map { "frame=\(rectSummary($0))" },
+        ].compactMap(\.self).joined(separator: " ")
+    }
+
+    private static func renderNodeChange(_ change: LoupeNodeChange) -> String {
+        let fields = change.changes
+            .map { "\($0.field):\($0.before ?? "nil")->\($0.after ?? "nil")" }
+            .joined(separator: ", ")
+        return "\(change.key) \(change.summary) \(fields)"
+    }
+
+    private static func makeTraceSummary(directory: URL) throws -> LoupeTraceSummary {
+        let beforeAction = try readJSONIfExists(LoupeCLIActionTrace.self, directory.appendingPathComponent("action-before.json"))
+        let targetAction = try readJSONIfExists(LoupeCLIActionTrace.self, directory.appendingPathComponent("action-target.json"))
+        let afterAction = try readJSONIfExists(LoupeCLIActionTrace.self, directory.appendingPathComponent("action-after.json"))
+        let failureAction = try readJSONIfExists(LoupeCLIActionTrace.self, directory.appendingPathComponent("action-failure.json"))
+        let error = try readJSONIfExists(LoupeCLIActionErrorTrace.self, directory.appendingPathComponent("error.json"))
+
+        let beforeLogs = (try readJSONIfExists([LoupeRuntimeLog].self, directory.appendingPathComponent("before-logs.json"))) ?? []
+        let afterLogs = (try readJSONIfExists([LoupeRuntimeLog].self, directory.appendingPathComponent("after-logs.json"))) ?? []
+        let failureLogs = (try readJSONIfExists([LoupeRuntimeLog].self, directory.appendingPathComponent("failure-logs.json"))) ?? []
+        let newLogs = afterLogs.filter { afterLog in
+            !beforeLogs.contains(where: { $0.id == afterLog.id })
+        }
+
+        let beforeSnapshotURL = directory.appendingPathComponent("before-snapshot.json")
+        let afterSnapshotURL = directory.appendingPathComponent("after-snapshot.json")
+        let diff: LoupeSnapshotDiff?
+        if FileManager.default.fileExists(atPath: beforeSnapshotURL.path),
+           FileManager.default.fileExists(atPath: afterSnapshotURL.path) {
+            diff = try snapshotDiff(before: decodeSnapshot(from: beforeSnapshotURL), after: decodeSnapshot(from: afterSnapshotURL))
+        } else {
+            diff = nil
+        }
+
+        let cropURL = directory.appendingPathComponent("target-crop.png")
+        return LoupeTraceSummary(
+            directory: directory.path,
+            command: afterAction?.command ?? failureAction?.command ?? targetAction?.command ?? beforeAction?.command,
+            phase: error == nil ? (afterAction?.phase ?? targetAction?.phase ?? beforeAction?.phase) : "failure",
+            selector: afterAction?.selector ?? failureAction?.selector ?? targetAction?.selector ?? beforeAction?.selector,
+            target: afterAction?.resolvedTarget ?? failureAction?.resolvedTarget ?? targetAction?.resolvedTarget,
+            error: error?.message,
+            diff: diff,
+            newLogs: newLogs,
+            failureLogs: failureLogs,
+            targetCropPath: FileManager.default.fileExists(atPath: cropURL.path) ? cropURL.path : nil
+        )
+    }
+
+    private static func readJSONIfExists<T: Decodable>(_ type: T.Type, _ url: URL) throws -> T? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(type, from: Data(contentsOf: url))
+    }
+
+    private static func renderTraceSummary(_ summary: LoupeTraceSummary, limit: Int) -> String {
+        var lines = [
+            "trace \(summary.directory)",
+            "command=\(summary.command ?? "unknown") phase=\(summary.phase ?? "unknown") selector=\(summary.selector ?? "none")",
+        ]
+        if let target = summary.target {
+            lines.append("target=\(target.tree):\(target.ref) testID=\(target.testID ?? "none") role=\(target.role ?? "none") frame=\(target.frame.map(rectSummary) ?? "nil")")
+        }
+        if let targetCropPath = summary.targetCropPath {
+            lines.append("targetCrop=\(targetCropPath)")
+        }
+        if let error = summary.error {
+            lines.append("error=\(error)")
+        }
+        if let diff = summary.diff {
+            lines.append("")
+            lines.append(renderSnapshotDiff(diff, limit: limit))
+        }
+        let logs = summary.error == nil ? summary.newLogs : summary.failureLogs
+        if !logs.isEmpty {
+            lines.append("")
+            lines.append("logs:")
+            for log in logs.prefix(limit) {
+                lines.append("  \(log.level) \(log.message)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func renderDesignComparison(_ comparison: LoupeDesignComparison, limit: Int) -> String {
+        var lines = [
+            "design \(comparison.designFrameName) vs snapshot \(comparison.snapshotID)",
+            "matched=\(comparison.matchedCount) issues=\(comparison.issueCount)",
+        ]
+
+        if !comparison.matches.isEmpty {
+            lines.append("")
+            lines.append("matches:")
+            for match in comparison.matches.prefix(limit) {
+                lines.append("  \(match.strategy) \(match.designID ?? match.designName) -> \(match.ref) testID=\(match.testID ?? "none")")
+            }
+        }
+
+        if !comparison.issues.isEmpty {
+            lines.append("")
+            lines.append("issues:")
+            for issue in comparison.issues.prefix(limit) {
+                let subject = issue.designID ?? issue.testID ?? issue.designName ?? issue.ref ?? "unknown"
+                let property = issue.property.map { " \($0)" } ?? ""
+                let expected = issue.expected.map { " expected=\($0)" } ?? ""
+                let actual = issue.actual.map { " actual=\($0)" } ?? ""
+                lines.append("  \(issue.kind.rawValue) \(subject)\(property)\(expected)\(actual): \(issue.message)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private static func resolvedSkillSource(_ explicitSource: URL?) throws -> URL {
+        var candidates: [URL] = []
+        if let explicitSource {
+            candidates.append(explicitSource)
+        }
+        if let env = ProcessInfo.processInfo.environment["LOUPE_SKILL_SOURCE"], !env.isEmpty {
+            candidates.append(URL(fileURLWithPath: env, isDirectory: true))
+        }
+
+        let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        candidates.append(currentDirectory.appendingPathComponent("skills/loupe", isDirectory: true))
+
+        if let executableURL = Bundle.main.executableURL {
+            candidates.append(
+                executableURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("../share/loupe/skills/loupe", isDirectory: true)
+                    .standardizedFileURL
+            )
+        }
+        candidates.append(URL(fileURLWithPath: "/opt/homebrew/share/loupe/skills/loupe", isDirectory: true))
+        candidates.append(URL(fileURLWithPath: "/usr/local/share/loupe/skills/loupe", isDirectory: true))
+
+        for candidate in candidates {
+            let skillFile = candidate.appendingPathComponent("SKILL.md")
+            if FileManager.default.fileExists(atPath: skillFile.path) {
+                return candidate
+            }
+        }
+
+        throw CLIError("Could not find Loupe skill source. Run from the repo root or pass --source <path-to-skills/loupe>.")
+    }
+
     private static func renderViewTree(
         _ snapshot: LoupeSnapshot,
         selector: LoupeSelector?,
@@ -1910,6 +2436,238 @@ struct LoupeCLI {
 private enum QueryTree: String {
     case view
     case accessibility
+}
+
+private struct DiffOptions {
+    var beforeURL: URL
+    var afterURL: URL
+    var json: Bool
+    var limit: Int
+
+    init(_ arguments: [String]) throws {
+        guard arguments.count >= 2, !arguments[0].hasPrefix("--"), !arguments[1].hasPrefix("--") else {
+            throw CLIError("Usage: loupe diff <before-snapshot.json> <after-snapshot.json> [--json] [--limit <n>]")
+        }
+        beforeURL = URL(fileURLWithPath: arguments[0])
+        afterURL = URL(fileURLWithPath: arguments[1])
+        json = false
+        limit = 20
+
+        var index = 2
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--json":
+                json = true
+            case "--limit":
+                let raw = try Self.value(after: "--limit", in: arguments, index: &index)
+                guard let value = Int(raw), value > 0 else {
+                    throw CLIError("--limit expects a positive integer")
+                }
+                limit = value
+            default:
+                throw CLIError("Unknown diff option: \(arguments[index])")
+            }
+            index += 1
+        }
+    }
+
+    private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
+        let valueIndex = index + 1
+        guard valueIndex < arguments.count else {
+            throw CLIError("\(option) requires a value")
+        }
+        index = valueIndex
+        return arguments[valueIndex]
+    }
+}
+
+private struct TraceSummaryOptions {
+    var directory: URL
+    var json: Bool
+    var limit: Int
+
+    init(_ arguments: [String]) throws {
+        guard let path = arguments.first, !path.hasPrefix("--") else {
+            throw CLIError("Usage: loupe trace-summary <trace-dir> [--json] [--limit <n>]")
+        }
+        directory = URL(fileURLWithPath: path, isDirectory: true)
+        json = false
+        limit = 20
+
+        var index = 1
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--json":
+                json = true
+            case "--limit":
+                let raw = try Self.value(after: "--limit", in: arguments, index: &index)
+                guard let value = Int(raw), value > 0 else {
+                    throw CLIError("--limit expects a positive integer")
+                }
+                limit = value
+            default:
+                throw CLIError("Unknown trace-summary option: \(arguments[index])")
+            }
+            index += 1
+        }
+    }
+
+    private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
+        let valueIndex = index + 1
+        guard valueIndex < arguments.count else {
+            throw CLIError("\(option) requires a value")
+        }
+        index = valueIndex
+        return arguments[valueIndex]
+    }
+}
+
+private struct CompareDesignOptions {
+    var snapshotURL: URL
+    var designURL: URL
+    var json: Bool
+    var limit: Int
+    var frameTolerance: Double
+    var colorTolerance: Double
+    var cornerRadiusTolerance: Double
+    var fontSizeTolerance: Double
+    var maxMatchDistance: Double
+    var includeUnexpectedAppNodes: Bool
+
+    init(_ arguments: [String]) throws {
+        guard arguments.count >= 2, !arguments[0].hasPrefix("--"), !arguments[1].hasPrefix("--") else {
+            throw CLIError("Usage: loupe compare-design <snapshot.json> <design.json> [--json] [--limit <n>]")
+        }
+        snapshotURL = URL(fileURLWithPath: arguments[0])
+        designURL = URL(fileURLWithPath: arguments[1])
+        json = false
+        limit = 20
+        frameTolerance = 2
+        colorTolerance = 0.03
+        cornerRadiusTolerance = 1
+        fontSizeTolerance = 1
+        maxMatchDistance = 24
+        includeUnexpectedAppNodes = true
+
+        var index = 2
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--json":
+                json = true
+            case "--limit":
+                limit = try Self.positiveInt(after: "--limit", in: arguments, index: &index)
+            case "--frame-tolerance":
+                frameTolerance = try Self.double(after: "--frame-tolerance", in: arguments, index: &index)
+            case "--color-tolerance":
+                colorTolerance = try Self.double(after: "--color-tolerance", in: arguments, index: &index)
+            case "--corner-radius-tolerance":
+                cornerRadiusTolerance = try Self.double(after: "--corner-radius-tolerance", in: arguments, index: &index)
+            case "--font-size-tolerance":
+                fontSizeTolerance = try Self.double(after: "--font-size-tolerance", in: arguments, index: &index)
+            case "--max-match-distance":
+                maxMatchDistance = try Self.double(after: "--max-match-distance", in: arguments, index: &index)
+            case "--no-unexpected":
+                includeUnexpectedAppNodes = false
+            default:
+                throw CLIError("Unknown compare-design option: \(arguments[index])")
+            }
+            index += 1
+        }
+    }
+
+    private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
+        let valueIndex = index + 1
+        guard valueIndex < arguments.count else {
+            throw CLIError("\(option) requires a value")
+        }
+        index = valueIndex
+        return arguments[valueIndex]
+    }
+
+    private static func positiveInt(after option: String, in arguments: [String], index: inout Int) throws -> Int {
+        let raw = try value(after: option, in: arguments, index: &index)
+        guard let value = Int(raw), value > 0 else {
+            throw CLIError("\(option) expects a positive integer")
+        }
+        return value
+    }
+
+    private static func double(after option: String, in arguments: [String], index: inout Int) throws -> Double {
+        let raw = try value(after: option, in: arguments, index: &index)
+        guard let value = Double(raw) else {
+            throw CLIError("\(option) expects a number")
+        }
+        return value
+    }
+}
+
+private struct InstallSkillsOptions {
+    var target: SkillInstallTargetSelection
+    var sourceURL: URL?
+
+    init(_ arguments: [String]) throws {
+        target = .all
+        sourceURL = nil
+
+        var index = 0
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--target":
+                let raw = try Self.value(after: "--target", in: arguments, index: &index)
+                guard let parsed = SkillInstallTargetSelection(rawValue: raw) else {
+                    throw CLIError("--target expects all, codex, or claude")
+                }
+                target = parsed
+            case "--source":
+                let raw = try Self.value(after: "--source", in: arguments, index: &index)
+                sourceURL = URL(fileURLWithPath: raw, isDirectory: true)
+            default:
+                throw CLIError("Unknown skills install option: \(arguments[index])")
+            }
+            index += 1
+        }
+    }
+
+    private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
+        let valueIndex = index + 1
+        guard valueIndex < arguments.count else {
+            throw CLIError("\(option) requires a value")
+        }
+        index = valueIndex
+        return arguments[valueIndex]
+    }
+}
+
+private enum SkillInstallTargetSelection: String {
+    case all
+    case codex
+    case claude
+
+    var targets: [SkillInstallTarget] {
+        switch self {
+        case .all:
+            return [.codex, .claude]
+        case .codex:
+            return [.codex]
+        case .claude:
+            return [.claude]
+        }
+    }
+}
+
+private struct SkillInstallTarget {
+    var name: String
+    var root: URL
+
+    static let codex = SkillInstallTarget(
+        name: "codex",
+        root: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)
+    )
+
+    static let claude = SkillInstallTarget(
+        name: "claude",
+        root: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude", isDirectory: true)
+    )
 }
 
 private struct TreeOptions {
@@ -3029,6 +3787,49 @@ private struct ScreenshotOptions {
 private struct ActionBackend {
     var name: String
     var path: String
+}
+
+private struct LoupeSnapshotDiff: Codable {
+    var beforeSnapshotID: String
+    var afterSnapshotID: String
+    var appeared: [LoupeNodeDiffSummary]
+    var disappeared: [LoupeNodeDiffSummary]
+    var changed: [LoupeNodeChange]
+}
+
+private struct LoupeNodeDiffSummary: Codable {
+    var key: String
+    var ref: String
+    var typeName: String
+    var role: String?
+    var testID: String?
+    var text: String?
+    var frame: LoupeRect?
+}
+
+private struct LoupeNodeChange: Codable {
+    var key: String
+    var summary: String
+    var changes: [LoupeNodeFieldChange]
+}
+
+private struct LoupeNodeFieldChange: Codable {
+    var field: String
+    var before: String?
+    var after: String?
+}
+
+private struct LoupeTraceSummary: Codable {
+    var directory: String
+    var command: String?
+    var phase: String?
+    var selector: String?
+    var target: ActionTargetTrace?
+    var error: String?
+    var diff: LoupeSnapshotDiff?
+    var newLogs: [LoupeRuntimeLog]
+    var failureLogs: [LoupeRuntimeLog]
+    var targetCropPath: String?
 }
 
 private struct LoupeCLIActionTrace: Codable {

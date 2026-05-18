@@ -28,10 +28,12 @@ For an app that has already been built with `xcodebuild`, install and launch it 
 
 ```bash
 xcrun simctl install booted /path/to/App.app
-loupe launch --bundle-id com.example.App --inject
+loupe start --bundle-id com.example.App
 ```
 
-`loupe launch --inject` resolves the Homebrew injector path and sets `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES` before calling `xcrun simctl launch`.
+`loupe start` resolves the Homebrew injector path, launches the app with
+injection, and waits for the in-app Loupe server. It is a wrapper around
+`loupe launch --inject`; Loupe does not need a separate host-side server.
 
 If a nonstandard injector is needed, use:
 
@@ -65,6 +67,27 @@ Use the accessibility tree for movement and input. Selector-based actions
 already resolve there first, then fall back to the view tree only if no
 accessibility match exists.
 
+## Agent Routine
+
+When using Loupe as an agent skill, follow this order:
+
+```bash
+loupe runtimes
+loupe tree --udid booted --accessibility --depth 3
+loupe tree --udid booted --view --depth 3
+loupe fetch http://127.0.0.1:8765/snapshot --output /tmp/loupe-snapshot.json
+loupe inspect /tmp/loupe-snapshot.json --test-id target.id
+loupe tap --test-id target.id --udid booted --trace-dir /tmp/loupe-trace --expect-visible next.id
+loupe trace-summary /tmp/loupe-trace
+loupe diff /tmp/loupe-trace/before-snapshot.json /tmp/loupe-trace/after-snapshot.json
+loupe audit /tmp/loupe-trace/after-snapshot.json
+loupe compare-design /tmp/loupe-trace/after-snapshot.json figma-export.json
+```
+
+The skill path should keep model context small: use `tree` and `compact` first,
+then inspect specific refs or test IDs. Avoid pasting full snapshots into the
+prompt unless the user explicitly asks for raw data.
+
 ## Actions
 
 Loupe CLI action commands exist for runtime E2E:
@@ -72,17 +95,24 @@ Loupe CLI action commands exist for runtime E2E:
 ```bash
 loupe tap --test-id checkout.payButton --udid booted
 loupe tap --test-id checkout.payButton --udid booted --trace-dir /tmp/loupe-trace
+loupe tap --test-id checkout.payButton --udid booted --expect-visible checkout.confirmation
 loupe drag --from 4,420 --to 360,420 --udid booted --duration 0.8
 loupe swipe --from 219,760 --to 219,190 --udid booted --width 438 --height 954
 loupe type "Ada" --udid booted
-loupe record-start
-loupe record-stop --output flow.json
+loupe record start checkout-flow
+loupe record stop
+loupe recordings
+loupe replay checkout-flow --udid booted --width 438 --height 954
 ```
 
 They currently delegate low-level HID dispatch to AXe. Install AXe with
 `brew install cameroncooke/axe/axe`, or install Loupe through Homebrew so the
 formula pulls AXe in as a dependency. `loupe pinch` is intentionally not listed
 above because AXe does not support pinch yet.
+
+Failed actions automatically create a trace under `/tmp/loupe-traces`. Trace
+bundles include before/after snapshots, accessibility trees, logs, screenshots,
+an action record, and `target-crop.png` when a target frame was available.
 
 The product direction is runtime E2E through Loupe commands without requiring
 XCTest, `xcodebuild test`, or a UI test bundle as the public harness. The current
@@ -120,3 +150,27 @@ If injection does not start the server:
 - Confirm `loupe injector-path` prints an executable path.
 - Relaunch the app with `loupe launch --bundle-id <id> --inject`.
 - Check `http://127.0.0.1:8765/health`.
+
+## Design Comparison
+
+Figma API integration is not part of the skill yet. Use the JSON contract in
+`Docs/FigmaComparison.md` for fixture work:
+
+```bash
+loupe compare-design snapshot.json figma-export.json
+```
+
+Match design nodes to Loupe nodes by `testID` first, then role plus text, then
+geometry. Use Loupe view tree data for layout/style comparison and accessibility
+tree data only for movement/input selectors.
+
+## Install
+
+```bash
+loupe skills install
+loupe skills install --target codex
+loupe skills install --target claude
+```
+
+`skills install` upserts this skill into existing Codex or Claude Code skill
+folders and skips missing clients.

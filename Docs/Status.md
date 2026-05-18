@@ -103,7 +103,7 @@ compose.
 - `loupe runtime`, `logs`, `record-start`, `record-stop`, and `recording` accept
   `--udid` and validate that the connected Loupe host belongs to that simulator
   before mutating or reading runtime recorder state.
-- `loupe launch --inject` assigns a stable per-simulator localhost port when
+- `loupe start` / `loupe launch --inject` assigns a stable per-simulator localhost port when
   `LOUPE_PORT` is not provided, records it under `~/.loupe/runtimes`, and waits
   for the injected runtime before returning. Later CLI commands can resolve the
   host from `--udid`.
@@ -113,6 +113,17 @@ compose.
   `~/.loupe/runtimes` and probes live runtime state when available.
 - `loupe tree` prints a human-readable view-tree or accessibility-tree prefix
   from either a saved snapshot or a live injected runtime.
+- `loupe diff` summarizes appeared, disappeared, changed text/value/state, and
+  moved nodes between two full snapshots.
+- `loupe trace-summary` turns a trace bundle into a short action timeline with
+  target, error, logs, target crop path, and before/after snapshot diff.
+- `loupe compare-design` compares a snapshot with an exported Figma-style JSON
+  by `testID`, role/text, then geometry, and reports missing, unexpected, frame,
+  color, corner radius, and font deltas.
+- `loupe skills install` upserts `skills/loupe` into existing Codex or Claude
+  Code skill folders.
+- `loupe start` wraps `loupe launch --inject` and starts the in-app Loupe
+  runtime server without requiring users to think about `DYLD_INSERT_LIBRARIES`.
 - Runtime actions currently delegate HID dispatch to AXe.
 - Selector-based runtime actions resolve through the accessibility tree first,
   using a valid accessibility activation point when it lies inside the element
@@ -128,6 +139,8 @@ compose.
   injected SDK `/logs` endpoint.
 - Failed runtime actions now auto-save a trace under `/tmp/loupe-traces` even
   when `--trace-dir` was not provided.
+- Successful action traces save `target-crop.png` when Loupe resolved a framed
+  target node.
 - `loupe wait-for-gone` and `loupe wait-for-value` cover disappearance and
   nested property checks in addition to `wait-for-visible`.
 - `loupe record start <alias>`, `loupe record stop`, `loupe recordings`, and
@@ -173,6 +186,11 @@ loupe query snapshot.json --tree accessibility --test-id example.components.swit
 loupe audit snapshot.json
 loupe subtree snapshot.json --test-id example.components --depth 4
 loupe tree --udid booted --accessibility --depth 2
+loupe compare-design snapshot.json figma-export.json
+loupe diff before-snapshot.json after-snapshot.json
+loupe trace-summary /tmp/loupe-trace
+loupe skills install --target codex
+loupe start --bundle-id dev.loupe.example --device booted
 loupe wait-for-visible --test-id example.detail --timeout 5
 loupe wait-for-gone --test-id example.loading --timeout 5
 loupe wait-for-value --test-id example.components.switch --key uiKit.switch.isOn --equals true

@@ -17,22 +17,24 @@ The Homebrew formula installs AXe as a dependency for runtime actions.
 loupe doctor
 loupe injector-path
 
-loupe launch \
+loupe start \
   --bundle-id dev.loupe.example \
-  --device booted \
-  --inject
+  --device booted
 ```
 
-When `--inject` is used without `LOUPE_PORT`, Loupe assigns and records a stable
-localhost port for that simulator. Later commands can use `--udid` without
-passing `--host`.
+`start` launches the simulator app with Loupe injection. That injection starts
+the Loupe HTTP server inside the app process; there is no separate host daemon
+to run. When no port is provided, Loupe assigns and records a stable localhost
+port for that simulator. Later commands can use `--udid` without passing
+`--host`.
 
 ```bash
+loupe start --bundle-id dev.loupe.example --device <UDID>
 loupe launch --bundle-id dev.loupe.example --device <UDID> --inject
 loupe runtime --udid <UDID>
 ```
 
-Use `--env LOUPE_PORT=<port>` only when you need a fixed port.
+Use `loupe start --port <port>` only when you need a fixed port.
 
 ## Inspect
 
@@ -48,6 +50,9 @@ loupe accessibility snapshot.json
 loupe inspect snapshot.json --test-id checkout.payButton
 loupe subtree snapshot.json --test-id checkout.form --depth 3
 loupe audit snapshot.json
+loupe compare-design snapshot.json figma-export.json
+loupe diff before-snapshot.json after-snapshot.json
+loupe trace-summary /tmp/loupe-trace
 loupe wait-for-visible --host http://127.0.0.1:8765 --test-id checkout.payButton --timeout 5
 loupe wait-for-gone --host http://127.0.0.1:8765 --test-id checkout.loading
 loupe wait-for-value --host http://127.0.0.1:8765 --test-id checkout.switch --key uiKit.switch.isOn --equals true
@@ -79,12 +84,26 @@ loupe replay checkout-flow \
   --height 954
 ```
 
+## Skills
+
+```bash
+loupe skills install
+loupe skills install --target codex
+loupe skills install --target claude
+```
+
+`skills install` upserts `skills/loupe` into existing `~/.codex/skills/loupe`
+or `~/.claude/skills/loupe` folders. It skips a client when that client's home
+folder does not exist.
+
 Use `--udid <UDID>` on `runtime`, `logs`, `record`, and `recording` when you
 want Loupe to verify that the host belongs to the expected simulator.
 
 `loupe tap` intentionally does not accept text selectors. Use stable
 `accessibilityIdentifier` / `testID`, a Loupe `ref`, or explicit coordinates.
 Failed runtime actions automatically save a trace under `/tmp/loupe-traces`.
+Action traces also include `target-crop.png` when the resolved target has a
+frame.
 
 ## Verify
 
@@ -98,4 +117,5 @@ Examples/LoupeExample/run-loupe-driven-ui-test.sh
 ```
 
 Current status and design notes live in `Docs/Status.md`, `Docs/TestPlan.md`,
-`Docs/RuntimeCommunication.md`, and `Docs/Homebrew.md`.
+`Docs/RuntimeCommunication.md`, `Docs/FigmaComparison.md`, and
+`Docs/Homebrew.md`.
