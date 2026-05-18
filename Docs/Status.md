@@ -97,6 +97,8 @@ compose.
 - `--trace-dir` writes `action-target.json` before dispatch and includes the
   resolved target query result in action records, making selector choice,
   coordinates, ref, role, text, visibility, and source tree auditable.
+- `--trace-dir` also captures `before-logs.json` and `after-logs.json` from the
+  injected SDK `/logs` endpoint.
 - `Examples/LoupeExample/run-runtime-e2e.sh` verifies the XCTest-free runtime
   smoke path when AXe is installed.
 - `Examples/LoupeExample/run-axe-scenarios.sh` repeats AXe-backed navigation,
@@ -190,12 +192,11 @@ This keeps observation and action separated:
 ## Next Work
 
 1. Add native Loupe HID dispatch so action commands do not depend on AXe.
-2. Add runtime app log capture into action traces.
-3. Extend accessibility coverage for SwiftUI inner semantic elements.
-4. Add better selector scoring.
-5. Add screenshot baseline diff helpers.
-6. Expand layout/style assertions beyond the current audit checks.
-7. Improve installation flow: Homebrew formula should package the CLI and
+2. Extend accessibility coverage for SwiftUI inner semantic elements.
+3. Add better selector scoring.
+4. Add screenshot baseline diff helpers.
+5. Expand layout/style assertions beyond the current audit checks.
+6. Improve installation flow: Homebrew formula should package the CLI and
    injector, and the Codex skill should discover that Homebrew path.
 
 ## Verified Commands

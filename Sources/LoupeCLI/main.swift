@@ -544,6 +544,11 @@ struct LoupeCLI {
             try await fetchAccessibilityTree(host: options.host, fallbackSnapshot: snapshot),
             to: traceDirectory.appendingPathComponent("before-accessibility.json")
         )
+        try await writeRuntimeTracePayload(
+            host: options.host,
+            path: "logs",
+            to: traceDirectory.appendingPathComponent("before-logs.json")
+        )
         try writeActionRecord(
             command: command,
             options: options,
@@ -570,6 +575,11 @@ struct LoupeCLI {
         try writeJSON(
             try await fetchAccessibilityTree(host: options.host, fallbackSnapshot: snapshot),
             to: traceDirectory.appendingPathComponent("after-accessibility.json")
+        )
+        try await writeRuntimeTracePayload(
+            host: options.host,
+            path: "logs",
+            to: traceDirectory.appendingPathComponent("after-logs.json")
         )
         try writeActionRecord(
             command: command,
@@ -620,6 +630,15 @@ struct LoupeCLI {
         process.standardOutput = Pipe()
         process.standardError = Pipe()
         try run(process, label: "simctl screenshot")
+    }
+
+    private static func writeRuntimeTracePayload(host: URL, path: String, to url: URL) async throws {
+        let endpoint = host.appendingPathComponent(path)
+        let (data, response) = try await URLSession.shared.data(from: endpoint)
+        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
+            throw CLIError("runtime trace fetch failed for /\(path)")
+        }
+        try data.write(to: url)
     }
 
     private static func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

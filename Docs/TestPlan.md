@@ -37,8 +37,8 @@ harness.
   `loupe wait-for-visible --test-id <id> --timeout <seconds>`
 - Basic action traces:
   `--trace-dir <path>` saves before/after view snapshots, accessibility trees,
-  screenshots, action records, and the resolved target query result around CLI
-  actions.
+  runtime logs, screenshots, action records, and the resolved target query result
+  around CLI actions.
 - Basic layout audit:
   `loupe audit <snapshot.json>` and `/audit`
 - Layout audit currently checks sibling overlap, child-outside-parent,
