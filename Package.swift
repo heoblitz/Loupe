@@ -52,20 +52,20 @@ let package = Package(
             ]
         ),
         .target(
-            name: "LoupeCLICore",
+            name: "LoupeCLIModel",
             dependencies: ["LoupeCore"]
         ),
         .executableTarget(
             name: "LoupeCLI",
-            dependencies: ["LoupeCore", "LoupeHID", "LoupeCLICore"]
+            dependencies: ["LoupeCore", "LoupeHID", "LoupeCLIModel"]
         ),
         .testTarget(
             name: "LoupeCoreTests",
             dependencies: ["LoupeCore"]
         ),
         .testTarget(
-            name: "LoupeCLICoreTests",
-            dependencies: ["LoupeCLICore"]
+            name: "LoupeCLIModelTests",
+            dependencies: ["LoupeCLIModel"]
         ),
     ]
 )

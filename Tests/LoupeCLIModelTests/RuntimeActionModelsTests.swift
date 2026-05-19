@@ -1,7 +1,7 @@
 import Foundation
 import LoupeCore
 import Testing
-@testable import LoupeCLICore
+@testable import LoupeCLIModel
 
 struct RuntimeActionModelsTests {
     @Test func coordinateSwipeKeepsPointsAndRequiresRuntimeScreenWhenNoExplicitSize() throws {

@@ -1,5 +1,5 @@
 import Foundation
-import LoupeCLICore
+import LoupeCLIModel
 import LoupeCore
 import LoupeHID
 
