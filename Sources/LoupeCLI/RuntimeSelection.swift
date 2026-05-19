@@ -1,4 +1,5 @@
 import Foundation
+import LoupeCLICore
 import LoupeCore
 
 extension LoupeCLI {

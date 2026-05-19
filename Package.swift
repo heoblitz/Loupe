@@ -51,13 +51,21 @@ let package = Package(
                 .linkedFramework("AppKit"),
             ]
         ),
+        .target(
+            name: "LoupeCLICore",
+            dependencies: ["LoupeCore"]
+        ),
         .executableTarget(
             name: "LoupeCLI",
-            dependencies: ["LoupeCore", "LoupeHID"]
+            dependencies: ["LoupeCore", "LoupeHID", "LoupeCLICore"]
         ),
         .testTarget(
             name: "LoupeCoreTests",
             dependencies: ["LoupeCore"]
+        ),
+        .testTarget(
+            name: "LoupeCLICoreTests",
+            dependencies: ["LoupeCLICore"]
         ),
     ]
 )

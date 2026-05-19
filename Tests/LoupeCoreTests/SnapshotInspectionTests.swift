@@ -4,7 +4,7 @@ import Testing
 
 struct SnapshotInspectionTests {
     @Test func inspectReturnsFullNodeAndLocalTreeContext() throws {
-        let snapshot = makeInspectionSnapshot()
+        let snapshot = InspectionSnapshotFixture.makeSnapshot()
 
         let inspection = try #require(
             LoupeSnapshotInspector.inspect(.testID("components.switch"), in: snapshot)
@@ -18,7 +18,7 @@ struct SnapshotInspectionTests {
     }
 
     @Test func subtreeReturnsBoundedDescendants() throws {
-        let snapshot = makeInspectionSnapshot()
+        let snapshot = InspectionSnapshotFixture.makeSnapshot()
 
         let subtree = try #require(
             LoupeSnapshotInspector.subtree(.testID("components.row"), in: snapshot, maxDepth: 1)
@@ -28,73 +28,23 @@ struct SnapshotInspectionTests {
         #expect(Set(subtree.nodes.keys) == Set(["row", "label", "switch"]))
     }
 
-    private func makeInspectionSnapshot() -> LoupeSnapshot {
-        LoupeSnapshot(
-            id: "inspect-1",
-            capturedAt: Date(timeIntervalSince1970: 0),
-            screen: LoupeScreen(size: LoupeSize(width: 390, height: 844), scale: 3),
-            rootRefs: ["root"],
-            nodes: [
-                "root": LoupeNode(
-                    ref: "root",
-                    parentRef: nil,
-                    kind: .view,
-                    typeName: "UIView",
-                    frame: LoupeRect(x: 0, y: 0, width: 390, height: 844),
-                    isVisible: true,
-                    isEnabled: true,
-                    isInteractive: false,
-                    children: ["row"]
-                ),
-                "row": LoupeNode(
-                    ref: "row",
-                    parentRef: "root",
-                    kind: .view,
-                    typeName: "UIStackView",
-                    testID: "components.row",
-                    frame: LoupeRect(x: 20, y: 100, width: 350, height: 44),
-                    isVisible: true,
-                    isEnabled: true,
-                    isInteractive: false,
-                    children: ["label", "switch"]
-                ),
-                "label": LoupeNode(
-                    ref: "label",
-                    parentRef: "row",
-                    kind: .view,
-                    typeName: "UILabel",
-                    role: "staticText",
-                    testID: "components.label",
-                    text: "Enabled",
-                    frame: LoupeRect(x: 20, y: 100, width: 120, height: 44),
-                    isVisible: true,
-                    isEnabled: true,
-                    isInteractive: false
-                ),
-                "switch": LoupeNode(
-                    ref: "switch",
-                    parentRef: "row",
-                    kind: .view,
-                    typeName: "UISwitch",
-                    role: "switch",
-                    testID: "components.switch",
-                    frame: LoupeRect(x: 300, y: 100, width: 51, height: 31),
-                    isVisible: true,
-                    isEnabled: true,
-                    isInteractive: true,
-                    uiKit: LoupeUIKitProperties(
-                        className: "UISwitch",
-                        tag: 0,
-                        alpha: 1,
-                        isHidden: false,
-                        isOpaque: false,
-                        clipsToBounds: false,
-                        userInteractionEnabled: true,
-                        isFirstResponder: false,
-                        switchControl: LoupeUISwitchProperties(isOn: true)
-                    )
-                ),
-            ]
+    @Test func inspectPreservesScrollViewMetricsForGestureVerification() throws {
+        let snapshot = InspectionSnapshotFixture.makeSnapshot()
+
+        let inspection = try #require(
+            LoupeSnapshotInspector.inspect(.testID("bottomSheet.results"), in: snapshot)
         )
+        let scrollView = try #require(inspection.node.uiKit?.scrollView)
+
+        #expect(inspection.node.role == "scrollView")
+        #expect(inspection.node.frame?.height == 420)
+        #expect(scrollView.contentOffset == LoupePoint(x: 0, y: 240))
+        #expect(scrollView.contentSize == LoupeSize(width: 350, height: 1_240))
+        #expect(scrollView.adjustedContentInset.bottom == 34)
+        #expect(scrollView.isScrollEnabled)
+        #expect(scrollView.alwaysBounceVertical)
+        #expect(!scrollView.alwaysBounceHorizontal)
+        #expect(scrollView.contentSize.height > inspection.node.frame!.height)
     }
+
 }

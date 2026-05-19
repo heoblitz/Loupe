@@ -1,4 +1,5 @@
 import Foundation
+import LoupeCLICore
 import LoupeCore
 import LoupeHID
 
@@ -1240,12 +1241,13 @@ struct LoupeCLI {
     }
 
     private static func resolveActionScreen(_ options: ActionOptions) async throws -> (size: LoupeSize, scale: Double) {
-        if options.screen.width > 0, options.screen.height > 0 {
-            return (options.screen, 1)
+        if let screen = ActionScreenResolver.explicit(options.screen) {
+            return (screen.size, screen.scale)
         }
 
         let snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
-        return (snapshot.screen.size, snapshot.screen.scale)
+        let screen = ActionScreenResolver.resolve(explicit: options.screen, fallback: snapshot.screen)
+        return (screen.size, screen.scale)
     }
 
     private static func center(of frame: LoupeRect?) -> LoupePoint? {
@@ -3958,230 +3960,6 @@ private struct LaunchOptions {
     }
 }
 
-private protocol ActionDispatchOptions {
-    var backend: String { get }
-    var udid: String { get }
-    var timeout: TimeInterval { get }
-    var endPoint: LoupePoint? { get }
-    var duration: Double? { get }
-    var text: String? { get }
-    var startSpread: Double? { get }
-    var endSpread: Double? { get }
-    var traceDirectory: URL? { get }
-}
-
-private extension ActionDispatchOptions {
-    func requireEndPoint(command: String) throws -> LoupePoint {
-        guard let endPoint else {
-            throw CLIError("\(command) requires --to x,y")
-        }
-        return endPoint
-    }
-}
-
-private struct ActionOptions: ActionDispatchOptions {
-    var command: String
-    var host: URL
-    var hostWasExplicit: Bool
-    var backend: String
-    var udid: String
-    var timeout: TimeInterval
-    var selector: LoupeSelector?
-    var point: LoupePoint?
-    var endPoint: LoupePoint?
-    var screen: LoupeSize
-    var duration: Double?
-    var text: String?
-    var startSpread: Double?
-    var endSpread: Double?
-    var traceDirectory: URL?
-    var expectVisibleTestID: String?
-
-    init(command: String, arguments: [String]) throws {
-        self.command = command
-        host = URL(string: "http://127.0.0.1:8765")!
-        hostWasExplicit = false
-        backend = "auto"
-        udid = "booted"
-        timeout = 8
-        screen = LoupeSize(width: 0, height: 0)
-
-        var selector: LoupeSelector?
-        var point: LoupePoint?
-        var endPoint: LoupePoint?
-        var duration: Double?
-        var text: String?
-        var startSpread: Double?
-        var endSpread: Double?
-        var traceDirectory: URL?
-        var expectVisibleTestID: String?
-        var screenWidth: Double?
-        var screenHeight: Double?
-        var hasX = false
-        var hasY = false
-        var index = 0
-
-        if command == "type", let first = arguments.first, !first.hasPrefix("--") {
-            text = first
-            index = 1
-        }
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            switch argument {
-            case "--host":
-                host = try Self.url(after: argument, in: arguments, index: &index)
-                hostWasExplicit = true
-            case "--backend":
-                backend = try Self.value(after: argument, in: arguments, index: &index)
-            case "--udid", "--device":
-                udid = try Self.value(after: argument, in: arguments, index: &index)
-            case "--test-id":
-                selector = .testID(try Self.value(after: argument, in: arguments, index: &index))
-            case "--ref":
-                selector = .ref(try Self.value(after: argument, in: arguments, index: &index))
-            case "--text":
-                let value = try Self.value(after: argument, in: arguments, index: &index)
-                if command == "type" {
-                    text = value
-                } else if command == "tap" {
-                    throw CLIError("tap expects --test-id, --ref, or coordinates")
-                } else {
-                    throw CLIError("\(command) expects --test-id, --ref, or coordinates")
-                }
-            case "--exact-text":
-                _ = try Self.value(after: argument, in: arguments, index: &index)
-                if command == "tap" {
-                    throw CLIError("tap expects --test-id, --ref, or coordinates")
-                }
-                throw CLIError("\(command) expects --test-id, --ref, or coordinates")
-            case "--x":
-                let x = try Self.double(after: argument, in: arguments, index: &index)
-                let y = point?.y ?? 0
-                point = LoupePoint(x: x, y: y)
-                hasX = true
-            case "--y":
-                let y = try Self.double(after: argument, in: arguments, index: &index)
-                let x = point?.x ?? 0
-                point = LoupePoint(x: x, y: y)
-                hasY = true
-            case "--from", "--center":
-                point = try Self.point(after: argument, in: arguments, index: &index)
-            case "--to":
-                endPoint = try Self.point(after: argument, in: arguments, index: &index)
-            case "--width":
-                screenWidth = try Self.double(after: argument, in: arguments, index: &index)
-            case "--height":
-                screenHeight = try Self.double(after: argument, in: arguments, index: &index)
-            case "--duration":
-                duration = try Self.double(after: argument, in: arguments, index: &index)
-            case "--timeout":
-                timeout = try Self.double(after: argument, in: arguments, index: &index)
-            case "--start-spread":
-                startSpread = try Self.double(after: argument, in: arguments, index: &index)
-            case "--end-spread":
-                endSpread = try Self.double(after: argument, in: arguments, index: &index)
-            case "--trace-dir":
-                traceDirectory = URL(fileURLWithPath: try Self.value(after: argument, in: arguments, index: &index))
-            case "--expect-visible":
-                expectVisibleTestID = try Self.value(after: argument, in: arguments, index: &index)
-            default:
-                throw CLIError("Unknown \(command) option: \(argument)")
-            }
-            index += 1
-        }
-
-        if let screenWidth, let screenHeight {
-            screen = LoupeSize(width: screenWidth, height: screenHeight)
-        }
-
-        if command == "type", text == nil {
-            throw CLIError("type requires text")
-        }
-        guard timeout > 0 else {
-            throw CLIError("--timeout must be greater than 0")
-        }
-
-        if hasX != hasY {
-            throw CLIError("--x and --y must be provided together")
-        }
-
-        if command == "tap" {
-            if selector != nil, point != nil {
-                throw CLIError("tap accepts exactly one target: --test-id, --ref, or --x <n> --y <n>")
-            }
-            if selector == nil, point == nil {
-                throw CLIError("tap requires --test-id, --ref, or --x <n> --y <n>")
-            }
-        }
-
-        self.selector = selector
-        self.point = point
-        self.endPoint = endPoint
-        self.duration = duration
-        self.text = text
-        self.startSpread = startSpread
-        self.endSpread = endSpread
-        self.traceDirectory = traceDirectory
-        self.expectVisibleTestID = expectVisibleTestID
-    }
-
-    private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
-        let valueIndex = index + 1
-        guard valueIndex < arguments.count else {
-            throw CLIError("\(option) requires a value")
-        }
-        index = valueIndex
-        return arguments[valueIndex]
-    }
-
-    private static func double(after option: String, in arguments: [String], index: inout Int) throws -> Double {
-        let raw = try value(after: option, in: arguments, index: &index)
-        guard let value = Double(raw) else {
-            throw CLIError("\(option) expects a number")
-        }
-        return value
-    }
-
-    private static func point(after option: String, in arguments: [String], index: inout Int) throws -> LoupePoint {
-        let raw = try value(after: option, in: arguments, index: &index)
-        let parts = raw.split(separator: ",").map(String.init)
-        guard parts.count == 2, let x = Double(parts[0]), let y = Double(parts[1]) else {
-            throw CLIError("\(option) expects x,y")
-        }
-        return LoupePoint(x: x, y: y)
-    }
-
-    private static func url(after option: String, in arguments: [String], index: inout Int) throws -> URL {
-        let raw = try value(after: option, in: arguments, index: &index)
-        guard let url = URL(string: raw) else {
-            throw CLIError("Invalid URL for \(option): \(raw)")
-        }
-        return url
-    }
-}
-
-private struct ReplayActionOptions: ActionDispatchOptions {
-    var backend: String
-    var udid: String
-    var timeout: TimeInterval
-    var endPoint: LoupePoint?
-    var duration: Double?
-    var text: String?
-    var startSpread: Double?
-    var endSpread: Double?
-    var traceDirectory: URL?
-}
-
-private struct ReplayAction {
-    var command: String
-    var target: ActionTarget
-    var endPoint: LoupePoint?
-    var startSpread: Double?
-    var endSpread: Double?
-    var selector: LoupeSelector?
-}
-
 private struct ReplayOptions {
     var recordingURL: URL
     var host: URL
@@ -4928,24 +4706,6 @@ private struct LoupeTraceSummary: Codable {
     var targetCropPath: String?
 }
 
-private struct LoupeCLIActionTrace: Codable {
-    var command: String
-    var phase: String
-    var host: String
-    var backend: String
-    var udid: String
-    var selector: String?
-    var point: LoupePoint?
-    var endPoint: LoupePoint?
-    var duration: Double?
-    var text: String?
-    var resolvedPoint: LoupePoint?
-    var resolvedScreen: LoupeSize?
-    var resolvedSource: String?
-    var resolvedTarget: ActionTargetTrace?
-    var recordedAt: Date
-}
-
 struct LoupeRuntimeHostRecord: Codable {
     var udid: String
     var bundleID: String
@@ -4972,110 +4732,8 @@ private struct RecordingSummary {
     var bundleID: String
 }
 
-private struct LoupeCLIActionErrorTrace: Codable {
-    var message: String
-    var recordedAt: Date
-}
-
 private final class LaunchPortProbe: @unchecked Sendable {
     var result: Result<LoupeRuntimeState, Error>?
-}
-
-private enum ActionTargetSource: CustomStringConvertible {
-    case accessibility(ref: String, sourceRef: String)
-    case view(ref: String)
-    case coordinates
-    case keyboardFocus
-
-    var description: String {
-        switch self {
-        case let .accessibility(ref, sourceRef):
-            return "accessibility:\(ref):source:\(sourceRef)"
-        case let .view(ref):
-            return "view:\(ref)"
-        case .coordinates:
-            return "coordinates"
-        case .keyboardFocus:
-            return "keyboardFocus"
-        }
-    }
-}
-
-private struct ActionTarget {
-    var point: LoupePoint
-    var screen: LoupeSize
-    var screenScale: Double
-    var source: ActionTargetSource
-    var match: ActionTargetMatch? = nil
-}
-
-private enum ActionTargetMatch {
-    case accessibility(LoupeAccessibilityQueryResult)
-    case view(LoupeQueryResult)
-
-    var trace: ActionTargetTrace {
-        switch self {
-        case let .accessibility(result):
-            return ActionTargetTrace(
-                tree: "accessibility",
-                ref: result.ref,
-                sourceRef: result.sourceRef,
-                typeName: nil,
-                role: result.role,
-                testID: result.testID,
-                label: nil,
-                value: nil,
-                text: result.text,
-                frame: result.frame,
-                activationPoint: result.activationPoint,
-                isVisible: result.isVisible,
-                isEnabled: result.isEnabled,
-                isInteractive: result.isInteractive
-            )
-        case let .view(result):
-            return ActionTargetTrace(
-                tree: "view",
-                ref: result.ref,
-                sourceRef: nil,
-                typeName: nil,
-                role: result.role,
-                testID: result.testID,
-                label: nil,
-                value: nil,
-                text: result.text,
-                frame: result.frame,
-                activationPoint: nil,
-                isVisible: result.isVisible,
-                isEnabled: result.isEnabled,
-                isInteractive: result.isInteractive
-            )
-        }
-    }
-}
-
-private struct ActionTargetTrace: Codable {
-    var tree: String
-    var ref: String
-    var sourceRef: String?
-    var typeName: String?
-    var role: String?
-    var testID: String?
-    var label: String?
-    var value: String?
-    var text: String?
-    var frame: LoupeRect?
-    var activationPoint: LoupePoint?
-    var isVisible: Bool
-    var isEnabled: Bool
-    var isInteractive: Bool
-}
-
-struct CLIError: Error, CustomStringConvertible {
-    var description: String
-
-    init(_ description: String) {
-        self.description = description
-    }
 }
 
 private extension String {
