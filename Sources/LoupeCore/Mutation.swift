@@ -166,6 +166,59 @@ public struct LoupeMutationResponse: Codable, Equatable {
     }
 }
 
+public struct LoupeConstraintMutationRequest: Codable, Equatable {
+    public var id: String
+    public var constant: Double?
+    public var priority: Double?
+    public var isActive: Bool?
+    public var layout: Bool
+
+    public init(
+        id: String,
+        constant: Double? = nil,
+        priority: Double? = nil,
+        isActive: Bool? = nil,
+        layout: Bool = true
+    ) {
+        self.id = id
+        self.constant = constant
+        self.priority = priority
+        self.isActive = isActive
+        self.layout = layout
+    }
+}
+
+public struct LoupeConstraintMutationResponse: Codable, Equatable {
+    public var id: String
+    public var before: LoupeUILayoutConstraintProperties
+    public var after: LoupeUILayoutConstraintProperties
+    public var effective: LoupeUILayoutConstraintProperties
+    public var requested: LoupeConstraintMutationRequest
+    public var changed: Bool
+    public var warning: String?
+    public var snapshotID: String
+
+    public init(
+        id: String,
+        before: LoupeUILayoutConstraintProperties,
+        after: LoupeUILayoutConstraintProperties,
+        effective: LoupeUILayoutConstraintProperties? = nil,
+        requested: LoupeConstraintMutationRequest,
+        changed: Bool,
+        warning: String? = nil,
+        snapshotID: String
+    ) {
+        self.id = id
+        self.before = before
+        self.after = after
+        self.effective = effective ?? after
+        self.requested = requested
+        self.changed = changed
+        self.warning = warning
+        self.snapshotID = snapshotID
+    }
+}
+
 public struct LoupeMutationCapability: Codable, Equatable {
     public var property: String
     public var aliases: [String]

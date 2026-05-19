@@ -260,6 +260,20 @@ public final class LoupeServer: @unchecked Sendable {
             } catch {
                 return ResponsePayload(status: 400, body: errorBody("mutation_failed", error: error))
             }
+        case "/constraint":
+            guard request.method == "POST" else {
+                return ResponsePayload(status: 405, body: #"{"error":"method_not_allowed"}"#)
+            }
+            do {
+                let mutation = try JSONDecoder().decode(LoupeConstraintMutationRequest.self, from: request.body)
+                let response = try LoupeAgent().mutateConstraint(mutation)
+                let data = try makeLoupeJSONEncoder().encode(response)
+                return ResponsePayload(status: 200, body: String(decoding: data, as: UTF8.self))
+            } catch let error as LoupeMutationError {
+                return ResponsePayload(status: error.status, body: errorBody(error.code, message: error.message))
+            } catch {
+                return ResponsePayload(status: 400, body: errorBody("constraint_mutation_failed", error: error))
+            }
         default:
             return ResponsePayload(status: 404, body: #"{"error":"not_found"}"#)
         }

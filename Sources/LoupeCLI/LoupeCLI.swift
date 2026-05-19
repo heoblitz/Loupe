@@ -30,8 +30,12 @@ struct LoupeCLI {
             try compact(arguments)
         case "compare-design":
             try compareDesign(arguments)
+        case "constraints":
+            try await constraints(arguments)
         case "cleanup":
             try await cleanup(arguments)
+        case "deactivate-constraint":
+            try await mutateConstraint(arguments, deactivate: true)
         case "diff":
             try diff(arguments)
         case "doctor":
@@ -56,6 +60,8 @@ struct LoupeCLI {
             try await mutations(arguments)
         case "set", "mutate":
             try await set(arguments)
+        case "set-constraint":
+            try await mutateConstraint(arguments, deactivate: false)
         case "query":
             try await query(arguments)
         case "launch":
@@ -631,8 +637,18 @@ struct LoupeCLI {
               compact <snapshot.json>
                   Print the LLM-facing compact observation for a full app snapshot.
 
+              constraints [snapshot.json] (--ref <ref> | --test-id <id> | --text <text>) [--json]
+                  Print Auto Layout constraints captured for a matched view node.
+
+              set-constraint --id <constraint-id> constant <value> [priority <value>] [active true|false]
+                  Mutate a runtime Auto Layout constraint and report effective state.
+
+              deactivate-constraint --id <constraint-id>
+                  Deactivate a runtime Auto Layout constraint by id.
+
               cleanup [--dry-run] [--traces-older-than 7d]
                   Remove stale runtime records and old trace bundles.
+
 
               compare-design <snapshot.json> <design.json> [--json]
                   Compare a Loupe snapshot against an exported Figma-style design JSON.
@@ -773,6 +789,48 @@ struct LoupeCLI {
         }
     }
 
+    private static func constraints(_ arguments: [String]) async throws {
+        let options = try ConstraintListOptions(arguments)
+        let snapshot: LoupeSnapshot
+        if let snapshotURL = options.snapshotURL {
+            snapshot = try decodeSnapshot(from: snapshotURL)
+        } else {
+            let host = try await resolvedRuntimeHost(
+                requestedHost: options.host,
+                hostWasExplicit: options.hostWasExplicit,
+                udid: options.udid,
+                bundleID: options.bundleID
+            )
+            if let udid = options.udid {
+                try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
+            }
+            snapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
+        }
+
+        let matches = LoupeSnapshotQuery.find(
+            options.selector,
+            in: snapshot,
+            options: LoupeQueryOptions(includeHidden: options.includeHidden, includeDisabled: true, maxResults: 20)
+        )
+        guard let result = matches.first, let node = snapshot.nodes[result.ref] else {
+            throw CLIError("No view node matched selector")
+        }
+
+        let constraints = nodeConstraints(node)
+        if options.json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try write(data: encoder.encode(constraints), outputURL: options.outputURL)
+        } else {
+            let output = renderConstraints(node: node, constraints: constraints)
+            if let outputURL = options.outputURL {
+                try Data((output + "\n").utf8).write(to: outputURL)
+            } else {
+                print(output)
+            }
+        }
+    }
+
     private static func set(_ arguments: [String]) async throws {
         if arguments.contains("--list") {
             try await runtimeFetch(
@@ -810,6 +868,38 @@ struct LoupeCLI {
         guard (200..<300).contains(httpResponse.statusCode) else {
             let body = String(decoding: data, as: UTF8.self)
             throw CLIError("mutation failed with HTTP \(httpResponse.statusCode): \(body)")
+        }
+        try write(data: data, outputURL: options.outputURL)
+    }
+
+    private static func mutateConstraint(_ arguments: [String], deactivate: Bool) async throws {
+        let options = try ConstraintMutationOptions(arguments, deactivate: deactivate)
+        let host = try await resolvedRuntimeHost(
+            requestedHost: options.host,
+            hostWasExplicit: options.hostWasExplicit,
+            udid: options.udid,
+            bundleID: options.bundleID
+        )
+        if let udid = options.udid {
+            try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let body = try encoder.encode(options.request)
+        var request = URLRequest(url: host.appendingPathComponent("constraint"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = options.timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let (data, response) = try await httpData(for: request, timeout: options.timeout, label: "constraint mutation")
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CLIError("constraint mutation expected an HTTP response")
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let body = String(decoding: data, as: UTF8.self)
+            throw CLIError("constraint mutation failed with HTTP \(httpResponse.statusCode): \(body)")
         }
         try write(data: data, outputURL: options.outputURL)
     }
@@ -2585,6 +2675,80 @@ struct LoupeCLI {
         }
 
         return Array(Set(properties)).sorted()
+    }
+
+    private static func nodeConstraints(_ node: LoupeNode) -> [LoupeUILayoutConstraintProperties] {
+        guard let layout = node.uiKit?.layout else {
+            return []
+        }
+        var seen = Set<String>()
+        var constraints: [LoupeUILayoutConstraintProperties] = []
+        for constraint in layout.constraints + layout.affectingHorizontalConstraints + layout.affectingVerticalConstraints {
+            let key = constraint.id.isEmpty ? constraintSummaryKey(constraint) : constraint.id
+            guard !seen.contains(key) else {
+                continue
+            }
+            seen.insert(key)
+            constraints.append(constraint)
+        }
+        return constraints.sorted {
+            constraintDisplayName($0) < constraintDisplayName($1)
+        }
+    }
+
+    private static func renderConstraints(
+        node: LoupeNode,
+        constraints: [LoupeUILayoutConstraintProperties]
+    ) -> String {
+        var lines = [
+            "\(node.ref) \(node.uiKit?.className ?? node.typeName) constraints=\(constraints.count)"
+        ]
+        if constraints.isEmpty {
+            lines.append("No captured Auto Layout constraints for this node.")
+            return lines.joined(separator: "\n")
+        }
+        for constraint in constraints {
+            lines.append(renderConstraintLine(constraint))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func renderConstraintLine(_ constraint: LoupeUILayoutConstraintProperties) -> String {
+        [
+            constraint.id,
+            constraint.isActive ? "active" : "inactive",
+            "constant=\(format(constraint.constant))",
+            "priority=\(format(constraint.priority))",
+            "first=\(constraint.firstItem ?? "nil").\(constraint.firstAttribute)",
+            "\(constraint.relation)",
+            "second=\(constraint.secondItem ?? "nil").\(constraint.secondAttribute)",
+            "multiplier=\(format(constraint.multiplier))",
+            constraint.identifier.map { "identifier=\($0)" },
+        ].compactMap(\.self).joined(separator: " ")
+    }
+
+    private static func constraintDisplayName(_ constraint: LoupeUILayoutConstraintProperties) -> String {
+        [
+            constraint.firstItem ?? "",
+            constraint.firstAttribute,
+            constraint.secondItem ?? "",
+            constraint.secondAttribute,
+            constraint.id,
+        ].joined(separator: "|")
+    }
+
+    private static func constraintSummaryKey(_ constraint: LoupeUILayoutConstraintProperties) -> String {
+        [
+            constraint.identifier ?? "",
+            constraint.firstItem ?? "",
+            constraint.firstAttribute,
+            constraint.relation,
+            constraint.secondItem ?? "",
+            constraint.secondAttribute,
+            format(constraint.multiplier),
+            format(constraint.constant),
+            format(constraint.priority),
+        ].joined(separator: "|")
     }
 
     private static func unsupportedMutationExamples(for node: LoupeNode) -> [String] {

@@ -59,6 +59,7 @@ struct SnapshotInspectionTests {
         #expect(layout.translatesAutoresizingMaskIntoConstraints == false)
         #expect(layout.hugging.horizontal == 250)
         #expect(layout.compressionResistance.vertical == 750)
+        #expect(layout.constraints.first?.id == "c-row-height")
         #expect(layout.constraints.first?.firstAttribute == "height")
         #expect(layout.constraints.first?.constant == 44)
         #expect(stackView.axis == "horizontal")

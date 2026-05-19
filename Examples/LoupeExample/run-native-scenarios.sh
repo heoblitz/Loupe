@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 PORT="${LOUPE_PORT:-}"
+LAUNCH_TIMEOUT="${LOUPE_LAUNCH_TIMEOUT:-30}"
 
 cd "$ROOT_DIR"
 
@@ -124,6 +125,9 @@ TRACE_DIR="/tmp/loupe-native-trace"
 FRAME_MUTATION_PATH="/tmp/loupe-native-frame-mutation.json"
 LAYOUT_MUTATION_PATH="/tmp/loupe-native-layout-mutation.json"
 STACK_MUTATION_PATH="/tmp/loupe-native-stack-mutation.json"
+CONSTRAINTS_PATH="/tmp/loupe-native-constraints.json"
+CONSTRAINT_MUTATION_PATH="/tmp/loupe-native-constraint-mutation.json"
+CONSTRAINT_DEACTIVATE_PATH="/tmp/loupe-native-constraint-deactivate.json"
 
 launch_app() {
   local route="${1:-}"
@@ -132,6 +136,7 @@ launch_app() {
     --device "$DEVICE"
     --bundle-id dev.loupe.example
     --inject
+    --timeout "$LAUNCH_TIMEOUT"
   )
   if [[ -n "$PORT" ]]; then
     arguments+=(--env "LOUPE_PORT=$PORT")
@@ -340,6 +345,36 @@ fetch_snapshot
 .build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.switchRow > "$INSPECT_PATH"
 grep -q '"axis" : "vertical"' "$INSPECT_PATH"
 
+echo "case: Auto Layout constraint listing and mutation"
+.build/debug/loupe constraints --host "$HOST" --test-id example.design.card --json --output "$CONSTRAINTS_PATH"
+DESIGN_CARD_HEIGHT_CONSTRAINT_ID="$(ruby -rjson -e '
+  constraints = JSON.parse(File.read(ARGV.fetch(0)))
+  constraint = constraints.find { |item|
+    item.fetch("firstAttribute") == "height" &&
+      item.fetch("firstItem", "").include?("example.design.card")
+  }
+  abort("missing design card height constraint") unless constraint
+  puts constraint.fetch("id")
+' "$CONSTRAINTS_PATH")"
+.build/debug/loupe set-constraint --host "$HOST" --id "$DESIGN_CARD_HEIGHT_CONSTRAINT_ID" constant 104 --output "$CONSTRAINT_MUTATION_PATH"
+ruby -rjson -e '
+  result = JSON.parse(File.read(ARGV.fetch(0)))
+  abort("constraint mutation did not report changed") unless result.fetch("changed")
+  abort("unexpected effective constant") unless (result.fetch("effective").fetch("constant").to_f - 104).abs < 0.5
+' "$CONSTRAINT_MUTATION_PATH"
+fetch_snapshot
+.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.design.card > "$INSPECT_PATH"
+ruby -rjson -e '
+  height = JSON.parse(File.read(ARGV.fetch(0))).fetch("node").fetch("frame").fetch("height").to_f
+  abort("constraint mutation did not resize design card") unless height > 100
+' "$INSPECT_PATH"
+.build/debug/loupe deactivate-constraint --host "$HOST" --id "$DESIGN_CARD_HEIGHT_CONSTRAINT_ID" --output "$CONSTRAINT_DEACTIVATE_PATH"
+ruby -rjson -e '
+  result = JSON.parse(File.read(ARGV.fetch(0)))
+  abort("constraint deactivate did not report changed") unless result.fetch("changed")
+  abort("constraint is still active") unless result.fetch("after").fetch("isActive") == false
+' "$CONSTRAINT_DEACTIVATE_PATH"
+
 echo "case: mixed fixture tabs for SwiftUI, WebKit, keyboard, and nested scroll"
 launch_app fixtures
 .build/debug/loupe wait-for-visible --host "$HOST" --test-id example.fixtures --timeout 5 >/tmp/loupe-native-wait-fixtures.json
@@ -392,4 +427,7 @@ echo "subtree: $SUBTREE_PATH"
 echo "frame mutation: $FRAME_MUTATION_PATH"
 echo "layout mutation: $LAYOUT_MUTATION_PATH"
 echo "stack mutation: $STACK_MUTATION_PATH"
+echo "constraints: $CONSTRAINTS_PATH"
+echo "constraint mutation: $CONSTRAINT_MUTATION_PATH"
+echo "constraint deactivate: $CONSTRAINT_DEACTIVATE_PATH"
 echo "trace: $TRACE_DIR"

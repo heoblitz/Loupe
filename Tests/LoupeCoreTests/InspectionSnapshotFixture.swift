@@ -45,6 +45,7 @@ enum InspectionSnapshotFixture {
                             compressionResistance: LoupeUILayoutPriorities(horizontal: 750, vertical: 750),
                             constraints: [
                                 LoupeUILayoutConstraintProperties(
+                                    id: "c-row-height",
                                     firstItem: "UIStackView#components.row",
                                     firstAttribute: "height",
                                     relation: "equal",

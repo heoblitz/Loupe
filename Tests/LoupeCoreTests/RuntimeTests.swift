@@ -129,6 +129,7 @@ struct RuntimeTests {
                     compressionResistance: LoupeUILayoutPriorities(horizontal: 750, vertical: 751),
                     constraints: [
                         LoupeUILayoutConstraintProperties(
+                            id: "c-height",
                             identifier: "height",
                             firstItem: "UIStackView#place.actions",
                             firstAttribute: "height",
@@ -157,6 +158,7 @@ struct RuntimeTests {
         #expect(node.uiKit?.layout?.translatesAutoresizingMaskIntoConstraints == false)
         #expect(node.uiKit?.layout?.hugging.horizontal == 250)
         #expect(node.uiKit?.layout?.compressionResistance.vertical == 751)
+        #expect(node.uiKit?.layout?.constraints.first?.id == "c-height")
         #expect(node.uiKit?.layout?.constraints.first?.identifier == "height")
         #expect(node.uiKit?.stackView?.axis == "horizontal")
         #expect(node.uiKit?.stackView?.distribution == "fillEqually")

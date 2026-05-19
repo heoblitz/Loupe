@@ -232,6 +232,48 @@ public final class LoupeAgent {
         )
     }
 
+    public func mutateConstraint(_ request: LoupeConstraintMutationRequest) throws -> LoupeConstraintMutationResponse {
+        guard request.constant != nil || request.priority != nil || request.isActive != nil else {
+            throw LoupeMutationError(code: "missing_constraint_mutation", message: "Constraint mutation requires constant, priority, or isActive.")
+        }
+        guard let constraint = runtimeConstraints().first(where: { constraintID($0) == request.id }) else {
+            throw LoupeMutationError(status: 404, code: "constraint_not_found", message: "No runtime constraint matched id \(request.id).")
+        }
+
+        let before = layoutConstraintProperties(constraint)
+        if let constant = request.constant {
+            constraint.constant = CGFloat(constant)
+        }
+        if let priority = request.priority {
+            guard priority >= 1, priority <= 1000 else {
+                throw LoupeMutationError(code: "invalid_value", message: "Constraint priority must be between 1 and 1000.")
+            }
+            constraint.priority = UILayoutPriority(Float(priority))
+        }
+        if let isActive = request.isActive {
+            constraint.isActive = isActive
+        }
+
+        if request.layout {
+            layoutRuntimeWindows()
+        }
+
+        let after = layoutConstraintProperties(constraint)
+        let changed = constraintMutationMatches(request, after)
+        let warning = changed ? nil : "Constraint mutation applied, but the effective constraint does not match the requested value. A layout owner may have restored it."
+        let snapshot = captureSnapshot()
+
+        return LoupeConstraintMutationResponse(
+            id: request.id,
+            before: before,
+            after: after,
+            requested: request,
+            changed: changed,
+            warning: warning,
+            snapshotID: snapshot.id
+        )
+    }
+
     public func mutationCapabilities() -> [LoupeMutationCapability] {
         mutationDescriptors
             .map { descriptor in
@@ -1997,6 +2039,7 @@ private func stackViewProperties(for view: UIView) -> LoupeUIStackViewProperties
 @MainActor
 private func layoutConstraintProperties(_ constraint: NSLayoutConstraint) -> LoupeUILayoutConstraintProperties {
     LoupeUILayoutConstraintProperties(
+        id: constraintID(constraint),
         identifier: constraint.identifier,
         firstItem: layoutItemDescription(constraint.firstItem),
         firstAttribute: layoutAttributeName(constraint.firstAttribute),
@@ -2008,6 +2051,70 @@ private func layoutConstraintProperties(_ constraint: NSLayoutConstraint) -> Lou
         priority: finiteDouble(Double(constraint.priority.rawValue)) ?? 0,
         isActive: constraint.isActive
     )
+}
+
+@MainActor
+private func constraintID(_ constraint: NSLayoutConstraint) -> String {
+    let raw = String(describing: ObjectIdentifier(constraint))
+    let value = raw
+        .replacingOccurrences(of: "ObjectIdentifier(", with: "")
+        .replacingOccurrences(of: ")", with: "")
+    return "c\(value)"
+}
+
+@MainActor
+private func runtimeConstraints() -> [NSLayoutConstraint] {
+    var constraints: [NSLayoutConstraint] = []
+    var seen = Set<ObjectIdentifier>()
+
+    func append(_ constraint: NSLayoutConstraint) {
+        let id = ObjectIdentifier(constraint)
+        guard !seen.contains(id) else {
+            return
+        }
+        seen.insert(id)
+        constraints.append(constraint)
+    }
+
+    func visit(_ view: UIView) {
+        view.constraints.forEach(append)
+        view.constraintsAffectingLayout(for: .horizontal).forEach(append)
+        view.constraintsAffectingLayout(for: .vertical).forEach(append)
+        view.subviews.forEach(visit)
+    }
+
+    for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+        for window in scene.windows {
+            visit(window)
+        }
+    }
+    return constraints
+}
+
+@MainActor
+private func layoutRuntimeWindows() {
+    for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+        for window in scene.windows {
+            window.setNeedsLayout()
+            window.layoutIfNeeded()
+        }
+    }
+}
+
+private func constraintMutationMatches(
+    _ request: LoupeConstraintMutationRequest,
+    _ effective: LoupeUILayoutConstraintProperties
+) -> Bool {
+    if let constant = request.constant, abs(effective.constant - constant) >= 0.5 {
+        return false
+    }
+    if let priority = request.priority, abs(effective.priority - priority) >= 0.5 {
+        return false
+    }
+    if let isActive = request.isActive, effective.isActive != isActive {
+        return false
+    }
+    return true
 }
 
 @MainActor

@@ -117,6 +117,9 @@ compose.
 - `loupe set` posts to the injected `/mutate` endpoint and can update
   allowlisted UIKit view properties such as frame, alpha, colors, text,
   accessibility fields, layer styling, and common control values.
+- `loupe constraints`, `set-constraint`, and `deactivate-constraint` expose
+  captured Auto Layout constraints and verify the effective constant, priority,
+  or active state after runtime mutation.
 - `loupe set --list` and `/mutations` list the runtime mutation registry.
   Mutation support is grouped by UIKit family so new components can be added
   without expanding a single hard-coded switch.

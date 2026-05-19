@@ -187,11 +187,16 @@ Use `cleanup` to prune stale runtime records and old trace bundles.
 loupe set --udid <UDID> --test-id example.components.label text "Runtime edited"
 loupe set --udid <UDID> --test-id example.design.card backgroundColor --color '#ff3366'
 loupe set --udid <UDID> --test-id example.design.card frame --rect 20,120,220,80
+loupe constraints --udid <UDID> --test-id example.design.card --json
+loupe set-constraint --udid <UDID> --id <constraint-id> constant 120
+loupe deactivate-constraint --udid <UDID> --id <constraint-id>
 loupe set --udid <UDID> --list
 loupe reflect /tmp/loupe-set.json --source ./Sources
 ```
 
 Use `set` for developer-only UI iteration against the injected runtime. Prefer
 stable `testID` selectors; use `ref` only within the same observed screen.
+Use `constraints` before changing Auto Layout constraints, then read the
+mutation response's effective state to confirm UIKit kept the requested value.
 Use `reflect` after a verified mutation to summarize before/after state, confirm
 the target hierarchy, and find source lines containing the test ID.

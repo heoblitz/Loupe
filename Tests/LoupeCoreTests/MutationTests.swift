@@ -68,6 +68,54 @@ import Testing
         #expect(decoded.hierarchy?.target.typeName == "UILabel")
     }
 
+    @Test func constraintMutationResponseRoundTripsEffectiveState() throws {
+        let before = LoupeUILayoutConstraintProperties(
+            id: "c123",
+            identifier: "button.height",
+            firstItem: "UIButton#primary",
+            firstAttribute: "height",
+            relation: "equal",
+            secondItem: nil,
+            secondAttribute: "notAnAttribute",
+            multiplier: 1,
+            constant: 44,
+            priority: 1000,
+            isActive: true
+        )
+        let after = LoupeUILayoutConstraintProperties(
+            id: "c123",
+            identifier: "button.height",
+            firstItem: "UIButton#primary",
+            firstAttribute: "height",
+            relation: "equal",
+            secondItem: nil,
+            secondAttribute: "notAnAttribute",
+            multiplier: 1,
+            constant: 56,
+            priority: 999,
+            isActive: true
+        )
+        let request = LoupeConstraintMutationRequest(id: "c123", constant: 56, priority: 999)
+        let response = LoupeConstraintMutationResponse(
+            id: "c123",
+            before: before,
+            after: after,
+            requested: request,
+            changed: true,
+            snapshotID: "snapshot-constraints"
+        )
+
+        let data = try JSONEncoder().encode(response)
+        let decoded = try JSONDecoder().decode(LoupeConstraintMutationResponse.self, from: data)
+
+        #expect(decoded.id == "c123")
+        #expect(decoded.before.constant == 44)
+        #expect(decoded.after.constant == 56)
+        #expect(decoded.effective.constant == 56)
+        #expect(decoded.after.priority == 999)
+        #expect(decoded.changed)
+    }
+
     private func mutationNode(text: String) -> LoupeNode {
         LoupeNode(
             ref: "n3",

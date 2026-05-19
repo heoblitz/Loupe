@@ -290,6 +290,7 @@ public struct LoupeUILayoutPriorities: Codable, Equatable {
 }
 
 public struct LoupeUILayoutConstraintProperties: Codable, Equatable {
+    public var id: String
     public var identifier: String?
     public var firstItem: String?
     public var firstAttribute: String
@@ -302,6 +303,7 @@ public struct LoupeUILayoutConstraintProperties: Codable, Equatable {
     public var isActive: Bool
 
     public init(
+        id: String = "",
         identifier: String? = nil,
         firstItem: String? = nil,
         firstAttribute: String,
@@ -313,6 +315,7 @@ public struct LoupeUILayoutConstraintProperties: Codable, Equatable {
         priority: Double,
         isActive: Bool
     ) {
+        self.id = id
         self.identifier = identifier
         self.firstItem = firstItem
         self.firstAttribute = firstAttribute
