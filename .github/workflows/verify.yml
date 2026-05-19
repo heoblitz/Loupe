@@ -16,6 +16,8 @@ jobs:
     name: Post-change E2E
     runs-on: macos-26
     timeout-minutes: 90
+    env:
+      LOUPE_SIMCTL_LIST_TIMEOUT: "90"
 
     steps:
       - name: Checkout
@@ -25,7 +27,7 @@ jobs:
         run: |
           swift --version
           xcodebuild -version
-          xcrun simctl list devices available
+          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
 
       - name: Run post-change harness
         run: scripts/verify-agent-work.sh

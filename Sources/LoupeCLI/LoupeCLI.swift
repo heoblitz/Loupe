@@ -1695,7 +1695,7 @@ struct LoupeCLI {
         process.arguments = ["simctl", "list", "devices", "booted", "--json"]
         process.standardOutput = pipe
         process.standardError = Pipe()
-        try run(process, label: "simctl list booted devices")
+        try run(process, label: "simctl list booted devices", timeout: simctlListTimeout())
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard
@@ -1731,7 +1731,7 @@ struct LoupeCLI {
         process.arguments = ["simctl", "list", "devices", "--json"]
         process.standardOutput = pipe
         process.standardError = Pipe()
-        try run(process, label: "simctl list devices", timeout: 5)
+        try run(process, label: "simctl list devices", timeout: simctlListTimeout())
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard
@@ -1757,6 +1757,15 @@ struct LoupeCLI {
             throw CLIError("Simulator \(requested) did not include a UDID")
         }
         return udid
+    }
+
+    private static func simctlListTimeout() -> TimeInterval {
+        guard let raw = ProcessInfo.processInfo.environment["LOUPE_SIMCTL_LIST_TIMEOUT"],
+              let value = Double(raw),
+              value > 0 else {
+            return 60
+        }
+        return value
     }
 
     private static func executablePath(named name: String) -> String? {

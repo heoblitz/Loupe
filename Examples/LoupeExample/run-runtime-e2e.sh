@@ -6,17 +6,43 @@ PORT="${LOUPE_PORT:-8765}"
 
 cd "$ROOT_DIR"
 
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  "$@" &
+  local pid=$!
+  for _ in $(seq 1 "$((seconds * 10))"); do
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      wait "$pid"
+      return
+    fi
+    sleep 0.1
+  done
+  kill "$pid" >/dev/null 2>&1 || true
+  wait "$pid" >/dev/null 2>&1 || true
+  echo "error: command timed out after ${seconds}s: $*" >&2
+  return 124
+}
+
+simctl_list_timeout() {
+  ruby -e 'value = ENV.fetch("LOUPE_SIMCTL_LIST_TIMEOUT", "60").to_f; puts(value.positive? ? value.to_i : 60)'
+}
+
 booted_udid() {
-  xcrun simctl list devices booted --json | ruby -rjson -e '
+  local list_path="/tmp/loupe-runtime-booted-devices.json"
+  run_with_timeout "$(simctl_list_timeout)" xcrun simctl list devices booted --json >"$list_path"
+  ruby -rjson -e '
     devices = JSON.parse(STDIN.read).fetch("devices").values.flatten
     booted = devices.find { |device| device["state"] == "Booted" }
     puts booted && booted["udid"]
-  '
+  ' <"$list_path"
 }
 
 DEVICE="${LOUPE_DEVICE:-$(booted_udid)}"
 if [[ -z "$DEVICE" ]]; then
-  FIRST_DEVICE="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { print $2; exit }')"
+  DEVICES_PATH="/tmp/loupe-runtime-available-devices.txt"
+  run_with_timeout "$(simctl_list_timeout)" xcrun simctl list devices available >"$DEVICES_PATH"
+  FIRST_DEVICE="$(awk -F '[()]' '/iPhone/ { print $2; exit }' "$DEVICES_PATH")"
   if [[ -z "$FIRST_DEVICE" ]]; then
     echo "error: no available iPhone simulator found" >&2
     exit 1
@@ -37,24 +63,6 @@ terminate_app() {
   done
   kill "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
-}
-
-run_with_timeout() {
-  local seconds="$1"
-  shift
-  "$@" &
-  local pid=$!
-  for _ in $(seq 1 "$((seconds * 10))"); do
-    if ! kill -0 "$pid" >/dev/null 2>&1; then
-      wait "$pid"
-      return
-    fi
-    sleep 0.1
-  done
-  kill "$pid" >/dev/null 2>&1 || true
-  wait "$pid" >/dev/null 2>&1 || true
-  echo "error: command timed out after ${seconds}s: $*" >&2
-  return 124
 }
 
 assert_device_ready() {
