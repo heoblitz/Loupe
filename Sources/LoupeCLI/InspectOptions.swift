@@ -6,14 +6,16 @@ struct InspectOptions {
     var snapshotURL: URL
     var selector: LoupeSelector
     var includeHidden: Bool
+    var fields: Set<String>?
 
     init(_ arguments: [String]) throws {
         guard let path = arguments.first, !path.hasPrefix("--") else {
-            throw CLIError("Usage: loupe inspect <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--include-hidden]")
+            throw CLIError("Usage: loupe inspect <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--include-hidden] [--fields node,parent,children,siblings]")
         }
 
         snapshotURL = URL(fileURLWithPath: path)
         includeHidden = false
+        fields = nil
 
         var selector: LoupeSelector?
         var index = 1
@@ -32,6 +34,10 @@ struct InspectOptions {
                 selector = .ref(try Self.value(after: "--ref", in: arguments, index: &index))
             case "--include-hidden":
                 includeHidden = true
+            case "--fields":
+                fields = try Self.fields(try Self.value(after: "--fields", in: arguments, index: &index))
+            case "--node-only":
+                fields = ["node"]
             default:
                 throw CLIError("Unknown inspect option: \(arguments[index])")
             }
@@ -43,6 +49,20 @@ struct InspectOptions {
         }
 
         self.selector = selector
+    }
+
+    private static func fields(_ rawValue: String) throws -> Set<String> {
+        let allowed: Set<String> = ["node", "parent", "children", "siblings"]
+        let fields = Set(
+            rawValue
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        guard !fields.isEmpty, fields.isSubset(of: allowed) else {
+            throw CLIError("--fields expects a comma-separated subset of node,parent,children,siblings")
+        }
+        return fields
     }
 
     private static func value(

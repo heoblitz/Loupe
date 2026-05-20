@@ -25,7 +25,7 @@ struct LaunchOptions {
             switch argument {
             case "--bundle-id":
                 bundleID = try Self.value(after: argument, in: arguments, index: &index)
-            case "--device":
+            case "--device", "--udid":
                 device = try Self.value(after: argument, in: arguments, index: &index)
             case "--dylib":
                 dylibPath = try Self.value(after: argument, in: arguments, index: &index)

@@ -211,9 +211,12 @@ public final class LoupeAgent {
         }
         let effective = mutationPropertyValue(request.property, in: afterNode)
         let changed = effective.map { mutationValuesApproximatelyEqual(request.value, $0) }
-        let warning = changed == false
-            ? "Mutation applied, but the effective snapshot value does not match the requested value. A layout pass or UIKit owner may have restored it."
-            : nil
+        let warning = mutationWarning(
+            request: request,
+            targetRef: target.ref,
+            changed: changed,
+            snapshot: afterCapture.snapshot
+        )
 
         return LoupeMutationResponse(
             property: request.property,
@@ -746,6 +749,46 @@ private func mutationHierarchyContext(targetRef: String, snapshot: LoupeSnapshot
         siblings: siblings,
         children: children
     )
+}
+
+private func mutationWarning(
+    request: LoupeMutationRequest,
+    targetRef: String,
+    changed: Bool?,
+    snapshot: LoupeSnapshot
+) -> String? {
+    var warnings: [String] = []
+    if changed == false {
+        warnings.append("Mutation applied, but the effective snapshot value does not match the requested value. A layout pass or UIKit owner may have restored it.")
+    }
+    if normalizedMutationProperty(request.property) == "backgroundcolor",
+       let coverageWarning = backgroundPaintCoverageWarning(targetRef: targetRef, snapshot: snapshot) {
+        warnings.append(coverageWarning)
+    }
+    return warnings.isEmpty ? nil : warnings.joined(separator: " ")
+}
+
+private func backgroundPaintCoverageWarning(targetRef: String, snapshot: LoupeSnapshot) -> String? {
+    guard let target = snapshot.nodes[targetRef], let targetFrame = target.frame else {
+        return nil
+    }
+    guard let coveringChild = target.children.compactMap({ snapshot.nodes[$0] }).first(where: { child in
+        guard child.isVisible, let childFrame = child.frame else {
+            return false
+        }
+        return framesApproximatelyEqual(targetFrame, childFrame)
+    }) else {
+        return nil
+    }
+    let typeName = coveringChild.uiKit?.className ?? coveringChild.typeName
+    return "backgroundColor changed, but same-frame child \(coveringChild.ref) (\(typeName)) may cover it. Try mutating \(coveringChild.ref) backgroundColor instead."
+}
+
+private func framesApproximatelyEqual(_ lhs: LoupeRect, _ rhs: LoupeRect, tolerance: Double = 0.5) -> Bool {
+    abs(lhs.x - rhs.x) <= tolerance
+        && abs(lhs.y - rhs.y) <= tolerance
+        && abs(lhs.width - rhs.width) <= tolerance
+        && abs(lhs.height - rhs.height) <= tolerance
 }
 
 @MainActor

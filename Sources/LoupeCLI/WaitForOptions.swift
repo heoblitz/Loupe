@@ -4,34 +4,50 @@ import LoupeCore
 
 struct WaitForOptions {
     var host: URL
+    var hostWasExplicit: Bool
+    var udid: String?
+    var bundleID: String?
     var selector: LoupeSelector
     var timeout: TimeInterval
     var interval: TimeInterval
     var keyPath: String?
     var expectedValue: String?
+    var outputURL: URL?
 
     init(
         host: URL,
+        hostWasExplicit: Bool = true,
+        udid: String? = nil,
+        bundleID: String? = nil,
         selector: LoupeSelector,
         timeout: TimeInterval,
         interval: TimeInterval,
         keyPath: String?,
-        expectedValue: String?
+        expectedValue: String?,
+        outputURL: URL? = nil
     ) {
         self.host = host
+        self.hostWasExplicit = hostWasExplicit
+        self.udid = udid
+        self.bundleID = bundleID
         self.selector = selector
         self.timeout = timeout
         self.interval = interval
         self.keyPath = keyPath
         self.expectedValue = expectedValue
+        self.outputURL = outputURL
     }
 
     init(_ arguments: [String], mode: WaitMode) throws {
         host = URL(string: "http://127.0.0.1:8765")!
+        hostWasExplicit = false
+        udid = nil
+        bundleID = nil
         timeout = 10
         interval = 0.25
         keyPath = nil
         expectedValue = nil
+        outputURL = nil
 
         var selector: LoupeSelector?
         var index = 0
@@ -44,6 +60,11 @@ struct WaitForOptions {
                     throw CLIError("Invalid --host URL: \(raw)")
                 }
                 host = url
+                hostWasExplicit = true
+            case "--udid", "--device":
+                udid = try Self.value(after: arguments[index], in: arguments, index: &index)
+            case "--bundle-id":
+                bundleID = try Self.value(after: "--bundle-id", in: arguments, index: &index)
             case "--test-id":
                 selector = .testID(try Self.value(after: "--test-id", in: arguments, index: &index))
             case "--text":
@@ -62,7 +83,12 @@ struct WaitForOptions {
                 keyPath = try Self.value(after: "--key", in: arguments, index: &index)
             case "--equals":
                 expectedValue = try Self.value(after: "--equals", in: arguments, index: &index)
+            case "--output":
+                outputURL = URL(fileURLWithPath: try Self.value(after: "--output", in: arguments, index: &index))
             default:
+                if case .value = mode, !arguments[index].hasPrefix("--") {
+                    throw CLIError("wait-for-value expects --key <path> --equals <value>; example: loupe wait-for-value --test-id example.status --key text --equals Done")
+                }
                 throw CLIError("Unknown wait-for option: \(arguments[index])")
             }
             index += 1
@@ -72,7 +98,7 @@ struct WaitForOptions {
             throw CLIError("wait-for requires --test-id, --text, --role, or --ref")
         }
         if case .value = mode, (keyPath == nil || expectedValue == nil) {
-            throw CLIError("wait-for-value requires --key <path> and --equals <value>")
+            throw CLIError("wait-for-value requires --key <path> and --equals <value>; example: loupe wait-for-value --test-id example.status --key text --equals Done")
         }
         guard timeout > 0 else {
             throw CLIError("--timeout must be greater than 0")

@@ -10,6 +10,7 @@ struct LoupeTraceSummary: Codable {
     var target: ActionTargetTrace?
     var error: String?
     var diff: LoupeSnapshotDiff?
+    var batchMutation: BatchMutationResult?
     var newLogs: [LoupeRuntimeLog]
     var failureLogs: [LoupeRuntimeLog]
     var targetCropPath: String?

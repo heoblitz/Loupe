@@ -21,6 +21,11 @@ struct LoupeCLI {
         var arguments = Array(CommandLine.arguments.dropFirst())
         let command = arguments.isEmpty ? "help" : arguments.removeFirst()
 
+        if arguments.contains("--help") || arguments.contains("-h") {
+            printCommandHelp(command)
+            return
+        }
+
         switch command {
         case "accessibility":
             try accessibility(arguments)
@@ -58,6 +63,8 @@ struct LoupeCLI {
             try await runtimeFetch(arguments, path: "/runtime", usage: "loupe runtime [--host <url>] [--udid <sim>] [--output <path>]")
         case "mutations":
             try await mutations(arguments)
+        case "set-many":
+            try await setMany(arguments)
         case "set", "mutate":
             try await set(arguments)
         case "set-constraint":
@@ -203,7 +210,12 @@ struct LoupeCLI {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        FileHandle.standardOutput.write(try encoder.encode(inspection))
+        let inspectionData = try encoder.encode(inspection)
+        if let fields = options.fields {
+            FileHandle.standardOutput.write(try filteredInspectionData(inspectionData, fields: fields))
+        } else {
+            FileHandle.standardOutput.write(inspectionData)
+        }
         FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
@@ -317,7 +329,7 @@ struct LoupeCLI {
             return
         }
 
-        print(renderSnapshotDiff(summary, limit: options.limit))
+        print(renderSnapshotDiff(summary, limit: options.limit, changedOnly: options.changedOnly))
     }
 
     private static func traceSummary(_ arguments: [String]) throws {
@@ -619,6 +631,7 @@ struct LoupeCLI {
 
         if let outputURL = options.outputURL {
             try data.write(to: outputURL)
+            FileHandle.standardError.write(Data("wrote \(outputURL.path)\n".utf8))
         } else {
             FileHandle.standardOutput.write(data)
             FileHandle.standardOutput.write(Data("\n".utf8))
@@ -653,8 +666,8 @@ struct LoupeCLI {
               compare-design <snapshot.json> <design.json> [--json]
                   Compare a Loupe snapshot against an exported Figma-style design JSON.
 
-              diff <before-snapshot.json> <after-snapshot.json> [--json] [--limit <n>]
-                  Summarize appeared, disappeared, changed value/text/state, and moved nodes.
+              diff <before-snapshot.json> <after-snapshot.json> [--json] [--changed-only] [--limit <n>]
+                  Compare snapshots. Use --changed-only to keep verification output compact.
 
               doctor
                   Check local Loupe installation and injector discovery.
@@ -677,7 +690,7 @@ struct LoupeCLI {
               injector-path
                   Print the LoupeInjector executable path used for simulator injection.
 
-              inspect <snapshot.json> (--test-id <id> | --ref <ref> | --text <text> | --role <role>)
+              inspect <snapshot.json> (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--fields node,parent,children,siblings]
                   Print one full node plus parent, sibling, and child summaries.
 
               subtree <snapshot.json> (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--depth <n>]
@@ -701,7 +714,7 @@ struct LoupeCLI {
               query [snapshot.json] (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--bundle-id <id>] [--tree view|accessibility]
                   Query a full snapshot view tree or derived accessibility tree.
 
-              set (--test-id <id> | --ref <ref>) <property> <value> [--udid <sim>] [--bundle-id <id>]
+              set (--test-id <id> | --ref <ref>) <property> <value> [--udid <sim>] [--bundle-id <id>] [--output <path>]
                   Mutate a supported UIKit view property through the injected runtime.
 
               set --list | mutations [--host <url>] [--udid <sim>] [--bundle-id <id>]
@@ -710,19 +723,22 @@ struct LoupeCLI {
               mutations (--ref <ref> | --text <text> | --test-id <id>)
                   Print mutation properties that are useful for one matched node.
 
+              set-many (--refs <refs> | --type-name <name> | --role <role>) <property> (--value <value> | --number <n> | --bool <bool> | --color <color> | --colors <colors>)
+                  Apply one property to multiple runtime nodes and write before/after/diff artifacts.
+
               reflect <mutation-response.json> --source <dir> [--output <path>]
                   Summarize a runtime mutation with hierarchy context and source candidates.
 
-              wait-for-visible (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>]
+              wait-for-visible (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]
                   Poll /snapshot until a visible node matches.
 
-              wait-for-gone (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>]
+              wait-for-gone (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>] [--udid <sim>] [--bundle-id <id>]
                   Poll until a visible node no longer matches.
 
-              wait-for-value (--test-id <id> | --ref <ref>) --key <path> --equals <value> [--host <url>]
+              wait-for-value (--test-id <id> | --ref <ref>) --key <path> --equals <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]
                   Poll until an inspected node property matches.
 
-              launch --bundle-id <id> [--device booted] [--inject] [--dylib <path>] [--env KEY=VALUE]
+              launch --bundle-id <id> [--device booted|--udid <sim>] [--inject] [--dylib <path>] [--env KEY=VALUE]
                   Launch an iOS Simulator app through simctl. --inject auto-resolves LoupeInjector.
 
               tap (--test-id <id> | --ref <ref> | --x <n> --y <n>) --udid <sim> [--expect-visible <testID>]
@@ -743,13 +759,75 @@ struct LoupeCLI {
               skills install [--target all|codex|claude] [--source <skills/loupe>]
                   Upsert the Loupe skill into existing Codex or Claude Code skill folders.
 
-              start --bundle-id <id> [--device booted] [--port <port>] [--env KEY=VALUE]
+              start --bundle-id <id> [--device booted|--udid <sim>] [--port <port>] [--env KEY=VALUE]
                   Launch and inject the app so the in-app Loupe runtime server starts.
 
               runtime [--host <url>] [--udid <sim>] [--output <path>] [--timeout <seconds>]
                   Fetch injected SDK runtime identity and logs.
             """
         )
+    }
+
+    private static func printCommandHelp(_ command: String) {
+        if let usage = commandUsage(command) {
+            print(usage)
+        } else {
+            printHelp()
+        }
+    }
+
+    private static func commandUsage(_ command: String) -> String? {
+        switch command {
+        case "start":
+            return """
+            Usage: loupe start --bundle-id <id> [--device <sim>|--udid <sim>] [--port <port>] [--env KEY=VALUE] [--timeout <seconds>]
+
+            Launch and inject an iOS Simulator app so the in-app Loupe runtime starts.
+            --device and --udid accept a simulator UDID, simulator name, or booted.
+            """
+        case "launch":
+            return """
+            Usage: loupe launch --bundle-id <id> [--device <sim>|--udid <sim>] [--inject] [--dylib <path>] [--env KEY=VALUE] [--timeout <seconds>]
+
+            Launch an iOS Simulator app through simctl. Use --inject to auto-resolve LoupeInjector.
+            """
+        case "set-many":
+            return BatchMutationOptions.usage
+        case "set", "mutate":
+            return MutationSetOptions.usage
+        case "diff":
+            return "Usage: loupe diff <before-snapshot.json> <after-snapshot.json> [--json] [--changed-only] [--limit <n>]"
+        case "trace-summary":
+            return "Usage: loupe trace-summary <trace-dir> [--json] [--limit <n>]"
+        case "wait-for-visible":
+            return "Usage: loupe wait-for-visible (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]"
+        case "wait-for-gone":
+            return "Usage: loupe wait-for-gone (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--timeout <seconds>]"
+        case "wait-for-value":
+            return "Usage: loupe wait-for-value (--test-id <id> | --ref <ref>) --key <path> --equals <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]"
+        case "tree":
+            return """
+            Usage: loupe tree [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--view|--accessibility] [--depth <n>]
+                   loupe tree --interesting|--visible-leaves|--text|--mutable
+
+            Print a human-readable tree. Use --mutable to discover refs likely useful for runtime mutation.
+            """
+        case "text-map":
+            return "Usage: loupe text-map [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--accessibility]"
+        case "runtimes", "apps":
+            return "Usage: loupe runtimes [--json] [--timeout <seconds>]"
+        case "mutations":
+            return """
+            Usage: loupe mutations [--host <url>] [--udid <sim>] [--bundle-id <id>]
+                   loupe mutations (--ref <ref> | --text <text> | --test-id <id>)
+
+            List runtime mutation capabilities globally or for one matched node.
+            """
+        case "current":
+            return "Usage: loupe current [--json] [--timeout <seconds>]"
+        default:
+            return nil
+        }
     }
 
     private static func mutations(_ arguments: [String]) async throws {
@@ -869,7 +947,95 @@ struct LoupeCLI {
             let body = String(decoding: data, as: UTF8.self)
             throw CLIError("mutation failed with HTTP \(httpResponse.statusCode): \(body)")
         }
+        if options.outputURL != nil,
+           let mutation = try? JSONDecoder().decode(LoupeMutationResponse.self, from: data) {
+            FileHandle.standardError.write(Data((renderMutationSummary(mutation, outputURL: options.outputURL) + "\n").utf8))
+        }
         try write(data: data, outputURL: options.outputURL)
+    }
+
+    private static func setMany(_ arguments: [String]) async throws {
+        let startedAt = Date()
+        let options = try BatchMutationOptions(arguments)
+        let host = try await resolvedRuntimeHost(
+            requestedHost: options.host,
+            hostWasExplicit: options.hostWasExplicit,
+            udid: options.udid,
+            bundleID: options.bundleID
+        )
+        if let udid = options.udid {
+            try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
+        }
+
+        try FileManager.default.createDirectory(at: options.traceDirectory, withIntermediateDirectories: true)
+        let prevURL = options.traceDirectory.appendingPathComponent("prev-snapshot.json")
+        let nextURL = options.traceDirectory.appendingPathComponent("next-snapshot.json")
+        let diffURL = options.traceDirectory.appendingPathComponent("diff.json")
+        let targetsURL = options.traceDirectory.appendingPathComponent("targets.json")
+
+        let before = try await fetchSnapshot(host: host, timeout: options.timeout)
+        try writeSnapshot(before, to: prevURL)
+        let plan = BatchMutationPlanner.makePlan(snapshot: before, options: options)
+        guard !plan.isEmpty else {
+            throw CLIError("set-many found no matching nodes for \(options.selectorDescription)")
+        }
+
+        var mutationResponses: [LoupeMutationResponse] = []
+        for target in plan {
+            for ref in target.mutationRefs {
+                let request = LoupeMutationRequest(
+                    selector: LoupeMutationSelector(kind: .ref, value: ref),
+                    property: options.property!,
+                    value: target.value,
+                    layout: true,
+                    animation: options.animation
+                )
+                mutationResponses.append(try await postMutation(request, host: host, timeout: options.timeout))
+            }
+        }
+
+        let after = try await fetchSnapshot(host: host, timeout: options.timeout)
+        try writeSnapshot(after, to: nextURL)
+        let diff = snapshotDiff(before: before, after: after)
+        let encoder = makeLoupeJSONEncoder()
+        try encoder.encode(diff).write(to: diffURL)
+
+        let targets = plan.map { target in
+            BatchMutationTargetResult(
+                targetRef: target.targetRef,
+                mutationRefs: target.mutationRefs,
+                frame: target.frame,
+                verified: batchMutationVerified(target, after: after, property: options.property!, responses: mutationResponses)
+            )
+        }
+        try encoder.encode(targets).write(to: targetsURL)
+        let verifiedCells = targets.filter(\.verified).count
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let result = BatchMutationResult(
+            host: host.absoluteString,
+            elapsedMs: elapsedMs,
+            selector: options.selectorDescription,
+            property: options.property!,
+            valueSequence: options.valueLabel,
+            visibleOnly: options.visibleOnly,
+            yRange: options.yRange.map { "\($0.lowerBound),\($0.upperBound)" },
+            matchedTargets: plan.count,
+            mutationRequests: mutationResponses.count,
+            changedMutations: mutationResponses.filter { $0.changed ?? true }.count,
+            verifiedTargets: verifiedCells,
+            accuracy: plan.isEmpty ? 0 : Double(verifiedCells) / Double(plan.count),
+            prevSnapshot: prevURL.path,
+            nextSnapshot: nextURL.path,
+            diff: diffURL.path,
+            targets: targetsURL.path,
+            traceDirectory: options.traceDirectory.path,
+        )
+        let resultData = try encoder.encode(result)
+        try resultData.write(to: options.traceDirectory.appendingPathComponent("summary.json"))
+        if options.outputURL != nil {
+            FileHandle.standardError.write(Data((renderBatchMutationSummary(result) + "\n").utf8))
+        }
+        try write(data: resultData, outputURL: options.outputURL)
     }
 
     private static func mutateConstraint(_ arguments: [String], deactivate: Bool) async throws {
@@ -1040,12 +1206,21 @@ struct LoupeCLI {
 
     private static func waitFor(_ arguments: [String], mode: WaitMode) async throws {
         let options = try WaitForOptions(arguments, mode: mode)
+        let host = try await resolvedRuntimeHost(
+            requestedHost: options.host,
+            hostWasExplicit: options.hostWasExplicit,
+            udid: options.udid,
+            bundleID: options.bundleID
+        )
+        if let udid = options.udid {
+            try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
+        }
         let deadline = Date().addingTimeInterval(options.timeout)
 
         while true {
-            let snapshot = try await fetchSnapshot(host: options.host, timeout: min(3, options.timeout))
+            let snapshot = try await fetchSnapshot(host: host, timeout: min(3, options.timeout))
             let accessibilityTree = try await fetchAccessibilityTree(
-                host: options.host,
+                host: host,
                 fallbackSnapshot: snapshot,
                 timeout: min(3, options.timeout)
             )
@@ -1065,15 +1240,27 @@ struct LoupeCLI {
                 if let result = accessibilityResult {
                     let encoder = JSONEncoder()
                     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                    FileHandle.standardOutput.write(try encoder.encode(result))
-                    FileHandle.standardOutput.write(Data("\n".utf8))
+                    let data = try encoder.encode(result)
+                    if let outputURL = options.outputURL {
+                        FileHandle.standardError.write(Data("wait-for-visible matched accessibility ref=\(result.ref) output=\(outputURL.path)\n".utf8))
+                        try write(data: data, outputURL: outputURL)
+                    } else {
+                        FileHandle.standardOutput.write(data)
+                        FileHandle.standardOutput.write(Data("\n".utf8))
+                    }
                     return
                 }
                 if let result = viewResult {
                     let encoder = JSONEncoder()
                     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                    FileHandle.standardOutput.write(try encoder.encode(result))
-                    FileHandle.standardOutput.write(Data("\n".utf8))
+                    let data = try encoder.encode(result)
+                    if let outputURL = options.outputURL {
+                        FileHandle.standardError.write(Data("wait-for-visible matched view ref=\(result.ref) output=\(outputURL.path)\n".utf8))
+                        try write(data: data, outputURL: outputURL)
+                    } else {
+                        FileHandle.standardOutput.write(data)
+                        FileHandle.standardOutput.write(Data("\n".utf8))
+                    }
                     return
                 }
             case .gone:
@@ -1090,8 +1277,14 @@ struct LoupeCLI {
                    valueMatches(value, expected: expectedValue) {
                     let encoder = JSONEncoder()
                     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                    FileHandle.standardOutput.write(try encoder.encode(node))
-                    FileHandle.standardOutput.write(Data("\n".utf8))
+                    let data = try encoder.encode(node)
+                    if let outputURL = options.outputURL {
+                        FileHandle.standardError.write(Data((renderWaitForValueSummary(node: node, keyPath: keyPath, value: value, outputURL: outputURL) + "\n").utf8))
+                        try write(data: data, outputURL: outputURL)
+                    } else {
+                        FileHandle.standardOutput.write(data)
+                        FileHandle.standardOutput.write(Data("\n".utf8))
+                    }
                     return
                 }
             }
@@ -1114,6 +1307,7 @@ struct LoupeCLI {
     private static func expectVisible(_ testID: String, host: URL, timeout: TimeInterval) async throws {
         let options = WaitForOptions(
             host: host,
+            hostWasExplicit: true,
             selector: .testID(testID),
             timeout: timeout,
             interval: 0.25,
@@ -1313,6 +1507,127 @@ struct LoupeCLI {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(LoupeSnapshot.self, from: data)
+    }
+
+    private static func postMutation(
+        _ mutation: LoupeMutationRequest,
+        host: URL,
+        timeout: TimeInterval
+    ) async throws -> LoupeMutationResponse {
+        let body = try makeLoupeJSONEncoder().encode(mutation)
+        var request = URLRequest(url: host.appendingPathComponent("mutate"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let (data, response) = try await httpData(for: request, timeout: timeout, label: "mutation")
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CLIError("mutation expected an HTTP response")
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let body = String(decoding: data, as: UTF8.self)
+            throw CLIError("mutation failed with HTTP \(httpResponse.statusCode): \(body)")
+        }
+        return try JSONDecoder().decode(LoupeMutationResponse.self, from: data)
+    }
+
+    private static func writeSnapshot(_ snapshot: LoupeSnapshot, to url: URL) throws {
+        try makeLoupeJSONEncoder().encode(snapshot).write(to: url)
+    }
+
+    private static func filteredInspectionData(_ data: Data, fields: Set<String>) throws -> Data {
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return data
+        }
+        object = object.filter { fields.contains($0.key) }
+        return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    private static func makeLoupeJSONEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+
+    private static func colorsMatch(_ lhs: LoupeColor, _ rhs: LoupeColor, tolerance: Double = 0.01) -> Bool {
+        abs(lhs.red - rhs.red) <= tolerance
+            && abs(lhs.green - rhs.green) <= tolerance
+            && abs(lhs.blue - rhs.blue) <= tolerance
+            && abs(lhs.alpha - rhs.alpha) <= tolerance
+    }
+
+    private static func batchMutationVerified(
+        _ target: BatchMutationPlan,
+        after: LoupeSnapshot,
+        property: String,
+        responses: [LoupeMutationResponse]
+    ) -> Bool {
+        let normalizedProperty = normalizedCLIProperty(property)
+        let snapshotVerified = target.mutationRefs.contains { ref in
+            guard let node = after.nodes[ref],
+                  let actual = snapshotMutationValue(property: normalizedProperty, node: node) else {
+                return false
+            }
+            return mutationValuesMatch(actual, target.value)
+        }
+        if snapshotVerified {
+            return true
+        }
+
+        return target.mutationRefs.contains { ref in
+            responses.contains { response in
+                response.target.ref == ref && (response.changed ?? true)
+            }
+        }
+    }
+
+    private static func snapshotMutationValue(property: String, node: LoupeNode) -> LoupeMutationValue? {
+        switch property {
+        case "backgroundcolor", "stylebackgroundcolor":
+            return node.style?.backgroundColor.map(LoupeMutationValue.color)
+        case "alpha", "stylealpha", "uikitalpha":
+            return node.style?.alpha.map(LoupeMutationValue.double)
+        case "hidden", "ishidden", "uikitishidden":
+            return .bool(!node.isVisible)
+        case "frame":
+            return node.frame.map(LoupeMutationValue.rect)
+        default:
+            return nil
+        }
+    }
+
+    private static func mutationValuesMatch(_ lhs: LoupeMutationValue, _ rhs: LoupeMutationValue, tolerance: Double = 0.01) -> Bool {
+        switch (lhs, rhs) {
+        case let (.bool(lhs), .bool(rhs)):
+            return lhs == rhs
+        case let (.int(lhs), .int(rhs)):
+            return lhs == rhs
+        case let (.double(lhs), .double(rhs)):
+            return abs(lhs - rhs) <= tolerance
+        case let (.int(lhs), .double(rhs)):
+            return abs(Double(lhs) - rhs) <= tolerance
+        case let (.double(lhs), .int(rhs)):
+            return abs(lhs - Double(rhs)) <= tolerance
+        case let (.string(lhs), .string(rhs)):
+            return lhs == rhs
+        case let (.color(lhs), .color(rhs)):
+            return colorsMatch(lhs, rhs, tolerance: tolerance)
+        case let (.rect(lhs), .rect(rhs)):
+            return abs(lhs.x - rhs.x) <= tolerance
+                && abs(lhs.y - rhs.y) <= tolerance
+                && abs(lhs.width - rhs.width) <= tolerance
+                && abs(lhs.height - rhs.height) <= tolerance
+        default:
+            return false
+        }
+    }
+
+    private static func normalizedCLIProperty(_ property: String) -> String {
+        property
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
     }
 
     private static func fetchAccessibilityTree(
@@ -1941,6 +2256,7 @@ struct LoupeCLI {
     static func write(data: Data, outputURL: URL?) throws {
         if let outputURL {
             try data.write(to: outputURL)
+            FileHandle.standardError.write(Data("wrote \(outputURL.path)\n".utf8))
         } else {
             FileHandle.standardOutput.write(data)
             FileHandle.standardOutput.write(Data("\n".utf8))
@@ -1953,7 +2269,7 @@ struct LoupeCLI {
         return try decoder.decode(LoupeSnapshot.self, from: Data(contentsOf: url))
     }
 
-    private static func snapshotDiff(before: LoupeSnapshot, after: LoupeSnapshot) -> LoupeSnapshotDiff {
+    static func snapshotDiff(before: LoupeSnapshot, after: LoupeSnapshot) -> LoupeSnapshotDiff {
         let beforeIndex = indexedNodes(before)
         let afterIndex = indexedNodes(after)
         let beforeKeys = Set(beforeIndex.keys)
@@ -2047,6 +2363,14 @@ struct LoupeCLI {
         appendChange("isEnabled", before.isEnabled, after.isEnabled, to: &changes)
         appendChange("isInteractive", before.isInteractive, after.isInteractive, to: &changes)
         appendChange("frame", before.frame.map(rectSummary), after.frame.map(rectSummary), to: &changes)
+        appendChange("style.alpha", before.style?.alpha, after.style?.alpha, to: &changes)
+        appendChange("style.backgroundColor", before.style?.backgroundColor.map(colorSummary), after.style?.backgroundColor.map(colorSummary), to: &changes)
+        appendChange("style.textColor", before.style?.textColor.map(colorSummary), after.style?.textColor.map(colorSummary), to: &changes)
+        appendChange("style.borderColor", before.style?.borderColor.map(colorSummary), after.style?.borderColor.map(colorSummary), to: &changes)
+        appendChange("style.borderWidth", before.style?.borderWidth, after.style?.borderWidth, to: &changes)
+        appendChange("style.cornerRadius", before.style?.cornerRadius, after.style?.cornerRadius, to: &changes)
+        appendChange("style.fontName", before.style?.fontName, after.style?.fontName, to: &changes)
+        appendChange("style.fontSize", before.style?.fontSize, after.style?.fontSize, to: &changes)
         appendChange("uiKit.switch.isOn", before.uiKit?.switchControl?.isOn, after.uiKit?.switchControl?.isOn, to: &changes)
         appendChange("uiKit.segmentedControl.selectedSegmentIndex", before.uiKit?.segmentedControl?.selectedSegmentIndex, after.uiKit?.segmentedControl?.selectedSegmentIndex, to: &changes)
         appendChange("uiKit.slider.value", before.uiKit?.slider?.value, after.uiKit?.slider?.value, to: &changes)
@@ -2074,14 +2398,20 @@ struct LoupeCLI {
         )
     }
 
-    private static func renderSnapshotDiff(_ diff: LoupeSnapshotDiff, limit: Int) -> String {
+    private static func colorSummary(_ color: LoupeColor) -> String {
+        "rgba(\(format(color.red)),\(format(color.green)),\(format(color.blue)),\(format(color.alpha)))"
+    }
+
+    private static func renderSnapshotDiff(_ diff: LoupeSnapshotDiff, limit: Int, changedOnly: Bool = false) -> String {
         var lines: [String] = [
             "diff \(diff.beforeSnapshotID) -> \(diff.afterSnapshotID)",
             "appeared=\(diff.appeared.count) disappeared=\(diff.disappeared.count) changed=\(diff.changed.count)",
         ]
 
-        appendSection("appeared", diff.appeared.prefix(limit).map(renderDiffNode), to: &lines)
-        appendSection("disappeared", diff.disappeared.prefix(limit).map(renderDiffNode), to: &lines)
+        if !changedOnly {
+            appendSection("appeared", diff.appeared.prefix(limit).map(renderDiffNode), to: &lines)
+            appendSection("disappeared", diff.disappeared.prefix(limit).map(renderDiffNode), to: &lines)
+        }
         appendSection("changed", diff.changed.prefix(limit).map(renderNodeChange), to: &lines)
         return lines.joined(separator: "\n")
     }
@@ -2120,6 +2450,7 @@ struct LoupeCLI {
         let afterAction = try readJSONIfExists(LoupeCLIActionTrace.self, directory.appendingPathComponent("action-after.json"))
         let failureAction = try readJSONIfExists(LoupeCLIActionTrace.self, directory.appendingPathComponent("action-failure.json"))
         let error = try readJSONIfExists(LoupeCLIActionErrorTrace.self, directory.appendingPathComponent("error.json"))
+        let batchMutation = try readJSONIfExists(BatchMutationResult.self, directory.appendingPathComponent("summary.json"))
 
         let beforeLogs = (try readJSONIfExists([LoupeRuntimeLog].self, directory.appendingPathComponent("before-logs.json"))) ?? []
         let afterLogs = (try readJSONIfExists([LoupeRuntimeLog].self, directory.appendingPathComponent("after-logs.json"))) ?? []
@@ -2128,11 +2459,16 @@ struct LoupeCLI {
             !beforeLogs.contains(where: { $0.id == afterLog.id })
         }
 
-        let beforeSnapshotURL = directory.appendingPathComponent("before-snapshot.json")
-        let afterSnapshotURL = directory.appendingPathComponent("after-snapshot.json")
+        let beforeSnapshotURL = existingTraceFile(
+            in: directory,
+            names: ["before-snapshot.json", "prev-snapshot.json"]
+        )
+        let afterSnapshotURL = existingTraceFile(
+            in: directory,
+            names: ["after-snapshot.json", "next-snapshot.json"]
+        )
         let diff: LoupeSnapshotDiff?
-        if FileManager.default.fileExists(atPath: beforeSnapshotURL.path),
-           FileManager.default.fileExists(atPath: afterSnapshotURL.path) {
+        if let beforeSnapshotURL, let afterSnapshotURL {
             diff = try snapshotDiff(before: decodeSnapshot(from: beforeSnapshotURL), after: decodeSnapshot(from: afterSnapshotURL))
         } else {
             diff = nil
@@ -2141,16 +2477,23 @@ struct LoupeCLI {
         let cropURL = directory.appendingPathComponent("target-crop.png")
         return LoupeTraceSummary(
             directory: directory.path,
-            command: afterAction?.command ?? failureAction?.command ?? targetAction?.command ?? beforeAction?.command,
-            phase: error == nil ? (afterAction?.phase ?? targetAction?.phase ?? beforeAction?.phase) : "failure",
-            selector: afterAction?.selector ?? failureAction?.selector ?? targetAction?.selector ?? beforeAction?.selector,
+            command: afterAction?.command ?? failureAction?.command ?? targetAction?.command ?? beforeAction?.command ?? (batchMutation == nil ? nil : "set-many"),
+            phase: error == nil ? (afterAction?.phase ?? targetAction?.phase ?? beforeAction?.phase ?? (batchMutation == nil ? nil : "after")) : "failure",
+            selector: afterAction?.selector ?? failureAction?.selector ?? targetAction?.selector ?? beforeAction?.selector ?? batchMutation?.selector,
             target: afterAction?.resolvedTarget ?? failureAction?.resolvedTarget ?? targetAction?.resolvedTarget,
             error: error?.message,
             diff: diff,
+            batchMutation: batchMutation,
             newLogs: newLogs,
             failureLogs: failureLogs,
             targetCropPath: FileManager.default.fileExists(atPath: cropURL.path) ? cropURL.path : nil
         )
+    }
+
+    private static func existingTraceFile(in directory: URL, names: [String]) -> URL? {
+        names
+            .map { directory.appendingPathComponent($0) }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private static func readJSONIfExists<T: Decodable>(_ type: T.Type, _ url: URL) throws -> T? {
@@ -2176,6 +2519,10 @@ struct LoupeCLI {
         if let error = summary.error {
             lines.append("error=\(error)")
         }
+        if let batchMutation = summary.batchMutation {
+            lines.append("set-many matched=\(batchMutation.matchedTargets) mutations=\(batchMutation.mutationRequests) verified=\(batchMutation.verifiedTargets) accuracy=\(format(batchMutation.accuracy))")
+            lines.append("artifacts prev=\(batchMutation.prevSnapshot) next=\(batchMutation.nextSnapshot) targets=\(batchMutation.targets)")
+        }
         if let diff = summary.diff {
             lines.append("")
             lines.append(renderSnapshotDiff(diff, limit: limit))
@@ -2189,6 +2536,56 @@ struct LoupeCLI {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func renderBatchMutationSummary(_ result: BatchMutationResult) -> String {
+        [
+            "set-many matched=\(result.matchedTargets)",
+            "mutations=\(result.mutationRequests)",
+            "verified=\(result.verifiedTargets)",
+            "accuracy=\(format(result.accuracy))",
+            "summary=\(result.traceDirectory)/summary.json",
+            "trace=\(result.traceDirectory)",
+        ].joined(separator: " ")
+    }
+
+    private static func renderMutationSummary(_ response: LoupeMutationResponse, outputURL: URL?) -> String {
+        [
+            "set ref=\(response.target.ref)",
+            "property=\(response.property)",
+            "changed=\(response.changed.map { $0 ? "true" : "false" } ?? "unknown")",
+            response.warning.map { "warning=\"\($0)\"" },
+            outputURL.map { "output=\($0.path)" },
+        ].compactMap(\.self).joined(separator: " ")
+    }
+
+    private static func renderWaitForValueSummary(
+        node: LoupeNode,
+        keyPath: String,
+        value: Any,
+        outputURL: URL
+    ) -> String {
+        [
+            "wait-for-value matched ref=\(node.ref)",
+            node.testID.map { "testID=\($0)" },
+            displayText(node).map { "text=\"\($0)\"" },
+            "key=\(keyPath)",
+            "value=\(jsonValueSummary(value))",
+            "output=\(outputURL.path)",
+        ].compactMap(\.self).joined(separator: " ")
+    }
+
+    private static func jsonValueSummary(_ value: Any) -> String {
+        if let string = value as? String {
+            return "\"\(string)\""
+        }
+        if let number = value as? NSNumber {
+            return String(describing: number)
+        }
+        if let bool = value as? Bool {
+            return bool ? "true" : "false"
+        }
+        return String(describing: value)
     }
 
     private static func renderDesignComparison(_ comparison: LoupeDesignComparison, limit: Int) -> String {
@@ -2664,7 +3061,7 @@ struct LoupeCLI {
         if node.uiKit?.pickerView != nil || node.role == "pickerView" {
             properties += ["pickerView.selectedRow"]
         }
-        if node.role == "scrollView" {
+        if node.uiKit?.scrollView != nil || node.role == "scrollView" {
             properties += ["contentOffset", "contentSize", "contentInset", "scrollEnabled", "pagingEnabled"]
         }
         if node.uiKit?.stackView != nil || (node.uiKit?.className ?? node.typeName) == "UIStackView" {

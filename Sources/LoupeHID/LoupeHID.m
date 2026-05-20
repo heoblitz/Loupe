@@ -74,6 +74,8 @@ static int const LoupeHIDEventTypeTouch = 2;
 static int const LoupeHIDTouchEventKind = 0x0b;
 static int const LoupeHIDDigitizerTarget = 0x32;
 
+static NSString *LoupeDeveloperDir(void);
+
 static void LoupeHIDSetError(char **errorMessage, NSString *message)
 {
     if (errorMessage == NULL) {
@@ -84,11 +86,37 @@ static void LoupeHIDSetError(char **errorMessage, NSString *message)
 
 static NSString *LoupeSimulatorKitPath(void)
 {
-    NSString *developerDir = [NSProcessInfo processInfo].environment[@"DEVELOPER_DIR"];
-    if (developerDir.length == 0) {
-        developerDir = @"/Applications/Xcode.app/Contents/Developer";
-    }
+    NSString *developerDir = LoupeDeveloperDir();
     return [developerDir stringByAppendingPathComponent:@"Library/PrivateFrameworks/SimulatorKit.framework"];
+}
+
+static NSString *LoupeDeveloperDir(void)
+{
+    NSString *environmentDeveloperDir = [NSProcessInfo processInfo].environment[@"DEVELOPER_DIR"];
+    if (environmentDeveloperDir.length > 0) {
+        return environmentDeveloperDir;
+    }
+
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/xcode-select"];
+    task.arguments = @[@"-p"];
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+    task.standardError = [NSPipe pipe];
+
+    if ([task launchAndReturnError:nil]) {
+        [task waitUntilExit];
+        if (task.terminationStatus == 0) {
+            NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+            NSString *path = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            path = [path stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (path.length > 0) {
+                return path;
+            }
+        }
+    }
+
+    return @"/Applications/Xcode.app/Contents/Developer";
 }
 
 void LoupeHIDFreeCString(char *string)

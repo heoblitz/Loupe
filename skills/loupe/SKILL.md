@@ -51,7 +51,7 @@ loupe query /tmp/loupe-snapshot.json --tree accessibility --test-id checkout.pay
 loupe inspect /tmp/loupe-snapshot.json --test-id checkout.payButton
 loupe subtree /tmp/loupe-snapshot.json --test-id checkout.form --depth 3
 loupe audit /tmp/loupe-snapshot.json
-loupe wait-for-visible --test-id checkout.payButton --timeout 5
+loupe wait-for-visible --test-id checkout.payButton --timeout 5 --output /tmp/loupe-visible.json
 ```
 
 Use compact observation for LLM context. It carries UIKit type/class identity for
@@ -82,11 +82,12 @@ loupe inspect /tmp/loupe-snapshot.json --test-id target.id
 loupe mutations --ref n21
 loupe tap --test-id target.id --udid booted --trace-dir /tmp/loupe-trace --expect-visible next.id
 loupe trace-summary /tmp/loupe-trace
-loupe diff /tmp/loupe-trace/before-snapshot.json /tmp/loupe-trace/after-snapshot.json
+loupe diff /tmp/loupe-trace/before-snapshot.json /tmp/loupe-trace/after-snapshot.json --changed-only
 loupe audit /tmp/loupe-trace/after-snapshot.json
 loupe compare-design /tmp/loupe-trace/after-snapshot.json figma-export.json
 loupe set --list
 loupe set --test-id example.design.card backgroundColor --color '#ff3366' --output /tmp/loupe-set.json
+loupe wait-for-value --test-id example.design.card --key style.backgroundColor.red --equals 1 --output /tmp/loupe-wait.json
 loupe reflect /tmp/loupe-set.json --source ./Sources
 loupe cleanup --dry-run
 ```
@@ -106,6 +107,9 @@ loupe current
 Prefer `--bundle-id <id>` on `tree`, `query`, `set`, and `mutations` when the
 target app is known. Do not keep retrying the default `http://127.0.0.1:8765`
 after a timeout if `loupe runtimes` shows the app on another host.
+`wait-for-visible`, `wait-for-gone`, and `wait-for-value` also use the current
+runtime selection; pass `--bundle-id`, `--udid`, or `--host` only when you need
+to override it.
 
 For deep system apps, a low depth can show only containers. If `--depth 3`
 only shows container nodes, retry depth 6-8, or switch to:
@@ -188,6 +192,7 @@ loupe set --udid <UDID> --test-id example.components.label text "Runtime edited"
 loupe set --udid <UDID> --test-id example.design.card backgroundColor --color '#ff3366'
 loupe set --udid <UDID> --test-id example.design.card frame --rect 20,120,220,80
 loupe set --udid <UDID> --test-id example.design.card frame --rect 20,120,220,80 --no-animate
+loupe set-many --udid <UDID> --refs n21,n22 backgroundColor --colors FFE4E6_1 FFE8CC_1 --trace-dir /tmp/loupe-set-many
 loupe constraints --udid <UDID> --test-id example.design.card --json
 loupe set-constraint --udid <UDID> --id <constraint-id> constant 120
 loupe deactivate-constraint --udid <UDID> --id <constraint-id>
@@ -197,6 +202,10 @@ loupe reflect /tmp/loupe-set.json --source ./Sources
 
 Use `set` for developer-only UI iteration against the injected runtime. Prefer
 stable `testID` selectors; use `ref` only within the same observed screen.
+Use `--output <path>` when mutating from an agent loop so the CLI prints a short
+summary and keeps the full JSON in an artifact.
+Use `wait-for-value --key <path> --equals <value> --output <path>` for compact
+verification output; the full matched node is written to the artifact.
 Property mutations animate by default. Use `--no-animate` when the test or
 verification needs the immediate state.
 Use `constraints` before changing Auto Layout constraints, then read the

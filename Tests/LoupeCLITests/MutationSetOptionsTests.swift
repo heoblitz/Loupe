@@ -40,4 +40,14 @@ import Testing
         #expect(options.request.animation?.delay == 0.1)
         #expect(options.request.animation?.curve == "linear")
     }
+
+    @Test func numericTextValuesInferAsStrings() throws {
+        let options = try MutationSetOptions([
+            "--ref", "n20",
+            "text",
+            "20260519",
+        ])
+
+        #expect(options.request.value == .string("20260519"))
+    }
 }

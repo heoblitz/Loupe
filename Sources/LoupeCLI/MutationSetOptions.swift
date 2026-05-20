@@ -146,9 +146,10 @@ struct MutationSetOptions {
     }
 
     static let usage = """
-    Usage: loupe set (--test-id <id> | --ref <ref>) <property> <value> [--udid <sim>]
+    Usage: loupe set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]
            loupe set --test-id card.title text "New title"
            loupe set --test-id card backgroundColor --color '#ff3366'
+           loupe set --test-id card.title text "New title" --output /tmp/loupe-set.json
            loupe set --test-id card frame --rect 20,120,220,80
            loupe set --test-id card frame --rect 20,120,220,80 --duration 0.3
            loupe set --test-id card frame --rect 20,120,220,80 --no-animate
@@ -169,7 +170,7 @@ struct MutationSetOptions {
         case "string":
             return .string(rawValue)
         case "color":
-            return .color(try color(rawValue))
+            return .color(try CLIColorParser.color(rawValue))
         case "rect":
             return .rect(try rect(rawValue))
         case "point":
@@ -184,7 +185,10 @@ struct MutationSetOptions {
     private static func inferredMutationValue(_ rawValue: String, property: String) throws -> LoupeMutationValue {
         let normalized = property.lowercased()
         if normalized.contains("color") || rawValue.hasPrefix("#") {
-            return .color(try color(rawValue))
+            return .color(try CLIColorParser.color(rawValue))
+        }
+        if stringLikeProperty(normalized) {
+            return .string(rawValue)
         }
         if normalized == "frame" || normalized == "bounds" {
             return .rect(try rect(rawValue))
@@ -213,41 +217,23 @@ struct MutationSetOptions {
         return .string(rawValue)
     }
 
+    private static func stringLikeProperty(_ normalizedProperty: String) -> Bool {
+        normalizedProperty == "text"
+            || normalizedProperty.hasSuffix(".text")
+            || normalizedProperty == "label"
+            || normalizedProperty.hasSuffix(".label")
+            || normalizedProperty == "placeholder"
+            || normalizedProperty.hasSuffix(".placeholder")
+            || normalizedProperty == "accessibility.value"
+            || normalizedProperty == "accessibility.hint"
+            || normalizedProperty == "accessibility.identifier"
+            || normalizedProperty == "testid"
+    }
+
     private static func bool(_ rawValue: String) throws -> Bool {
         if ["true", "yes", "1"].contains(rawValue.lowercased()) { return true }
         if ["false", "no", "0"].contains(rawValue.lowercased()) { return false }
         throw CLIError("Expected boolean value: \(rawValue)")
-    }
-
-    private static func color(_ rawValue: String) throws -> LoupeColor {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("#") {
-            let hex = String(trimmed.dropFirst())
-            let expanded: String
-            if hex.count == 3 {
-                expanded = hex.map { "\($0)\($0)" }.joined()
-            } else {
-                expanded = hex
-            }
-            guard expanded.count == 6 || expanded.count == 8, let raw = UInt64(expanded, radix: 16) else {
-                throw CLIError("Expected color as #RGB, #RRGGBB, #RRGGBBAA, or r,g,b[,a]")
-            }
-            let hasAlpha = expanded.count == 8
-            let red = Double((raw >> (hasAlpha ? 24 : 16)) & 0xff) / 255
-            let green = Double((raw >> (hasAlpha ? 16 : 8)) & 0xff) / 255
-            let blue = Double((raw >> (hasAlpha ? 8 : 0)) & 0xff) / 255
-            let alpha = hasAlpha ? Double(raw & 0xff) / 255 : 1
-            return LoupeColor(red: red, green: green, blue: blue, alpha: alpha)
-        }
-
-        let values = try doubles(rawValue, expected: [3, 4], label: "color")
-        let divisor: Double = values.prefix(3).contains { $0 > 1 } ? 255 : 1
-        return LoupeColor(
-            red: values[0] / divisor,
-            green: values[1] / divisor,
-            blue: values[2] / divisor,
-            alpha: values.count == 4 ? values[3] : 1
-        )
     }
 
     private static func rect(_ rawValue: String) throws -> LoupeRect {
