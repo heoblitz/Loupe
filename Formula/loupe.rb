@@ -1,8 +1,8 @@
 class Loupe < Formula
   desc "iOS Simulator screen-context harness for UI automation agents"
   homepage "https://github.com/heoblitz/Loupe"
-  url "https://github.com/heoblitz/Loupe/archive/refs/tags/v0.1.2.tar.gz"
-  sha256 "8c2f2f350669234506167f8298ca9765fd0bfe5b83528cc62644c971e4f782ef"
+  url "https://github.com/heoblitz/Loupe/archive/refs/tags/v0.1.3.tar.gz"
+  sha256 "d59850f1240a687c3b1c2aa29b7d6957aaa54fc6c700d8790cb1185ccfcb0598"
   license "MIT"
   head "https://github.com/heoblitz/Loupe.git", branch: "main"
 
