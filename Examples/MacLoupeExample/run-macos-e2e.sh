@@ -16,6 +16,7 @@ ACCESSIBILITY_PATH="/tmp/loupe-macos-accessibility.json"
 LOGS_PATH="/tmp/loupe-macos-logs.json"
 NETWORK_PATH="/tmp/loupe-macos-network.json"
 REFS_PATH="/tmp/loupe-macos-refs.json"
+OBJECT_GRAPH_PATH="/tmp/loupe-macos-object-graph.json"
 FLAG_PATH="/tmp/loupe-macos-flag.json"
 FLAG_SET_PATH="/tmp/loupe-macos-flag-set.json"
 EMPTY_FLAG_PATH="/tmp/loupe-macos-empty-flag.json"
@@ -30,7 +31,7 @@ INSPECT_TITLE_PATH="/tmp/loupe-macos-inspect-title.json"
 INSPECT_EMPTY_PATH="/tmp/loupe-macos-inspect-empty.json"
 QUERY_PATH="/tmp/loupe-macos-query.json"
 
-rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$INSPECT_PATH" "$INSPECT_TITLE_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
+rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$INSPECT_PATH" "$INSPECT_TITLE_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
 
 LOUPE_PORT="$PORT" .build/debug/MacLoupeExample >"$APP_LOG" 2>&1 &
 APP_PID=$!
@@ -74,6 +75,7 @@ done
 .build/debug/loupe debug console --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
+.build/debug/loupe debug object-graph DeviceActuationService --host "$HOST" --output "$OBJECT_GRAPH_PATH" >/dev/null
 .build/debug/loupe state flags get mac-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
 .build/debug/loupe state flags set mac-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
 .build/debug/loupe state flags get mac-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
@@ -182,6 +184,18 @@ ruby -rjson -e '
 
   refs = JSON.parse(File.read(ARGV.fetch(8)))
   abort "missing macOS reference evidence" unless refs.any? { |entry| entry["owner"] == "MacWorkbenchController" && entry["target"] == "DeviceActuationService" }
+  abort "missing macOS weak reference evidence" unless refs.any? { |entry| entry["owner"] == "MacLegacyFlowCoordinator" && entry["target"] == "DeviceActuationService" && entry["kind"] == "weak" }
+
+  graph = JSON.parse(File.read(ARGV.fetch(18)))
+  abort "expected app-authored reference graph kind" unless graph["evidenceKind"] == "app-authored-reference-evidence"
+  abort "expected graph target" unless graph["target"] == "DeviceActuationService"
+  graph_owners = graph.fetch("owners").map { |entry| entry["owner"] }
+  abort "expected MacWorkbenchController owner in graph" unless graph_owners.include?("MacWorkbenchController")
+  abort "expected MacLegacyFlowCoordinator owner in graph" unless graph_owners.include?("MacLegacyFlowCoordinator")
+  abort "expected graph owner evidence ids" unless graph.fetch("owners").all? { |entry| entry["evidenceID"].is_a?(String) && !entry["evidenceID"].empty? }
+  abort "expected graph edge to DeviceActuationService" unless graph.fetch("edges").any? { |edge| edge["target"] == "DeviceActuationService" && edge["owner"] == "MacWorkbenchController" }
+  abort "expected graph edge evidence ids" unless graph.fetch("edges").all? { |edge| edge["evidenceID"].is_a?(String) && !edge["evidenceID"].empty? }
+  abort "expected graph node for DeviceActuationService" unless graph.fetch("nodes").any? { |node| node["name"] == "DeviceActuationService" && node["incomingCount"].to_i >= 2 }
 
   flag = JSON.parse(File.read(ARGV.fetch(5)))
   abort "expected mac-new-nav=false" unless flag.dig("value", "value") == false
@@ -218,7 +232,7 @@ ruby -rjson -e '
   abort "unexpected macOS dark contrast issues: #{bad_contrast.inspect}" unless bad_contrast.empty?
   bad_sentinel = audit.fetch("issues").select { |issue| issue["kind"] == "lowTextContrast" && issue["testID"] == "mac.example.dark.badContrast" }
   abort "expected macOS dark contrast sentinel issue" if bad_sentinel.empty?
-' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$INSPECT_TITLE_PATH" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$EMPTY_FLAG_PATH" "$PERF_PATH"
+' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$INSPECT_TITLE_PATH" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$EMPTY_FLAG_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH"
 
 echo "macOS example E2E passed"
 echo "snapshot: $SNAPSHOT_PATH"

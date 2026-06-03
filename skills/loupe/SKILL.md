@@ -90,6 +90,16 @@ loupe logs --bundle-id com.example.App --output "$REPORT/logs.json"
 
 Use `Notification.Name("dev.loupe.viewMetadata")` for scalar metadata on a
 UIKit view or stable `testID`, then verify with `loupe inspect`.
+Use `Loupe.recordReference(...)` or the `dev.loupe.reference` notification when
+the task needs ownership evidence, then answer owner questions with:
+
+```bash
+loupe debug object-graph DeviceActuationService --host <runtime-host> --output /tmp/loupe-reference-graph.json
+```
+
+The graph is app-authored reference evidence, not private heap traversal.
+Use `owners` to answer what points at a target, and cite `evidenceID`, `kind`,
+`label`, `metadata`, and `timestamp` when explaining the result.
 
 ## Act
 

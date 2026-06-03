@@ -10,6 +10,8 @@ extension LoupeCLI {
       console                 Fetch app-authored runtime logs.
       network                 Fetch app-authored network events.
       refs                    Fetch app-authored object reference evidence.
+      object-graph            Summarize app-authored owner -> target references.
+      heap                    Alias for object-graph evidence summary.
     """
 
     static let stateUsage = """
@@ -53,12 +55,14 @@ extension LoupeCLI {
                 path: "/network",
                 usage: "loupe debug network [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
-        case "refs", "heap", "object-graph":
+        case "refs":
             try await runtimeFetch(
                 rest,
                 path: "/refs",
                 usage: "loupe debug refs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
+        case "heap", "object-graph":
+            try await referenceGraph(rest, commandName: subcommand)
         default:
             throw CLIError("Unknown debug command: \(subcommand)")
         }
@@ -205,6 +209,159 @@ extension LoupeCLI {
         default:
             throw CLIError("Unknown \(usagePrefix) command: \(action)")
         }
+    }
+
+    struct ReferenceGraphOptions {
+        var target: String?
+        var runtimeOptions: DiagnosticRuntimeOptions
+
+        init(_ arguments: [String], commandName: String) throws {
+            var runtimeArguments: [String] = []
+            var target: String?
+            var index = 0
+
+            while index < arguments.count {
+                switch arguments[index] {
+                case "--target":
+                    target = try Self.value(after: "--target", in: arguments, index: &index)
+                case "--host", "--udid", "--device", "--bundle-id", "--output", "--timeout":
+                    let option = arguments[index]
+                    runtimeArguments.append(option)
+                    runtimeArguments.append(try Self.value(after: option, in: arguments, index: &index))
+                case "--help", "-h":
+                    runtimeArguments.append(arguments[index])
+                default:
+                    if !arguments[index].hasPrefix("-"), target == nil {
+                        target = arguments[index]
+                    } else {
+                        runtimeArguments.append(arguments[index])
+                    }
+                }
+                index += 1
+            }
+
+            self.target = target
+            self.runtimeOptions = try DiagnosticRuntimeOptions(
+                runtimeArguments,
+                usage: "loupe debug \(commandName) [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+            )
+        }
+
+        private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
+            let valueIndex = index + 1
+            guard valueIndex < arguments.count else {
+                throw CLIError("\(option) requires a value")
+            }
+            index = valueIndex
+            return arguments[valueIndex]
+        }
+    }
+
+    private static func referenceGraph(_ arguments: [String], commandName: String) async throws {
+        let options = try ReferenceGraphOptions(arguments, commandName: commandName)
+        let data = try await runtimeData(path: "/refs", options: options.runtimeOptions.runtimeFetchOptions)
+        let refs = try diagnosticJSONDecoder().decode([LoupeReferenceEvidence].self, from: data)
+        let graph = makeReferenceGraph(from: refs, target: options.target)
+        let encoded = try diagnosticJSONEncoder().encode(graph)
+        try write(data: encoded, outputURL: options.runtimeOptions.outputURL)
+    }
+
+    static func makeReferenceGraph(
+        from refs: [LoupeReferenceEvidence],
+        target: String?
+    ) -> LoupeReferenceGraph {
+        let relevantRefs: [LoupeReferenceEvidence]
+        if let target {
+            relevantRefs = refs.filter { $0.owner == target || $0.target == target }
+        } else {
+            relevantRefs = refs
+        }
+
+        var incomingCounts: [String: Int] = [:]
+        var outgoingCounts: [String: Int] = [:]
+        let edges = relevantRefs.map { evidence in
+            outgoingCounts[evidence.owner, default: 0] += 1
+            incomingCounts[evidence.target, default: 0] += 1
+            return LoupeReferenceGraphEdge(
+                evidenceID: evidence.id,
+                owner: evidence.owner,
+                target: evidence.target,
+                kind: evidence.kind,
+                label: evidence.label,
+                metadata: evidence.metadata,
+                timestamp: evidence.timestamp
+            )
+        }.sorted(by: referenceEdgeOrder)
+
+        let names = Set(incomingCounts.keys).union(outgoingCounts.keys)
+        let nodes = names
+            .sorted()
+            .map { name in
+                LoupeReferenceGraphNode(
+                    name: name,
+                    incomingCount: incomingCounts[name, default: 0],
+                    outgoingCount: outgoingCounts[name, default: 0]
+                )
+            }
+
+        let owners: [LoupeReferenceGraphOwner]
+        if let target {
+            owners = refs
+                .filter { $0.target == target }
+                .sorted(by: referenceEvidenceOrder)
+                .map { evidence in
+                    LoupeReferenceGraphOwner(
+                        evidenceID: evidence.id,
+                        owner: evidence.owner,
+                        kind: evidence.kind,
+                        label: evidence.label,
+                        metadata: evidence.metadata,
+                        timestamp: evidence.timestamp
+                    )
+                }
+        } else {
+            owners = []
+        }
+
+        return LoupeReferenceGraph(target: target, nodes: nodes, edges: edges, owners: owners)
+    }
+
+    static func referenceEdgeOrder(_ lhs: LoupeReferenceGraphEdge, _ rhs: LoupeReferenceGraphEdge) -> Bool {
+        if lhs.owner != rhs.owner {
+            return lhs.owner < rhs.owner
+        }
+        if lhs.kind != rhs.kind {
+            return (lhs.kind ?? "") < (rhs.kind ?? "")
+        }
+        if lhs.label != rhs.label {
+            return (lhs.label ?? "") < (rhs.label ?? "")
+        }
+        if lhs.timestamp != rhs.timestamp {
+            return lhs.timestamp < rhs.timestamp
+        }
+        if lhs.target != rhs.target {
+            return lhs.target < rhs.target
+        }
+        return lhs.evidenceID < rhs.evidenceID
+    }
+
+    static func referenceEvidenceOrder(_ lhs: LoupeReferenceEvidence, _ rhs: LoupeReferenceEvidence) -> Bool {
+        if lhs.owner != rhs.owner {
+            return lhs.owner < rhs.owner
+        }
+        if lhs.kind != rhs.kind {
+            return (lhs.kind ?? "") < (rhs.kind ?? "")
+        }
+        if lhs.label != rhs.label {
+            return (lhs.label ?? "") < (rhs.label ?? "")
+        }
+        if lhs.timestamp != rhs.timestamp {
+            return lhs.timestamp < rhs.timestamp
+        }
+        if lhs.target != rhs.target {
+            return lhs.target < rhs.target
+        }
+        return lhs.id < rhs.id
     }
 
     private static func postRuntimeJSON<T: Encodable>(_ body: T, path: String, options: DiagnosticRuntimeOptions) async throws -> Data {

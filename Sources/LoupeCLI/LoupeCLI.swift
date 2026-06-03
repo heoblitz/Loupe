@@ -1193,6 +1193,10 @@ struct LoupeCLI {
             return "Usage: loupe debug network [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
         case "debug refs":
             return "Usage: loupe debug refs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+        case "debug object-graph":
+            return "Usage: loupe debug object-graph [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+        case "debug heap":
+            return "Usage: loupe debug heap [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
         case "state defaults":
             return "Usage: loupe state defaults get|set|unset <key> [value] [--bool true|false] [--number n] [--host <url>] [--output <path>]"
         case "state flags":

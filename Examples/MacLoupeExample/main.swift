@@ -265,6 +265,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             label: "fixture service reference",
             metadata: ["screen": .string("workbench")]
         )
+        Loupe.recordReference(
+            owner: "MacLegacyFlowCoordinator",
+            target: "DeviceActuationService",
+            kind: "weak",
+            label: "legacy flow service observer",
+            metadata: ["screen": .string("workbench")]
+        )
         upsertKeychainFixture()
     }
 

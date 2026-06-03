@@ -63,6 +63,8 @@ import Testing
             "debug": "Usage: loupe debug <subcommand>",
             "debug network": "Usage: loupe debug network [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
             "debug refs": "Usage: loupe debug refs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
+            "debug object-graph": "Usage: loupe debug object-graph [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
+            "debug heap": "Usage: loupe debug heap [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
             "state": "Usage: loupe state <subcommand>",
             "state keychain": "Usage: loupe state keychain list [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
             "env": "Usage: loupe env <subcommand>",

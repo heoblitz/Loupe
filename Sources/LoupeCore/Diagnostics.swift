@@ -62,6 +62,93 @@ public struct LoupeReferenceEvidence: Codable, Equatable, Sendable {
     }
 }
 
+public struct LoupeReferenceGraph: Codable, Equatable, Sendable {
+    public var target: String?
+    public var evidenceKind: String
+    public var nodes: [LoupeReferenceGraphNode]
+    public var edges: [LoupeReferenceGraphEdge]
+    public var owners: [LoupeReferenceGraphOwner]
+
+    public init(
+        target: String? = nil,
+        evidenceKind: String = "app-authored-reference-evidence",
+        nodes: [LoupeReferenceGraphNode],
+        edges: [LoupeReferenceGraphEdge],
+        owners: [LoupeReferenceGraphOwner]
+    ) {
+        self.target = target
+        self.evidenceKind = evidenceKind
+        self.nodes = nodes
+        self.edges = edges
+        self.owners = owners
+    }
+}
+
+public struct LoupeReferenceGraphNode: Codable, Equatable, Sendable {
+    public var name: String
+    public var incomingCount: Int
+    public var outgoingCount: Int
+
+    public init(name: String, incomingCount: Int, outgoingCount: Int) {
+        self.name = name
+        self.incomingCount = incomingCount
+        self.outgoingCount = outgoingCount
+    }
+}
+
+public struct LoupeReferenceGraphEdge: Codable, Equatable, Sendable {
+    public var evidenceID: String
+    public var owner: String
+    public var target: String
+    public var kind: String?
+    public var label: String?
+    public var metadata: [String: LoupeMetadataValue]
+    public var timestamp: Date
+
+    public init(
+        evidenceID: String,
+        owner: String,
+        target: String,
+        kind: String? = nil,
+        label: String? = nil,
+        metadata: [String: LoupeMetadataValue] = [:],
+        timestamp: Date
+    ) {
+        self.evidenceID = evidenceID
+        self.owner = owner
+        self.target = target
+        self.kind = kind
+        self.label = label
+        self.metadata = metadata
+        self.timestamp = timestamp
+    }
+}
+
+public struct LoupeReferenceGraphOwner: Codable, Equatable, Sendable {
+    public var evidenceID: String
+    public var owner: String
+    public var kind: String?
+    public var label: String?
+    public var metadata: [String: LoupeMetadataValue]
+    public var timestamp: Date
+
+    public init(
+        evidenceID: String,
+        owner: String,
+        kind: String? = nil,
+        label: String? = nil,
+        metadata: [String: LoupeMetadataValue] = [:],
+        timestamp: Date
+    ) {
+        self.evidenceID = evidenceID
+        self.owner = owner
+        self.kind = kind
+        self.label = label
+        self.metadata = metadata
+        self.timestamp = timestamp
+    }
+}
+
 public struct LoupeStateEntry: Codable, Equatable, Sendable {
     public var key: String
     public var value: LoupeMetadataValue?

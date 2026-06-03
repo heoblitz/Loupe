@@ -96,7 +96,7 @@ diagnostic loops. These are Loupe-native versions of common agent questions:
 | Question | Loupe loop |
 | --- | --- |
 | Why is this list empty? | `observe` the screen, inspect the list node, fetch app-authored `debug network` and `debug console` evidence, then read relevant `state flags`. |
-| What still references this service? | Fetch `debug refs` app-authored ownership evidence. Loupe does not claim private heap graph traversal. |
+| What still references this service? | Run `debug object-graph DeviceActuationService` to summarize app-authored owner -> target evidence. Loupe does not claim private heap graph traversal. |
 | Is dark mode hiding text? | Set `env appearance dark`, capture a fresh snapshot, and run `ui audit --kind lowTextContrast`. |
 | Why does this button not respond? | Run `ui hit-test` at the point, inspect the `ui responder-chain`, then compare accessibility and visible view state. |
 | Is this scroll hitching? | Run `perf scroll` with a trace directory for simulator gestures, or `--delta`/`--to-offset` for a runtime offset probe, then verify elapsed time and offset deltas. |
@@ -214,8 +214,13 @@ loupe trace summary /tmp/loupe-scroll
 `Loupe.recordNetwork(...)` or post the `dev.loupe.network` bridge notification
 where automatic URL loading interception is not available. `debug refs` records
 app-authored ownership evidence through `Loupe.recordReference(...)` or the
-`dev.loupe.reference` bridge notification; it is not a private heap reference
-graph. `perf scroll` records elapsed time and trace-based scroll offset deltas;
+`dev.loupe.reference` bridge notification; `debug object-graph <target>`
+summarizes those records into `owners`, `nodes`, and `edges`. Graph `edges` and
+`owners` include the original `evidenceID`, `kind`, `label`, `metadata`, and
+`timestamp` so a leak/debug answer can point back to the exact app-authored
+record. `debug heap --target` uses the same app-authored evidence summary; it
+is not private heap traversal.
+`perf scroll` records elapsed time and scroll offset deltas;
 frame-level hitch classification still requires deeper instrumentation.
 
 ## Runtime Diagnostic Experiments

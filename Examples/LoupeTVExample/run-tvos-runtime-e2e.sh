@@ -102,6 +102,7 @@ LEGACY_LOGS_PATH="/tmp/loupe-tvos-legacy-logs.json"
 LOGOUT_LOGS_PATH="/tmp/loupe-tvos-logout-logs.json"
 NETWORK_PATH="/tmp/loupe-tvos-network.json"
 REFS_PATH="/tmp/loupe-tvos-refs.json"
+OBJECT_GRAPH_PATH="/tmp/loupe-tvos-object-graph.json"
 FLAG_PATH="/tmp/loupe-tvos-flag.json"
 FLAG_SET_PATH="/tmp/loupe-tvos-flag-set.json"
 FLAG_DISABLED_PATH="/tmp/loupe-tvos-flag-disabled.json"
@@ -121,7 +122,7 @@ PRESS_SELECT_TRACE_DIR="/tmp/loupe-tvos-press-select-trace"
 PRESS_DOWN_TRACE_DIR="/tmp/loupe-tvos-press-down-trace"
 PRESS_LEGACY_TRACE_DIR="/tmp/loupe-tvos-press-legacy-trace"
 PRESS_LOGOUT_TRACE_DIR="/tmp/loupe-tvos-press-logout-trace"
-rm -f "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$FOCUS_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$RUNTIME_PATH" "$LOGS_PATH" "$PRESS_LOGS_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
+rm -f "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$FOCUS_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$RUNTIME_PATH" "$LOGS_PATH" "$PRESS_LOGS_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
 rm -rf "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR"
 
 curl -fsS "$HOST/health" | grep -q LoupeKit
@@ -147,6 +148,7 @@ done
 .build/debug/loupe debug console --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
+.build/debug/loupe debug heap --target DeviceActuationService --host "$HOST" --udid "$DEVICE" --output "$OBJECT_GRAPH_PATH" >/dev/null
 .build/debug/loupe state flags get tv-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
 .build/debug/loupe state flags set tv-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
 .build/debug/loupe state flags get tv-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
@@ -310,6 +312,18 @@ ruby -rjson -e '
 
   refs = JSON.parse(File.read(ARGV.fetch(11)))
   abort "missing tvOS reference evidence" unless refs.any? { |entry| entry["owner"] == "TVWorkbenchController" && entry["target"] == "DeviceActuationService" }
+  abort "missing tvOS weak reference evidence" unless refs.any? { |entry| entry["owner"] == "TVLegacyFlowCoordinator" && entry["target"] == "DeviceActuationService" && entry["kind"] == "weak" }
+
+  graph = JSON.parse(File.read(ARGV.fetch(30)))
+  abort "expected app-authored reference graph kind" unless graph["evidenceKind"] == "app-authored-reference-evidence"
+  abort "expected graph target" unless graph["target"] == "DeviceActuationService"
+  graph_owners = graph.fetch("owners").map { |entry| entry["owner"] }
+  abort "expected TVWorkbenchController owner in graph" unless graph_owners.include?("TVWorkbenchController")
+  abort "expected TVLegacyFlowCoordinator owner in graph" unless graph_owners.include?("TVLegacyFlowCoordinator")
+  abort "expected graph owner evidence ids" unless graph.fetch("owners").all? { |entry| entry["evidenceID"].is_a?(String) && !entry["evidenceID"].empty? }
+  abort "expected graph edge to DeviceActuationService" unless graph.fetch("edges").any? { |edge| edge["target"] == "DeviceActuationService" && edge["owner"] == "TVWorkbenchController" }
+  abort "expected graph edge evidence ids" unless graph.fetch("edges").all? { |edge| edge["evidenceID"].is_a?(String) && !edge["evidenceID"].empty? }
+  abort "expected graph node for DeviceActuationService" unless graph.fetch("nodes").any? { |node| node["name"] == "DeviceActuationService" && node["incomingCount"].to_i >= 2 }
 
   flag = JSON.parse(File.read(ARGV.fetch(7)))
   abort "expected tv-new-nav=false" unless flag.dig("value", "value") == false
@@ -353,7 +367,7 @@ ruby -rjson -e '
   abort "unexpected tvOS dark contrast issues: #{bad_contrast.inspect}" unless bad_contrast.empty?
   bad_sentinel = audit.fetch("issues").select { |issue| issue["kind"] == "lowTextContrast" && issue["testID"] == "tv.example.dark.badContrast" }
   abort "expected dark contrast sentinel issue" if bad_sentinel.empty?
-' "$RUNTIME_PATH" "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$DEVICE" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$FOCUS_SNAPSHOT_PATH" "$PRESS_LOGS_PATH" "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$PERF_PATH"
+' "$RUNTIME_PATH" "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$DEVICE" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$FOCUS_SNAPSHOT_PATH" "$PRESS_LOGS_PATH" "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH"
 
 echo "tvOS example E2E passed"
 echo "snapshot: $SNAPSHOT_PATH"
