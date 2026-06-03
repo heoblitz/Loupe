@@ -10,7 +10,7 @@ struct SubtreeOptions {
 
     init(_ arguments: [String]) throws {
         guard let path = arguments.first, !path.hasPrefix("--") else {
-            throw CLIError("Usage: loupe subtree <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--depth <n>] [--include-hidden]")
+            throw CLIError("Usage: loupe ui subtree <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--depth <n>] [--include-hidden]")
         }
 
         snapshotURL = URL(fileURLWithPath: path)
@@ -47,7 +47,7 @@ struct SubtreeOptions {
         }
 
         guard let selector else {
-            throw CLIError("subtree requires --test-id, --text, --role, or --ref")
+            throw CLIError("ui subtree requires --test-id, --text, --role, or --ref")
         }
 
         self.selector = selector

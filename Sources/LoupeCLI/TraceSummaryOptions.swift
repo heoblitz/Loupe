@@ -9,7 +9,7 @@ struct TraceSummaryOptions {
 
     init(_ arguments: [String]) throws {
         guard let path = arguments.first, !path.hasPrefix("--") else {
-            throw CLIError("Usage: loupe trace-summary <trace-dir> [--json] [--limit <n>]")
+            throw CLIError("Usage: loupe debug trace summary <trace-dir> [--json] [--limit <n>]")
         }
         directory = URL(fileURLWithPath: path, isDirectory: true)
         json = false

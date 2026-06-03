@@ -171,9 +171,9 @@ struct BatchMutationOptions {
     }
 
     static let usage = """
-    Usage: loupe set-many (--refs <refs> | --type-name <name> | --role <role>) <property> (--value <value> | --number <n> | --bool <bool> | --color <color> | --colors <colors>)
-           loupe set-many --type-name ListCollectionViewCell backgroundColor --colors FDE2E4_1 BEE1E6_1 --include-children 2
-           loupe set-many --refs n1,n2 alpha --number 0.5 --trace-dir /tmp/loupe-set-many
+    Usage: loupe ui set-many (--refs <refs> | --type-name <name> | --role <role>) <property> (--value <value> | --number <n> | --bool <bool> | --color <color> | --colors <colors>)
+           loupe ui set-many --type-name ListCollectionViewCell backgroundColor --colors FDE2E4_1 BEE1E6_1 --include-children 2
+           loupe ui set-many --refs n1,n2 alpha --number 0.5 --trace-dir /tmp/loupe-set-many
 
     Options:
       --host <url>              Runtime host. Defaults to current runtime or http://127.0.0.1:8765.

@@ -1020,6 +1020,7 @@ private func uiKitProperties(for view: UIView) -> LoupeUIKitProperties {
 private func layoutProperties(for view: UIView) -> LoupeUILayoutProperties {
     LoupeUILayoutProperties(
         translatesAutoresizingMaskIntoConstraints: view.translatesAutoresizingMaskIntoConstraints,
+        isAmbiguousLayout: view.hasAmbiguousLayout,
         hugging: LoupeUILayoutPriorities(
             horizontal: finiteDouble(Double(view.contentHuggingPriority(for: .horizontal).rawValue)) ?? 0,
             vertical: finiteDouble(Double(view.contentHuggingPriority(for: .vertical).rawValue)) ?? 0

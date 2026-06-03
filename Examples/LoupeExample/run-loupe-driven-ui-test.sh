@@ -46,10 +46,10 @@ LAUNCH_ARGUMENTS=(
 if [[ -n "$PORT" ]]; then
   LAUNCH_ARGUMENTS+=(--env "LOUPE_PORT=$PORT")
 fi
-LAUNCH_OUTPUT="$(.build/debug/loupe launch "${LAUNCH_ARGUMENTS[@]}")"
+LAUNCH_OUTPUT="$(.build/debug/loupe app launch "${LAUNCH_ARGUMENTS[@]}")"
 HOST="$(awk '/^loupe host: / { print $3 }' <<<"$LAUNCH_OUTPUT" | tail -1)"
 if [[ -z "$HOST" ]]; then
-  echo "error: loupe launch did not report a runtime host" >&2
+  echo "error: loupe app launch did not report a runtime host" >&2
   echo "$LAUNCH_OUTPUT" >&2
   exit 1
 fi

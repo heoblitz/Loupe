@@ -87,9 +87,9 @@ struct WaitForOptions {
                 outputURL = URL(fileURLWithPath: try Self.value(after: "--output", in: arguments, index: &index))
             default:
                 if case .value = mode, !arguments[index].hasPrefix("--") {
-                    throw CLIError("wait-for-value expects --key <path> --equals <value>; example: loupe wait-for-value --test-id example.status --key text --equals Done")
+                    throw CLIError("act wait value expects --key <path> --equals <value>; example: loupe act wait value --test-id example.status --key text --equals Done")
                 }
-                throw CLIError("Unknown wait-for option: \(arguments[index])")
+                throw CLIError("Unknown act wait option: \(arguments[index])")
             }
             index += 1
         }
@@ -98,7 +98,7 @@ struct WaitForOptions {
             throw CLIError("wait-for requires --test-id, --text, --role, or --ref")
         }
         if case .value = mode, (keyPath == nil || expectedValue == nil) {
-            throw CLIError("wait-for-value requires --key <path> and --equals <value>; example: loupe wait-for-value --test-id example.status --key text --equals Done")
+            throw CLIError("act wait value requires --key <path> and --equals <value>; example: loupe act wait value --test-id example.status --key text --equals Done")
         }
         guard timeout > 0 else {
             throw CLIError("--timeout must be greater than 0")

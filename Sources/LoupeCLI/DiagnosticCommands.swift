@@ -7,33 +7,15 @@ extension LoupeCLI {
     Usage: loupe debug <subcommand>
 
     SUBCOMMANDS:
-      console                 Fetch app-authored runtime logs.
+      logs                    Fetch app-authored runtime logs.
       network                 Fetch app-authored network events.
       refs                    Fetch app-authored object reference evidence.
       object-graph            Summarize app-authored owner -> target references.
       heap                    Alias for object-graph evidence summary.
-    """
-
-    static let stateUsage = """
-    Usage: loupe state <subcommand>
-
-    SUBCOMMANDS:
+      keychain list           List current app keychain item metadata.
       defaults get|set|unset  Read or change UserDefaults.
       flags get|set|unset     Alias for feature flags stored in UserDefaults.
-      keychain list           List current app keychain item metadata.
-    """
-
-    static let envUsage = """
-    Usage: loupe env <subcommand>
-
-    SUBCOMMANDS:
-      appearance light|dark|system
-    """
-
-    static let perfUsage = """
-    Usage: loupe perf <subcommand>
-
-    SUBCOMMANDS:
+      trace summary|diff|explore|cleanup
       scroll                  Dispatch a scroll gesture or runtime offset probe.
     """
 
@@ -43,11 +25,11 @@ extension LoupeCLI {
         }
         let rest = Array(arguments.dropFirst())
         switch subcommand {
-        case "console", "logs":
+        case "logs":
             try await runtimeFetch(
                 rest,
                 path: "/logs",
-                usage: "loupe debug console [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+                usage: "loupe debug logs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
         case "network":
             try await runtimeFetch(
@@ -63,38 +45,31 @@ extension LoupeCLI {
             )
         case "heap", "object-graph":
             try await referenceGraph(rest, commandName: subcommand)
+        case "keychain":
+            guard rest.isEmpty || rest.first == "list" else {
+                throw CLIError("Usage: loupe debug keychain [list] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]")
+            }
+            try await runtimeFetch(
+                rest.first == "list" ? Array(rest.dropFirst()) : rest,
+                path: "/state/keychain",
+                usage: "loupe debug keychain [list] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+            )
+        case "defaults":
+            try await stateDefaults(rest, path: "state/defaults", usagePrefix: "loupe debug defaults")
+        case "flags":
+            try await stateDefaults(rest, path: "state/flags", usagePrefix: "loupe debug flags")
+        case "trace":
+            try await debugTrace(rest)
+        case "scroll":
+            try await perf(["scroll"] + rest)
         default:
             throw CLIError("Unknown debug command: \(subcommand)")
         }
     }
 
-    static func state(_ arguments: [String]) async throws {
-        guard let area = arguments.first else {
-            throw CLIError(stateUsage)
-        }
-        let rest = Array(arguments.dropFirst())
-        switch area {
-        case "defaults":
-            try await stateDefaults(rest, path: "state/defaults", usagePrefix: "loupe state defaults")
-        case "flags":
-            try await stateDefaults(rest, path: "state/flags", usagePrefix: "loupe state flags")
-        case "keychain":
-            guard rest.first == "list" else {
-                throw CLIError("Usage: loupe state keychain list [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]")
-            }
-            try await runtimeFetch(
-                Array(rest.dropFirst()),
-                path: "/state/keychain",
-                usage: "loupe state keychain list [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
-            )
-        default:
-            throw CLIError("Unknown state command: \(area)")
-        }
-    }
-
     static func env(_ arguments: [String]) async throws {
         guard let subcommand = arguments.first else {
-            throw CLIError(envUsage)
+            throw CLIError("Usage: loupe ui appearance [light|dark|system] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]")
         }
         switch subcommand {
         case "appearance":
@@ -108,7 +83,7 @@ extension LoupeCLI {
                 appearance = nil
                 optionArgs = rest
             }
-            let options = try DiagnosticRuntimeOptions(optionArgs, usage: "loupe env appearance [light|dark|system] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]")
+            let options = try DiagnosticRuntimeOptions(optionArgs, usage: "loupe ui appearance [light|dark|system] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]")
             guard let appearance else {
                 let data = try await runtimeData(path: "/environment", options: options.runtimeFetchOptions)
                 try write(data: data, outputURL: options.outputURL)
@@ -118,13 +93,13 @@ extension LoupeCLI {
             let data = try await postRuntimeJSON(request, path: "environment", options: options)
             try write(data: data, outputURL: options.outputURL)
         default:
-            throw CLIError("Unknown env command: \(subcommand)")
+            throw CLIError("Unknown ui appearance command: \(subcommand)")
         }
     }
 
     static func perf(_ arguments: [String]) async throws {
         guard let subcommand = arguments.first else {
-            throw CLIError(perfUsage)
+            throw CLIError("Usage: loupe debug scroll <subcommand>")
         }
         let rest = Array(arguments.dropFirst())
         switch subcommand {
@@ -169,6 +144,26 @@ extension LoupeCLI {
         let selectorQuery = try options.selectorQuery()
         let data = try await runtimeData(path: "/responder-chain?\(selectorQuery)", options: options.runtimeFetchOptions)
         try write(data: data, outputURL: options.outputURL)
+    }
+
+    static func debugTrace(_ arguments: [String]) async throws {
+        guard let subcommand = arguments.first else {
+            throw CLIError("Usage: loupe debug trace summary|diff|explore|cleanup <args>")
+        }
+        let rest = Array(arguments.dropFirst())
+        switch subcommand {
+        case "summary":
+            try traceSummary(rest)
+        case "diff":
+            try diff(rest)
+        case "explore":
+            try await exploreRoutes(rest)
+        case "cleanup":
+            let cleanupArgs = rest.contains("--no-runtimes") ? rest : rest + ["--no-runtimes"]
+            try await cleanup(cleanupArgs)
+        default:
+            throw CLIError("Unknown debug trace command: \(subcommand)")
+        }
     }
 
     private static func stateDefaults(_ arguments: [String], path: String, usagePrefix: String) async throws {
@@ -454,15 +449,15 @@ extension LoupeCLI {
             }
 
             if delta != nil && toOffset != nil {
-                throw CLIError("loupe perf scroll accepts only one of --delta or --to-offset")
+                throw CLIError("loupe debug scroll accepts only one of --delta or --to-offset")
             }
             if delta == nil && toOffset == nil {
-                throw CLIError("Usage: loupe perf scroll (--from x,y --to x,y --udid <sim> | (--test-id <id>|--ref <ref>|--text <text>|--role <role>) (--delta dx,dy|--to-offset x,y)) [--host <url>] [--output <path>]")
+                throw CLIError("Usage: loupe debug scroll (--from x,y --to x,y --udid <sim> | (--test-id <id>|--ref <ref>|--text <text>|--role <role>) (--delta dx,dy|--to-offset x,y)) [--host <url>] [--output <path>]")
             }
 
             self.runtimeOptions = try DiagnosticRuntimeOptions(
                 runtimeArguments,
-                usage: "loupe perf scroll (--test-id <id>|--ref <ref>|--text <text>|--role <role>) (--delta dx,dy|--to-offset x,y) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+                usage: "loupe debug scroll (--test-id <id>|--ref <ref>|--text <text>|--role <role>) (--delta dx,dy|--to-offset x,y) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
             self.delta = delta
             self.toOffset = toOffset
@@ -489,11 +484,11 @@ extension LoupeCLI {
             options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 2)
         )
         guard matches.count == 1, let target = matches.first else {
-            throw CLIError("loupe perf scroll expected exactly one scroll target, found \(matches.count)")
+            throw CLIError("loupe debug scroll expected exactly one scroll target, found \(matches.count)")
         }
         guard let beforeNode = beforeSnapshot.nodes[target.ref],
               let beforeOffset = beforeNode.uiKit?.scrollView?.contentOffset else {
-            throw CLIError("loupe perf scroll target is not a captured scroll view: \(target.testID ?? target.ref)")
+            throw CLIError("loupe debug scroll target is not a captured scroll view: \(target.testID ?? target.ref)")
         }
 
         let requestedOffset = options.toOffset ?? LoupePoint(
@@ -513,7 +508,7 @@ extension LoupeCLI {
         let response = try diagnosticJSONDecoder().decode(LoupeMutationResponse.self, from: responseData)
         let elapsed = Date().timeIntervalSince(startedAt)
         guard let afterOffset = response.after.uiKit?.scrollView?.contentOffset else {
-            throw CLIError("loupe perf scroll mutation response did not include an after scroll offset")
+            throw CLIError("loupe debug scroll mutation response did not include an after scroll offset")
         }
 
         let profile = LoupeScrollProfile(
@@ -542,7 +537,7 @@ extension LoupeCLI {
         if let role = options.role {
             return .role(role)
         }
-        throw CLIError("loupe perf scroll requires --test-id, --ref, --text, or --role in runtime offset mode")
+        throw CLIError("loupe debug scroll requires --test-id, --ref, --text, or --role in runtime offset mode")
     }
 
     private static func diagnosticPoint(_ value: String, option: String) throws -> LoupePoint {

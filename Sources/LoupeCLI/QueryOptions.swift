@@ -16,7 +16,7 @@ struct QueryOptions {
 
     init(_ arguments: [String]) throws {
         if arguments.isEmpty {
-            throw CLIError("Usage: loupe query [snapshot.json] (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--host <url>] [--bundle-id <id>] [--tree view|accessibility]")
+            throw CLIError("Usage: loupe ui query [snapshot.json] (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--host <url>] [--bundle-id <id>] [--tree view|accessibility]")
         }
 
         snapshotURL = nil

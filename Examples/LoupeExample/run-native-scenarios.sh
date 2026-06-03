@@ -147,10 +147,10 @@ launch_app() {
     arguments+=(--env "LOUPE_EXAMPLE_ROUTE=$route")
   fi
   local launch_output
-  launch_output="$(.build/debug/loupe runtime launch "${arguments[@]}")"
+  launch_output="$(.build/debug/loupe app launch "${arguments[@]}")"
   HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
   if [[ -z "$HOST" ]]; then
-    echo "error: loupe launch did not report a runtime host" >&2
+    echo "error: loupe app launch did not report a runtime host" >&2
     echo "$launch_output" >&2
     exit 1
   fi
@@ -158,32 +158,32 @@ launch_app() {
 }
 
 fetch_snapshot() {
-  .build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH"
+  .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$SNAPSHOT_PATH"
 }
 
 assert_query() {
   local test_id="$1"
   local output_path="$2"
-  .build/debug/loupe inspect query "$SNAPSHOT_PATH" --test-id "$test_id" > "$output_path"
+  .build/debug/loupe ui query "$SNAPSHOT_PATH" --test-id "$test_id" > "$output_path"
   grep -q '"ref"' "$output_path"
 }
 
 query_ref() {
   local test_id="$1"
-  .build/debug/loupe inspect query "$SNAPSHOT_PATH" --test-id "$test_id" --max-results 1 |
+  .build/debug/loupe ui query "$SNAPSHOT_PATH" --test-id "$test_id" --max-results 1 |
     ruby -rjson -e 'puts JSON.parse(STDIN.read).fetch(0).fetch("ref")'
 }
 
 query_text_ref() {
   local text="$1"
-  .build/debug/loupe inspect query "$SNAPSHOT_PATH" --text "$text" --max-results 1 |
+  .build/debug/loupe ui query "$SNAPSHOT_PATH" --text "$text" --max-results 1 |
     ruby -rjson -e 'puts JSON.parse(STDIN.read).fetch(0).fetch("ref")'
 }
 
 inspect_value() {
   local test_id="$1"
   local path="$2"
-  .build/debug/loupe inspect node "$SNAPSHOT_PATH" --test-id "$test_id" |
+  .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id "$test_id" |
     ruby -rjson -e '
       value = JSON.parse(STDIN.read)
       ARGV.fetch(0).split(".").each { |key| value = value.fetch(key) }
@@ -208,7 +208,7 @@ fetch_snapshot
 assert_query example.bottomSheet.scrollView /tmp/loupe-native-bottomsheet-scroll-query.json
 COLLAPSED_Y="$(inspect_value example.bottomSheet.scrollView node.frame.y)"
 COLLAPSED_HEIGHT="$(inspect_value example.bottomSheet.scrollView node.frame.height)"
-read -r GRABBER_X GRABBER_Y < <(.build/debug/loupe inspect node "$SNAPSHOT_PATH" --test-id example.bottomSheet.grabber |
+read -r GRABBER_X GRABBER_Y < <(.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.bottomSheet.grabber |
   ruby -rjson -e '
     frame = JSON.parse(STDIN.read).fetch("node").fetch("frame")
     puts [(frame.fetch("x") + frame.fetch("width") / 2.0).round, (frame.fetch("y") + frame.fetch("height") / 2.0).round].join(" ")
@@ -249,8 +249,8 @@ assert_query example.customerList /tmp/loupe-native-list-query.json
 
 echo "case: navigation push by testID tap, then pop by ref tap"
 launch_app
-.build/debug/loupe tap --host "$HOST" --udid "$DEVICE" --test-id example.openComponents --trace-dir "$TRACE_DIR"
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components.json
+.build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --test-id example.openComponents --trace-dir "$TRACE_DIR"
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components.json
 fetch_snapshot
 assert_query example.components /tmp/loupe-native-components-query.json
 test -f "$TRACE_DIR/before-logs.json"
@@ -258,23 +258,23 @@ test -f "$TRACE_DIR/after-logs.json"
 test -f "$TRACE_DIR/action-target.json"
 grep -q '"phase" : "target"' "$TRACE_DIR/action-target.json"
 grep -q '"resolvedTarget"' "$TRACE_DIR/action-target.json"
-.build/debug/loupe trace-summary "$TRACE_DIR" > "$TRACE_SUMMARY_PATH"
+.build/debug/loupe debug trace summary "$TRACE_DIR" > "$TRACE_SUMMARY_PATH"
 grep -q "example_components_visible" "$TRACE_SUMMARY_PATH"
-.build/debug/loupe subtree "$SNAPSHOT_PATH" --test-id example.components --depth 4 > "$SUBTREE_PATH"
+.build/debug/loupe ui subtree "$SNAPSHOT_PATH" --test-id example.components --depth 4 > "$SUBTREE_PATH"
 grep -q '"root"' "$SUBTREE_PATH"
 grep -q '"example.components.switch"' "$SUBTREE_PATH"
 BACK_REF="$(query_ref example.components.back)"
-.build/debug/loupe tap --host "$HOST" --udid "$DEVICE" --snapshot "$SNAPSHOT_PATH" --ref "$BACK_REF"
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.customerList --timeout 5 >/tmp/loupe-native-wait-list-after-ref-tap.json
+.build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --snapshot "$SNAPSHOT_PATH" --ref "$BACK_REF"
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.customerList --timeout 5 >/tmp/loupe-native-wait-list-after-ref-tap.json
 
 echo "case: routed UIKit component screen"
 launch_app components
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components-routed.json
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components-routed.json
 fetch_snapshot
 
 echo "case: UIKit component compact and inspect coverage"
-.build/debug/loupe fetch "$HOST/observation" --timeout 5 --output "$OBSERVATION_PATH"
-.build/debug/loupe fetch "$HOST/accessibility" --timeout 5 --output "$ACCESSIBILITY_PATH"
+.build/debug/loupe ui compact --host "$HOST" --timeout 5 --output "$OBSERVATION_PATH"
+.build/debug/loupe ui accessibility --host "$HOST" --timeout 5 --output "$ACCESSIBILITY_PATH"
 grep -q '"sourceRef"' "$ACCESSIBILITY_PATH"
 grep -q '"example.components.switch"' "$ACCESSIBILITY_PATH"
 grep -q '"className" : "UISwitch"' "$OBSERVATION_PATH"
@@ -282,79 +282,79 @@ grep -q '"className" : "UISlider"' "$OBSERVATION_PATH"
 grep -q '"className" : "UISegmentedControl"' "$OBSERVATION_PATH"
 
 fetch_snapshot
-.build/debug/loupe accessibility "$SNAPSHOT_PATH" > "$ACCESSIBILITY_PATH"
+.build/debug/loupe ui accessibility "$SNAPSHOT_PATH" > "$ACCESSIBILITY_PATH"
 grep -q '"rootRefs"' "$ACCESSIBILITY_PATH"
-.build/debug/loupe query "$SNAPSHOT_PATH" --tree accessibility --test-id example.components.switch >/tmp/loupe-native-accessibility-query.json
+.build/debug/loupe ui query "$SNAPSHOT_PATH" --tree accessibility --test-id example.components.switch >/tmp/loupe-native-accessibility-query.json
 grep -q '"sourceRef"' /tmp/loupe-native-accessibility-query.json
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.switch > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.switch > "$INSPECT_PATH"
 grep -q '"className" : "UISwitch"' "$INSPECT_PATH"
 grep -q '"isOn" : true' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.segmented > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.segmented > "$INSPECT_PATH"
 grep -q '"selectedSegmentIndex" : 1' "$INSPECT_PATH"
 grep -q '"Large"' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.image > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.image > "$INSPECT_PATH"
 grep -q '"className" : "UIImageView"' "$INSPECT_PATH"
 grep -q '"imageSize"' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.scrollView > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.scrollView > "$INSPECT_PATH"
 grep -q '"className" : "UIScrollView"' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.stepper > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.stepper > "$INSPECT_PATH"
 grep -q '"className" : "UIStepper"' "$INSPECT_PATH"
 grep -q '"stepper"' "$INSPECT_PATH"
 grep -q '"stepValue" : 2' "$INSPECT_PATH"
 grep -q '"value" : 4' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.datePicker > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.datePicker > "$INSPECT_PATH"
 grep -q '"className" : "UIDatePicker"' "$INSPECT_PATH"
 grep -q '"datePicker"' "$INSPECT_PATH"
 grep -q '"mode" : "date"' "$INSPECT_PATH"
 grep -q '"date"' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.tabBar > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.tabBar > "$INSPECT_PATH"
 grep -q '"className" : "UITabBar"' "$INSPECT_PATH"
 grep -q '"tabBar"' "$INSPECT_PATH"
 grep -q '"items"' "$INSPECT_PATH"
 grep -q '"selectedItem" : "Home"' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.collectionView > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.collectionView > "$INSPECT_PATH"
 grep -q '"className" : "UICollectionView"' "$INSPECT_PATH"
 assert_query example.components.collection.0 /tmp/loupe-native-collection-cell-query.json
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.pickerView > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.pickerView > "$INSPECT_PATH"
 grep -q '"className" : "UIPickerView"' "$INSPECT_PATH"
 grep -q '"pickerView"' "$INSPECT_PATH"
 grep -q '"numberOfComponents" : 1' "$INSPECT_PATH"
 grep -q '"selectedRows"' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.pageControl > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.pageControl > "$INSPECT_PATH"
 grep -q '"className" : "UIPageControl"' "$INSPECT_PATH"
 grep -q '"currentPage" : 2' "$INSPECT_PATH"
 grep -q '"numberOfPages" : 5' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.progress > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.progress > "$INSPECT_PATH"
 grep -q '"className" : "UIProgressView"' "$INSPECT_PATH"
 grep -q '"progressView"' "$INSPECT_PATH"
 grep -q '"value"' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.activity > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.activity > "$INSPECT_PATH"
 grep -q '"className" : "UIActivityIndicatorView"' "$INSPECT_PATH"
 grep -q '"isAnimating" : true' "$INSPECT_PATH"
 
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.design.card > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.design.card > "$INSPECT_PATH"
 grep -q '"cornerRadius" : 20' "$INSPECT_PATH"
 grep -q '"backgroundColor"' "$INSPECT_PATH"
 grep -q '"borderWidth" : 2' "$INSPECT_PATH"
 
 echo "case: layout audit emits machine-readable design checks"
-.build/debug/loupe audit "$SNAPSHOT_PATH" > "$AUDIT_PATH"
+.build/debug/loupe ui audit "$SNAPSHOT_PATH" > "$AUDIT_PATH"
 grep -q '"issueCount"' "$AUDIT_PATH"
 grep -q '"issues"' "$AUDIT_PATH"
 
 echo "case: frame, Auto Layout, and stack view runtime mutations"
-.build/debug/loupe set --host "$HOST" --test-id example.design.card frame --rect 20,220,320,140 --output "$FRAME_MUTATION_PATH"
+.build/debug/loupe ui set --host "$HOST" --test-id example.design.card frame --rect 20,220,320,140 --output "$FRAME_MUTATION_PATH"
 grep -q '"property" : "frame"' "$FRAME_MUTATION_PATH"
 grep -q '"animation"' "$FRAME_MUTATION_PATH"
 grep -q '"duration"' "$FRAME_MUTATION_PATH"
@@ -362,7 +362,7 @@ grep -q '"requested"' "$FRAME_MUTATION_PATH"
 grep -q '"effective"' "$FRAME_MUTATION_PATH"
 grep -q '"changed"' "$FRAME_MUTATION_PATH"
 
-.build/debug/loupe set --host "$HOST" --test-id example.components.label layout.hugging.horizontal --number 260.5 --no-animate --output "$LAYOUT_MUTATION_PATH"
+.build/debug/loupe ui set --host "$HOST" --test-id example.components.label layout.hugging.horizontal --number 260.5 --no-animate --output "$LAYOUT_MUTATION_PATH"
 grep -q '"property" : "layout.hugging.horizontal"' "$LAYOUT_MUTATION_PATH"
 if grep -q '"animation"' "$LAYOUT_MUTATION_PATH"; then
   echo "error: --no-animate mutation unexpectedly included animation" >&2
@@ -371,16 +371,16 @@ fi
 grep -q '"changed" : true' "$LAYOUT_MUTATION_PATH"
 grep -q '"value" : 260.5' "$LAYOUT_MUTATION_PATH"
 
-.build/debug/loupe set --host "$HOST" --test-id example.components.switchRow stack.axis vertical --output "$STACK_MUTATION_PATH"
+.build/debug/loupe ui set --host "$HOST" --test-id example.components.switchRow stack.axis vertical --output "$STACK_MUTATION_PATH"
 grep -q '"property" : "stack.axis"' "$STACK_MUTATION_PATH"
 grep -q '"changed" : true' "$STACK_MUTATION_PATH"
 grep -q '"value" : "vertical"' "$STACK_MUTATION_PATH"
 fetch_snapshot
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.components.switchRow > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.switchRow > "$INSPECT_PATH"
 grep -q '"axis" : "vertical"' "$INSPECT_PATH"
 
 echo "case: Auto Layout constraint listing and mutation"
-.build/debug/loupe constraints --host "$HOST" --test-id example.design.card --json --output "$CONSTRAINTS_PATH"
+.build/debug/loupe ui constraints --host "$HOST" --test-id example.design.card --json --output "$CONSTRAINTS_PATH"
 DESIGN_CARD_HEIGHT_CONSTRAINT_ID="$(ruby -rjson -e '
   constraints = JSON.parse(File.read(ARGV.fetch(0)))
   constraint = constraints.find { |item|
@@ -390,19 +390,19 @@ DESIGN_CARD_HEIGHT_CONSTRAINT_ID="$(ruby -rjson -e '
   abort("missing design card height constraint") unless constraint
   puts constraint.fetch("id")
 ' "$CONSTRAINTS_PATH")"
-.build/debug/loupe set-constraint --host "$HOST" --id "$DESIGN_CARD_HEIGHT_CONSTRAINT_ID" constant 104 --output "$CONSTRAINT_MUTATION_PATH"
+.build/debug/loupe ui set-constraint --host "$HOST" --id "$DESIGN_CARD_HEIGHT_CONSTRAINT_ID" constant 104 --output "$CONSTRAINT_MUTATION_PATH"
 ruby -rjson -e '
   result = JSON.parse(File.read(ARGV.fetch(0)))
   abort("constraint mutation did not report changed") unless result.fetch("changed")
   abort("unexpected effective constant") unless (result.fetch("effective").fetch("constant").to_f - 104).abs < 0.5
 ' "$CONSTRAINT_MUTATION_PATH"
 fetch_snapshot
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.design.card > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.design.card > "$INSPECT_PATH"
 ruby -rjson -e '
   height = JSON.parse(File.read(ARGV.fetch(0))).fetch("node").fetch("frame").fetch("height").to_f
   abort("constraint mutation did not resize design card") unless height > 100
 ' "$INSPECT_PATH"
-.build/debug/loupe deactivate-constraint --host "$HOST" --id "$DESIGN_CARD_HEIGHT_CONSTRAINT_ID" --output "$CONSTRAINT_DEACTIVATE_PATH"
+.build/debug/loupe ui deactivate-constraint --host "$HOST" --id "$DESIGN_CARD_HEIGHT_CONSTRAINT_ID" --output "$CONSTRAINT_DEACTIVATE_PATH"
 ruby -rjson -e '
   result = JSON.parse(File.read(ARGV.fetch(0)))
   abort("constraint deactivate did not report changed") unless result.fetch("changed")
@@ -411,7 +411,7 @@ ruby -rjson -e '
 
 echo "case: mixed fixture tabs for SwiftUI, WebKit, keyboard, and nested scroll"
 launch_app fixtures
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.fixtures --timeout 5 >/tmp/loupe-native-wait-fixtures.json
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures --timeout 5 >/tmp/loupe-native-wait-fixtures.json
 fetch_snapshot
 assert_query example.fixtures /tmp/loupe-native-fixtures-query.json
 assert_query example.fixtures.swiftui.host /tmp/loupe-native-swiftui-host-query.json
@@ -420,34 +420,34 @@ assert_query example.fixtures.tab.keyboard /tmp/loupe-native-keyboard-tab-query.
 assert_query example.fixtures.tab.nested /tmp/loupe-native-nested-tab-query.json
 
 launch_app fixtures.web
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.fixtures.web.webView --timeout 5 >/tmp/loupe-native-wait-web.json
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures.web.webView --timeout 5 >/tmp/loupe-native-wait-web.json
 fetch_snapshot
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.fixtures.web.webView > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.fixtures.web.webView > "$INSPECT_PATH"
 grep -q '"className" : "WKWebView"' "$INSPECT_PATH"
 grep -q '"role" : "webView"' "$INSPECT_PATH"
 grep -q '"webView"' "$INSPECT_PATH"
 grep -q '"url" : "https:\\/\\/loupe.local\\/fixture"' "$INSPECT_PATH"
 
 launch_app fixtures.keyboard
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.fixtures.keyboard.firstName --timeout 5 >/tmp/loupe-native-wait-keyboard.json
-.build/debug/loupe type "1" --udid "$DEVICE"
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures.keyboard.firstName --timeout 5 >/tmp/loupe-native-wait-keyboard.json
+.build/debug/loupe act type "1" --udid "$DEVICE"
 fetch_snapshot
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.fixtures.keyboard.firstName > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.fixtures.keyboard.firstName > "$INSPECT_PATH"
 grep -q '"className" : "UITextField"' "$INSPECT_PATH"
 grep -q '"text" : "1"' "$INSPECT_PATH"
 grep -q '"isFirstResponder" : true' "$INSPECT_PATH"
 
 launch_app fixtures.nested
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.fixtures.nested.outerScroll --timeout 5 >/tmp/loupe-native-wait-nested.json
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures.nested.outerScroll --timeout 5 >/tmp/loupe-native-wait-nested.json
 fetch_snapshot
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.fixtures.nested.horizontalScroll > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.fixtures.nested.horizontalScroll > "$INSPECT_PATH"
 grep -q '"className" : "UIScrollView"' "$INSPECT_PATH"
 grep -q '"role" : "scrollView"' "$INSPECT_PATH"
 assert_query example.fixtures.nested.tile.0 /tmp/loupe-native-nested-tile-query.json
 
 echo "case: routed alert presentation"
 launch_app components.alert
-.build/debug/loupe wait-for-visible --host "$HOST" --test-id example.components.alert --timeout 5 >/tmp/loupe-native-wait-alert.json
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.components.alert --timeout 5 >/tmp/loupe-native-wait-alert.json
 fetch_snapshot
 assert_query example.components.alert /tmp/loupe-native-alert-query.json
 

@@ -61,10 +61,10 @@ LAUNCH_ARGUMENTS=(
 if [[ -n "$PORT" ]]; then
   LAUNCH_ARGUMENTS+=(--env "LOUPE_PORT=$PORT")
 fi
-LAUNCH_OUTPUT="$(.build/debug/loupe launch "${LAUNCH_ARGUMENTS[@]}")"
+LAUNCH_OUTPUT="$(.build/debug/loupe app launch "${LAUNCH_ARGUMENTS[@]}")"
 HOST="$(awk '/^loupe host: / { print $3 }' <<<"$LAUNCH_OUTPUT" | tail -1)"
 if [[ -z "$HOST" ]]; then
-  echo "error: loupe launch did not report a runtime host" >&2
+  echo "error: loupe app launch did not report a runtime host" >&2
   echo "$LAUNCH_OUTPUT" >&2
   exit 1
 fi
@@ -92,23 +92,23 @@ PERF_TRACE="/tmp/loupe-example-perf-trace"
 INSPECT_PATH="/tmp/loupe-example-inspect.json"
 rm -rf "$PERF_TRACE"
 curl -sS "$HOST/snapshot" > "$SNAPSHOT_PATH"
-.build/debug/loupe debug console --host "$HOST" --output "$LOGS_PATH" >/dev/null
+.build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
-.build/debug/loupe state flags get new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
-.build/debug/loupe state flags set new-nav --bool false --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
-.build/debug/loupe state keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
+.build/debug/loupe debug flags get new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
+.build/debug/loupe debug flags set new-nav --bool false --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
 .build/debug/loupe ui hit-test --host "$HOST" --point 201,437 --output "$HIT_TEST_PATH" >/dev/null
 .build/debug/loupe ui responder-chain --host "$HOST" --test-id example.customerList --output "$RESPONDER_PATH" >/dev/null
-.build/debug/loupe env appearance --host "$HOST" --output "$ENV_READ_PATH" >/dev/null
-.build/debug/loupe env appearance dark --host "$HOST" --output "$ENV_PATH" >/dev/null
+.build/debug/loupe ui appearance --host "$HOST" --output "$ENV_READ_PATH" >/dev/null
+.build/debug/loupe ui appearance dark --host "$HOST" --output "$ENV_PATH" >/dev/null
 curl -sS "$HOST/snapshot" > "$DARK_SNAPSHOT_PATH"
 .build/debug/loupe ui audit "$DARK_SNAPSHOT_PATH" --kind lowTextContrast > "$AUDIT_PATH"
-.build/debug/loupe env appearance system --host "$HOST" >/dev/null
-.build/debug/loupe perf scroll --host "$HOST" --udid "$DEVICE" --from 201,740 --to 201,320 --trace-dir "$PERF_TRACE" --output "$PERF_PATH" >/dev/null
+.build/debug/loupe ui appearance system --host "$HOST" >/dev/null
+.build/debug/loupe debug scroll --host "$HOST" --udid "$DEVICE" --from 201,740 --to 201,320 --trace-dir "$PERF_TRACE" --output "$PERF_PATH" >/dev/null
 
-.build/debug/loupe query "$SNAPSHOT_PATH" --test-id example.customerList
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id example.customerList > "$INSPECT_PATH"
+.build/debug/loupe ui query "$SNAPSHOT_PATH" --test-id example.customerList
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.customerList > "$INSPECT_PATH"
 ruby -rjson -e '
   logs = JSON.parse(File.read(ARGV.fetch(0)))
   log = logs.find { |entry| entry["message"] == "example_customers_visible" }

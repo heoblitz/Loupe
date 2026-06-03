@@ -95,9 +95,12 @@ SNAPSHOT_PATH="/tmp/loupe-tvos-snapshot.json"
 DARK_SNAPSHOT_PATH="/tmp/loupe-tvos-dark-snapshot.json"
 FOCUS_SNAPSHOT_PATH="/tmp/loupe-tvos-focus-snapshot.json"
 ACCESSIBILITY_PATH="/tmp/loupe-tvos-accessibility.json"
+VIEW_TREE_PATH="/tmp/loupe-tvos-view-tree.txt"
+ACCESSIBILITY_TREE_PATH="/tmp/loupe-tvos-accessibility-tree.txt"
 RUNTIME_PATH="/tmp/loupe-tvos-runtime.json"
 LOGS_PATH="/tmp/loupe-tvos-logs.json"
 PRESS_LOGS_PATH="/tmp/loupe-tvos-press-logs.json"
+NEW_NAV_LOGS_PATH="/tmp/loupe-tvos-new-nav-logs.json"
 LEGACY_LOGS_PATH="/tmp/loupe-tvos-legacy-logs.json"
 LOGOUT_LOGS_PATH="/tmp/loupe-tvos-logout-logs.json"
 NETWORK_PATH="/tmp/loupe-tvos-network.json"
@@ -120,16 +123,17 @@ INSPECT_EMPTY_PATH="/tmp/loupe-tvos-inspect-empty.json"
 QUERY_PATH="/tmp/loupe-tvos-query.json"
 PRESS_SELECT_TRACE_DIR="/tmp/loupe-tvos-press-select-trace"
 PRESS_DOWN_TRACE_DIR="/tmp/loupe-tvos-press-down-trace"
+PRESS_NEW_NAV_TRACE_DIR="/tmp/loupe-tvos-press-new-nav-trace"
 PRESS_LEGACY_TRACE_DIR="/tmp/loupe-tvos-press-legacy-trace"
 PRESS_LOGOUT_TRACE_DIR="/tmp/loupe-tvos-press-logout-trace"
-rm -f "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$FOCUS_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$RUNTIME_PATH" "$LOGS_PATH" "$PRESS_LOGS_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
-rm -rf "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR"
+rm -f "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$FOCUS_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$RUNTIME_PATH" "$LOGS_PATH" "$PRESS_LOGS_PATH" "$NEW_NAV_LOGS_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
+rm -rf "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$PRESS_NEW_NAV_TRACE_DIR" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR"
 
 curl -fsS "$HOST/health" | grep -q LoupeKit
-.build/debug/loupe runtime info --host "$HOST" --udid "$DEVICE" > "$RUNTIME_PATH"
+.build/debug/loupe app info --host "$HOST" --udid "$DEVICE" > "$RUNTIME_PATH"
 
 for _ in {1..120}; do
-  .build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH" >/dev/null
+  .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$SNAPSHOT_PATH" >/dev/null
   if ruby -rjson -e '
     snapshot = JSON.parse(File.read(ARGV.fetch(0)))
     exit(snapshot.fetch("nodes").values.any? { |node| node["testID"] == "tv.example.collection" } ? 0 : 1)
@@ -139,20 +143,22 @@ for _ in {1..120}; do
   sleep 0.25
 done
 
-.build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH"
-.build/debug/loupe inspect query "$SNAPSHOT_PATH" --test-id tv.example.collection > "$QUERY_PATH"
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id tv.example.root > "$INSPECT_ROOT_PATH"
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id tv.example.collection > "$INSPECT_LIST_PATH"
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id tv.example.emptyFeed > "$INSPECT_EMPTY_PATH"
-.build/debug/loupe observe fetch "$HOST/accessibility" --timeout 10 --output "$ACCESSIBILITY_PATH" >/dev/null
-.build/debug/loupe debug console --host "$HOST" --output "$LOGS_PATH" >/dev/null
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$SNAPSHOT_PATH"
+.build/debug/loupe ui query "$SNAPSHOT_PATH" --test-id tv.example.collection > "$QUERY_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id tv.example.root > "$INSPECT_ROOT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id tv.example.collection > "$INSPECT_LIST_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id tv.example.emptyFeed > "$INSPECT_EMPTY_PATH"
+.build/debug/loupe ui accessibility --host "$HOST" --timeout 10 --output "$ACCESSIBILITY_PATH" >/dev/null
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --view --depth 8 > "$VIEW_TREE_PATH"
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --depth 8 > "$ACCESSIBILITY_TREE_PATH"
+.build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
-.build/debug/loupe debug heap --target DeviceActuationService --host "$HOST" --udid "$DEVICE" --output "$OBJECT_GRAPH_PATH" >/dev/null
-.build/debug/loupe state flags get tv-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
-.build/debug/loupe state flags set tv-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
-.build/debug/loupe state flags get tv-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
-.build/debug/loupe state keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
+.build/debug/loupe debug object-graph DeviceActuationService --host "$HOST" --udid "$DEVICE" --output "$OBJECT_GRAPH_PATH" >/dev/null
+.build/debug/loupe debug flags get tv-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
+.build/debug/loupe debug flags set tv-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug flags get tv-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
+.build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
 BUTTON_POINT="$(ruby -rjson -e '
   snapshot = JSON.parse(File.read(ARGV.fetch(0)))
   node = snapshot.fetch("nodes").values.find { |candidate| candidate["testID"] == "tv.example.refresh" }
@@ -162,28 +168,31 @@ BUTTON_POINT="$(ruby -rjson -e '
 ' "$SNAPSHOT_PATH")"
 .build/debug/loupe ui hit-test --host "$HOST" --point "$BUTTON_POINT" --output "$HIT_TEST_PATH" >/dev/null
 .build/debug/loupe ui responder-chain --host "$HOST" --test-id tv.example.refresh --output "$RESPONDER_PATH" >/dev/null
-.build/debug/loupe perf scroll --host "$HOST" --udid "$DEVICE" --test-id tv.example.collection --delta 0,80 --output "$PERF_PATH" >/dev/null
-.build/debug/loupe press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_SELECT_TRACE_DIR" --expect-visible tv.example.status
-.build/debug/loupe wait-for-value --host "$HOST" --test-id tv.example.status --key text --equals "Snapshot refreshed" --timeout 5 >/tmp/loupe-tvos-wait-refresh.json
-.build/debug/loupe debug console --host "$HOST" --output "$PRESS_LOGS_PATH" >/dev/null
-.build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH" >/dev/null
-.build/debug/loupe press down --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_DOWN_TRACE_DIR" --expect-visible tv.example.secondary
-.build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$FOCUS_SNAPSHOT_PATH" >/dev/null
-.build/debug/loupe state flags set tv-new-nav --bool false --host "$HOST" --output "$FLAG_DISABLED_PATH" >/dev/null
-.build/debug/loupe press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.logout
-.build/debug/loupe press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.legacyFlow
-.build/debug/loupe press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_LEGACY_TRACE_DIR" --expect-visible tv.example.status
-.build/debug/loupe wait-for-value --host "$HOST" --test-id tv.example.status --key text --equals "Legacy flow active" --timeout 5 >/tmp/loupe-tvos-wait-legacy.json
-.build/debug/loupe debug console --host "$HOST" --output "$LEGACY_LOGS_PATH" >/dev/null
-.build/debug/loupe press up --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.logout
-.build/debug/loupe press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_LOGOUT_TRACE_DIR" --expect-visible tv.example.status
-.build/debug/loupe wait-for-value --host "$HOST" --test-id tv.example.status --key text --equals "Logged out" --timeout 5 >/tmp/loupe-tvos-wait-logout.json
-.build/debug/loupe state keychain list --host "$HOST" --output "$KEYCHAIN_AFTER_LOGOUT_PATH" >/dev/null
-.build/debug/loupe debug console --host "$HOST" --output "$LOGOUT_LOGS_PATH" >/dev/null
-.build/debug/loupe env appearance dark --host "$HOST" --output "$ENV_PATH" >/dev/null
-.build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$DARK_SNAPSHOT_PATH" >/dev/null
+.build/debug/loupe debug scroll --host "$HOST" --udid "$DEVICE" --test-id tv.example.collection --delta 0,80 --output "$PERF_PATH" >/dev/null
+.build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_SELECT_TRACE_DIR" --expect-visible tv.example.status
+.build/debug/loupe act wait value --host "$HOST" --test-id tv.example.status --key text --equals "Snapshot refreshed" --timeout 5 >/tmp/loupe-tvos-wait-refresh.json
+.build/debug/loupe debug logs --host "$HOST" --output "$PRESS_LOGS_PATH" >/dev/null
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$SNAPSHOT_PATH" >/dev/null
+.build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_DOWN_TRACE_DIR" --expect-visible tv.example.secondary
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$FOCUS_SNAPSHOT_PATH" >/dev/null
+.build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.logout
+.build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.legacyFlow
+.build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_NEW_NAV_TRACE_DIR" --expect-visible tv.example.status
+.build/debug/loupe act wait value --host "$HOST" --test-id tv.example.status --key text --equals "New nav active" --timeout 5 >/tmp/loupe-tvos-wait-new-nav.json
+.build/debug/loupe debug logs --host "$HOST" --output "$NEW_NAV_LOGS_PATH" >/dev/null
+.build/debug/loupe debug flags set tv-new-nav --bool false --host "$HOST" --output "$FLAG_DISABLED_PATH" >/dev/null
+.build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_LEGACY_TRACE_DIR" --expect-visible tv.example.status
+.build/debug/loupe act wait value --host "$HOST" --test-id tv.example.status --key text --equals "Legacy flow active" --timeout 5 >/tmp/loupe-tvos-wait-legacy.json
+.build/debug/loupe debug logs --host "$HOST" --output "$LEGACY_LOGS_PATH" >/dev/null
+.build/debug/loupe act press up --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.logout
+.build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_LOGOUT_TRACE_DIR" --expect-visible tv.example.status
+.build/debug/loupe act wait value --host "$HOST" --test-id tv.example.status --key text --equals "Logged out" --timeout 5 >/tmp/loupe-tvos-wait-logout.json
+.build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_AFTER_LOGOUT_PATH" >/dev/null
+.build/debug/loupe debug logs --host "$HOST" --output "$LOGOUT_LOGS_PATH" >/dev/null
+.build/debug/loupe ui appearance dark --host "$HOST" --output "$ENV_PATH" >/dev/null
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$DARK_SNAPSHOT_PATH" >/dev/null
 .build/debug/loupe ui audit "$DARK_SNAPSHOT_PATH" --kind lowTextContrast > "$AUDIT_PATH"
-.build/debug/loupe env appearance system --host "$HOST" >/dev/null
+.build/debug/loupe ui appearance system --host "$HOST" >/dev/null
 
 ruby -rjson -e '
   runtime = JSON.parse(File.read(ARGV.fetch(0)))
@@ -194,10 +203,14 @@ ruby -rjson -e '
   snapshot = JSON.parse(File.read(ARGV.fetch(1)))
   focus_snapshot = JSON.parse(File.read(ARGV.fetch(16)))
   accessibility = JSON.parse(File.read(ARGV.fetch(20)))
+  view_tree = File.read(ARGV.fetch(31))
+  ax_tree = File.read(ARGV.fetch(32))
   size = snapshot.fetch("screen").fetch("size")
   abort "expected nonzero tvOS screen" unless size.fetch("width") > 0 && size.fetch("height") > 0
   abort "missing tv.example.collection" unless snapshot.fetch("nodes").values.any? { |node| node["testID"] == "tv.example.collection" }
   abort "missing tv.example.emptyFeed" unless snapshot.fetch("nodes").values.any? { |node| node["testID"] == "tv.example.emptyFeed" }
+  abort "expected tvOS view tree evidence" unless view_tree.include?("tv.example.collection") && view_tree.include?("ambiguousLayout=")
+  abort "expected tvOS accessibility tree evidence" unless ax_tree.include?("tv.example.refresh")
 
   query = JSON.parse(File.read(ARGV.fetch(2)))
   abort "expected query match for tv.example.collection" unless query.any? { |node| node["testID"] == "tv.example.collection" }
@@ -252,6 +265,9 @@ ruby -rjson -e '
   press_logs = JSON.parse(File.read(ARGV.fetch(17)))
   abort "missing tv_example_refresh_triggered log after press select" unless press_logs.any? { |entry| entry["message"] == "tv_example_refresh_triggered" }
 
+  new_nav_logs = JSON.parse(File.read(ARGV.fetch(33)))
+  abort "missing new-nav flow log after flag enabled" unless new_nav_logs.any? { |entry| entry["message"] == "tv_example_new_nav_flow" }
+
   legacy_logs = JSON.parse(File.read(ARGV.fetch(22)))
   abort "missing legacy flow log after flag disabled" unless legacy_logs.any? { |entry| entry["message"] == "tv_example_legacy_flow" }
 
@@ -260,6 +276,7 @@ ruby -rjson -e '
 
   select_trace = ARGV.fetch(18)
   down_trace = ARGV.fetch(19)
+  new_nav_trace = ARGV.fetch(34)
   legacy_trace = ARGV.fetch(24)
   logout_trace = ARGV.fetch(25)
   [
@@ -277,6 +294,7 @@ ruby -rjson -e '
   ].each do |name|
     abort "missing select press trace #{name}" unless File.exist?(File.join(select_trace, name))
     abort "missing down press trace #{name}" unless File.exist?(File.join(down_trace, name))
+    abort "missing new-nav press trace #{name}" unless File.exist?(File.join(new_nav_trace, name))
     abort "missing legacy press trace #{name}" unless File.exist?(File.join(legacy_trace, name))
     abort "missing logout press trace #{name}" unless File.exist?(File.join(logout_trace, name))
   end
@@ -289,6 +307,14 @@ ruby -rjson -e '
   abort "expected down press trace command" unless down_action["command"] == "press"
   abort "expected down press trace button" unless down_action["press"] == "down"
   abort "expected down remotePress source" unless down_action["resolvedSource"] == "remotePress:down"
+
+  new_nav_action = JSON.parse(File.read(File.join(new_nav_trace, "action-target.json")))
+  abort "expected new-nav select trace command" unless new_nav_action["command"] == "press"
+  abort "expected new-nav select trace button" unless new_nav_action["press"] == "select"
+
+  new_nav_after = JSON.parse(File.read(File.join(new_nav_trace, "after-snapshot.json")))
+  new_nav_status = new_nav_after.fetch("nodes").values.find { |node| node["testID"] == "tv.example.status" }
+  abort "expected new-nav trace after snapshot to show new flow" unless new_nav_status && new_nav_status["text"] == "New nav active"
 
   legacy_action = JSON.parse(File.read(File.join(legacy_trace, "action-target.json")))
   abort "expected legacy select trace command" unless legacy_action["command"] == "press"
@@ -379,7 +405,7 @@ ruby -rjson -e '
   abort "unexpected tvOS dark contrast issues: #{bad_contrast.inspect}" unless bad_contrast.empty?
   bad_sentinel = audit.fetch("issues").select { |issue| issue["kind"] == "lowTextContrast" && issue["testID"] == "tv.example.dark.badContrast" }
   abort "expected dark contrast sentinel issue" if bad_sentinel.empty?
-' "$RUNTIME_PATH" "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$DEVICE" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$FOCUS_SNAPSHOT_PATH" "$PRESS_LOGS_PATH" "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH"
+' "$RUNTIME_PATH" "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$DEVICE" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$FOCUS_SNAPSHOT_PATH" "$PRESS_LOGS_PATH" "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$NEW_NAV_LOGS_PATH" "$PRESS_NEW_NAV_TRACE_DIR"
 
 echo "tvOS example E2E passed"
 echo "snapshot: $SNAPSHOT_PATH"

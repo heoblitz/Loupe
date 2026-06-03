@@ -11,7 +11,7 @@ struct DiffOptions {
 
     init(_ arguments: [String]) throws {
         guard arguments.count >= 2, !arguments[0].hasPrefix("--"), !arguments[1].hasPrefix("--") else {
-            throw CLIError("Usage: loupe diff <before-snapshot.json> <after-snapshot.json> [--json] [--changed-only] [--limit <n>]")
+            throw CLIError("Usage: loupe debug trace diff <before-snapshot.json> <after-snapshot.json> [--json] [--changed-only] [--limit <n>]")
         }
         beforeURL = URL(fileURLWithPath: arguments[0])
         afterURL = URL(fileURLWithPath: arguments[1])

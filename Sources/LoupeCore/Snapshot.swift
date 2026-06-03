@@ -398,6 +398,7 @@ public struct LoupeUILayoutConstraintProperties: Codable, Equatable {
 
 public struct LoupeUILayoutProperties: Codable, Equatable {
     public var translatesAutoresizingMaskIntoConstraints: Bool
+    public var isAmbiguousLayout: Bool
     public var hugging: LoupeUILayoutPriorities
     public var compressionResistance: LoupeUILayoutPriorities
     public var constraints: [LoupeUILayoutConstraintProperties]
@@ -406,6 +407,7 @@ public struct LoupeUILayoutProperties: Codable, Equatable {
 
     public init(
         translatesAutoresizingMaskIntoConstraints: Bool,
+        isAmbiguousLayout: Bool = false,
         hugging: LoupeUILayoutPriorities,
         compressionResistance: LoupeUILayoutPriorities,
         constraints: [LoupeUILayoutConstraintProperties] = [],
@@ -413,11 +415,33 @@ public struct LoupeUILayoutProperties: Codable, Equatable {
         affectingVerticalConstraints: [LoupeUILayoutConstraintProperties] = []
     ) {
         self.translatesAutoresizingMaskIntoConstraints = translatesAutoresizingMaskIntoConstraints
+        self.isAmbiguousLayout = isAmbiguousLayout
         self.hugging = hugging
         self.compressionResistance = compressionResistance
         self.constraints = constraints
         self.affectingHorizontalConstraints = affectingHorizontalConstraints
         self.affectingVerticalConstraints = affectingVerticalConstraints
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case translatesAutoresizingMaskIntoConstraints
+        case isAmbiguousLayout
+        case hugging
+        case compressionResistance
+        case constraints
+        case affectingHorizontalConstraints
+        case affectingVerticalConstraints
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        translatesAutoresizingMaskIntoConstraints = try container.decode(Bool.self, forKey: .translatesAutoresizingMaskIntoConstraints)
+        isAmbiguousLayout = try container.decodeIfPresent(Bool.self, forKey: .isAmbiguousLayout) ?? false
+        hugging = try container.decode(LoupeUILayoutPriorities.self, forKey: .hugging)
+        compressionResistance = try container.decode(LoupeUILayoutPriorities.self, forKey: .compressionResistance)
+        constraints = try container.decodeIfPresent([LoupeUILayoutConstraintProperties].self, forKey: .constraints) ?? []
+        affectingHorizontalConstraints = try container.decodeIfPresent([LoupeUILayoutConstraintProperties].self, forKey: .affectingHorizontalConstraints) ?? []
+        affectingVerticalConstraints = try container.decodeIfPresent([LoupeUILayoutConstraintProperties].self, forKey: .affectingVerticalConstraints) ?? []
     }
 }
 

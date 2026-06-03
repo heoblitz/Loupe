@@ -24,7 +24,7 @@ extension LoupeCLI {
         } else if let bundleID = options.bundleID {
             record = try await runtimeHostRecord(bundleID: bundleID, udid: options.udid, timeout: options.timeout)
         } else {
-            throw CLIError("Usage: loupe use <bundle-id> | --bundle-id <id> | --host <url> [--udid <sim>]")
+            throw CLIError("Usage: loupe app use <bundle-id> | --bundle-id <id> | --host <url> [--udid <sim>]")
         }
         try storeCurrentRuntimeHost(record)
         print("current \(record.bundleID) \(record.host) udid=\(record.udid)")
@@ -33,7 +33,7 @@ extension LoupeCLI {
     static func current(_ arguments: [String]) async throws {
         let options = try RuntimeCurrentOptions(arguments)
         guard let record = try loadCurrentRuntimeHost() else {
-            throw CLIError("No current Loupe runtime. Run `loupe use <bundle-id>` or `loupe use --host <url>`.")
+            throw CLIError("No current Loupe app runtime. Run `loupe app use <bundle-id>` or `loupe app use --host <url>`.")
         }
         var live = false
         if let host = URL(string: record.host),
@@ -143,7 +143,7 @@ extension LoupeCLI {
                 record.bundleID == bundleID && (resolvedUDID == nil || record.udid == resolvedUDID)
             }
         guard !records.isEmpty else {
-            throw CLIError("No stored Loupe runtime for bundle \(bundleID). Run `loupe runtimes` or launch with `loupe start --bundle-id \(bundleID)`.")
+            throw CLIError("No stored Loupe app runtime for bundle \(bundleID). Run `loupe app list` or launch with `loupe app launch --bundle-id \(bundleID)`.")
         }
         for record in records {
             guard let host = URL(string: record.host) else {

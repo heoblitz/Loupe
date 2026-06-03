@@ -9,7 +9,7 @@ struct MutationReflectOptions {
 
     init(_ arguments: [String]) throws {
         guard let first = arguments.first, !first.hasPrefix("--") else {
-            throw CLIError("Usage: loupe reflect <mutation-response.json> --source <dir> [--output <path>]")
+            throw CLIError("Usage: loupe ui reflect <mutation-response.json> --source <dir> [--output <path>]")
         }
 
         mutationURL = URL(fileURLWithPath: first)
@@ -25,7 +25,7 @@ struct MutationReflectOptions {
             case "--output":
                 outputURL = URL(fileURLWithPath: try Self.value(after: "--output", in: arguments, index: &index))
             case "--help", "-h":
-                throw CLIError("Usage: loupe reflect <mutation-response.json> --source <dir> [--output <path>]")
+                throw CLIError("Usage: loupe ui reflect <mutation-response.json> --source <dir> [--output <path>]")
             default:
                 throw CLIError("Unknown reflect option: \(arguments[index])")
             }

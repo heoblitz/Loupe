@@ -970,6 +970,8 @@ private func mutationPropertyValue(_ property: String, in node: LoupeNode) -> Lo
         return node.accessibility?.identifier.map(LoupeMutationValue.string) ?? node.testID.map(LoupeMutationValue.string)
     case "layout.translatesautoresizingmaskintoconstraints", "translatesautoresizingmaskintoconstraints":
         return node.uiKit?.layout.map { .bool($0.translatesAutoresizingMaskIntoConstraints) }
+    case "layout.isambiguouslayout", "isambiguouslayout":
+        return node.uiKit?.layout.map { .bool($0.isAmbiguousLayout) }
     case "layout.hugging.horizontal":
         return node.uiKit?.layout.map { .double($0.hugging.horizontal) }
     case "layout.hugging.vertical":
@@ -1252,6 +1254,7 @@ private func appKitProperties(for view: NSView) -> LoupeUIKitProperties {
 private func layoutProperties(for view: NSView) -> LoupeUILayoutProperties {
     LoupeUILayoutProperties(
         translatesAutoresizingMaskIntoConstraints: view.translatesAutoresizingMaskIntoConstraints,
+        isAmbiguousLayout: view.hasAmbiguousLayout,
         hugging: LoupeUILayoutPriorities(
             horizontal: finiteDouble(CGFloat(view.contentHuggingPriority(for: .horizontal).rawValue)) ?? 0,
             vertical: finiteDouble(CGFloat(view.contentHuggingPriority(for: .vertical).rawValue)) ?? 0

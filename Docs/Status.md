@@ -8,11 +8,10 @@ runtime servers.
 
 ## Current Capabilities
 
-- Launch simulator apps with injection through `loupe start` or
-  `loupe launch --inject`.
+- Launch simulator apps with injection through `loupe app launch`.
 - Assign an available localhost port on launch, record the runtime under
   `~/.loupe/runtimes`, and resolve later commands by `--bundle-id`, `--udid`,
-  or `loupe use <bundle-id>`.
+  or `loupe app use <bundle-id>`.
 - Capture full snapshots, compact observations, accessibility trees, visible
   screen maps, screenshots, layout audits, runtime logs, and action traces.
 - Read app-authored network events, reference evidence, defaults/flags, and
@@ -27,15 +26,15 @@ runtime servers.
   the view tree when needed.
 - Save action traces with before/after snapshots, accessibility trees, logs,
   screenshots, action records, diffs, and target crops when available.
-- Run quick route sweeps with `loupe explore-routes`.
-- Try allowlisted UIKit property mutations at runtime with `loupe set` and
-  `loupe set-many`; property mutations animate by default and report effective
+- Run quick route sweeps with `loupe debug trace explore`.
+- Try allowlisted UIKit property mutations at runtime with `loupe ui set` and
+  `loupe ui set-many`; property mutations animate by default and report effective
   state.
-- Inspect and mutate Auto Layout constraints with `constraints`,
-  `set-constraint`, and `deactivate-constraint`, including effective-state
+- Inspect and mutate Auto Layout constraints with `loupe ui constraints`,
+  `loupe ui set-constraint`, and `loupe ui deactivate-constraint`, including effective-state
   verification.
 - Reflect verified runtime mutation experiments back toward source with
-  `loupe reflect`.
+  `loupe ui reflect`.
 - Install the Codex/Claude skill with `loupe skills install`.
 
 ## Supported Verification
@@ -64,12 +63,12 @@ GitHub Actions uses the same command for the `Post-change E2E` required check.
 For diagnosis, design, or screenshot-driven work, the expected loop is:
 
 ```bash
-loupe capture-report --bundle-id com.example.App --output loupe-report
-loupe screen-map loupe-report/snapshot.json --limit 120
-loupe tree loupe-report/snapshot.json --view --depth 6
-loupe inspect loupe-report/snapshot.json --test-id key.control
-loupe audit loupe-report/snapshot.json
-loupe screenshot --udid booted --output loupe-screen.png
+loupe ui report --bundle-id com.example.App --output loupe-report
+loupe ui screen loupe-report/snapshot.json --limit 120
+loupe ui tree loupe-report/snapshot.json --view --depth 6
+loupe ui node loupe-report/snapshot.json --test-id key.control
+loupe ui audit loupe-report/snapshot.json
+loupe ui screenshot --udid booted --output loupe-screen.png
 ```
 
 Use screenshots for visual sanity and the view tree for actionable checks:
@@ -80,7 +79,6 @@ clipping, and UIKit metadata.
 
 - Runtime observation is covered by iOS Simulator injection plus linked macOS
   AppKit and tvOS Simulator examples; physical devices are out of scope.
-- `loupe pinch` keeps the intended API shape but HID dispatch is not implemented.
 - Native `UIAccessibility` container traversal is opt-in with
   `LOUPE_NATIVE_ACCESSIBILITY=1`; the default runtime path uses Loupe's
   view-derived accessibility tree.

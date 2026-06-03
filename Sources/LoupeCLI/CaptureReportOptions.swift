@@ -44,7 +44,7 @@ struct CaptureReportOptions {
             case "--timeout":
                 timeout = try Self.double(after: "--timeout", in: arguments, index: &index)
             default:
-                throw CLIError("Unknown capture-report option: \(arguments[index])")
+                throw CLIError("Unknown ui report option: \(arguments[index])")
             }
             index += 1
         }

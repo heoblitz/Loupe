@@ -396,6 +396,8 @@ private func mutationPropertyValue(_ property: String, in node: LoupeNode) -> Lo
         return node.accessibility?.identifier.map(LoupeMutationValue.string) ?? node.testID.map(LoupeMutationValue.string)
     case "layout.translatesautoresizingmaskintoconstraints", "translatesautoresizingmaskintoconstraints":
         return node.uiKit?.layout.map { .bool($0.translatesAutoresizingMaskIntoConstraints) }
+    case "layout.isambiguouslayout", "isambiguouslayout":
+        return node.uiKit?.layout.map { .bool($0.isAmbiguousLayout) }
     case "layout.hugging.horizontal":
         return node.uiKit?.layout.map { .double($0.hugging.horizontal) }
     case "layout.hugging.vertical":

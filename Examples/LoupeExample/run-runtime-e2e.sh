@@ -121,10 +121,10 @@ LAUNCH_ARGUMENTS=(
 if [[ -n "$PORT" ]]; then
   LAUNCH_ARGUMENTS+=(--env "LOUPE_PORT=$PORT")
 fi
-LAUNCH_OUTPUT="$(.build/debug/loupe runtime launch "${LAUNCH_ARGUMENTS[@]}")"
+LAUNCH_OUTPUT="$(.build/debug/loupe app launch "${LAUNCH_ARGUMENTS[@]}")"
 HOST="$(awk '/^loupe host: / { print $3 }' <<<"$LAUNCH_OUTPUT" | tail -1)"
 if [[ -z "$HOST" ]]; then
-  echo "error: loupe launch did not report a runtime host" >&2
+  echo "error: loupe app launch did not report a runtime host" >&2
   echo "$LAUNCH_OUTPUT" >&2
   exit 1
 fi
@@ -136,11 +136,11 @@ SCREENSHOT_PATH="/tmp/loupe-runtime-screen.png"
 RUNTIME_PATH="/tmp/loupe-runtime-state.json"
 
 fetch_snapshot() {
-  .build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH"
+  .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$SNAPSHOT_PATH"
 }
 
 curl -sS "$HOST/health" | grep -q LoupeKit
-.build/debug/loupe runtime info --host "$HOST" --udid "$DEVICE" > "$RUNTIME_PATH"
+.build/debug/loupe app info --host "$HOST" --udid "$DEVICE" > "$RUNTIME_PATH"
 grep -q '"simulatorUDID"' "$RUNTIME_PATH"
 fetch_snapshot
 grep -q '"uiKit"' "$SNAPSHOT_PATH"
@@ -161,9 +161,9 @@ read -r WIDTH HEIGHT < <(ruby -rjson -e '
 sleep 1
 
 fetch_snapshot
-.build/debug/loupe inspect query "$SNAPSHOT_PATH" --test-id example.customerList >/tmp/loupe-runtime-list-query.json
+.build/debug/loupe ui query "$SNAPSHOT_PATH" --test-id example.customerList >/tmp/loupe-runtime-list-query.json
 
-.build/debug/loupe observe screenshot \
+.build/debug/loupe ui screenshot \
   --udid "$DEVICE" \
   --output "$SCREENSHOT_PATH"
 

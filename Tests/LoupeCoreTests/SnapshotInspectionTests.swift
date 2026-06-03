@@ -57,6 +57,7 @@ struct SnapshotInspectionTests {
         let stackView = try #require(inspection.node.uiKit?.stackView)
 
         #expect(layout.translatesAutoresizingMaskIntoConstraints == false)
+        #expect(layout.isAmbiguousLayout == true)
         #expect(layout.hugging.horizontal == 250)
         #expect(layout.compressionResistance.vertical == 750)
         #expect(layout.constraints.first?.id == "c-row-height")

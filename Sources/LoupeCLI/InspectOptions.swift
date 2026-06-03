@@ -10,7 +10,7 @@ struct InspectOptions {
 
     init(_ arguments: [String]) throws {
         guard let path = arguments.first, !path.hasPrefix("--") else {
-            throw CLIError("Usage: loupe inspect <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--include-hidden] [--fields node,parent,children,siblings]")
+            throw CLIError("Usage: loupe ui node <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--include-hidden] [--fields node,parent,children,siblings]")
         }
 
         snapshotURL = URL(fileURLWithPath: path)
@@ -45,7 +45,7 @@ struct InspectOptions {
         }
 
         guard let selector else {
-            throw CLIError("inspect requires --test-id, --text, --role, or --ref")
+            throw CLIError("ui node requires --test-id, --text, --role, or --ref")
         }
 
         self.selector = selector

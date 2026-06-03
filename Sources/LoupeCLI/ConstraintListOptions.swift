@@ -81,7 +81,7 @@ struct ConstraintListOptions {
     }
 
     static let usage = """
-    Usage: loupe constraints [snapshot.json] (--ref <ref> | --test-id <id> | --text <text>) [--json]
+    Usage: loupe ui constraints [snapshot.json] (--ref <ref> | --test-id <id> | --text <text>) [--json]
     """
 
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {

@@ -37,110 +37,22 @@ struct LoupeCLI {
         }
 
         switch command {
-        case "accessibility":
-            try accessibility(arguments)
-        case "audit":
-            try audit(arguments)
-        case "compact":
-            try compact(arguments)
-        case "capture-report":
-            try await captureReport(arguments)
-        case "compare-design":
-            try compareDesign(arguments)
-        case "constraints":
-            try await constraints(arguments)
-        case "cleanup":
-            try await cleanup(arguments)
-        case "deactivate-constraint":
-            try await mutateConstraint(arguments, deactivate: true)
-        case "diff":
-            try diff(arguments)
         case "doctor":
             try doctor(arguments)
-        case "target":
-            try await target(arguments)
+        case "app":
+            try await app(arguments)
         case "debug":
             try await debug(arguments)
-        case "state":
-            try await state(arguments)
-        case "env":
-            try await env(arguments)
-        case "perf":
-            try await perf(arguments)
-        case "observe":
-            try await observe(arguments)
         case "act":
             try await act(arguments)
         case "ui":
             try await ui(arguments)
-        case "trace":
-            try await trace(arguments)
-        case "explore-routes":
-            try await exploreRoutes(arguments)
-        case "fetch":
-            try await fetch(arguments)
-        case "install-skills":
-            try skills(["install"] + arguments)
-        case "logs":
-            try await runtimeFetch(
-                arguments,
-                path: "/logs",
-                usage: "loupe logs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
-            )
-        case "apps", "runtimes":
-            try await runtimes(arguments)
         case "injector-path":
             try injectorPath(arguments)
-        case "inspect":
-            try await inspectGroup(arguments)
-        case "reflect":
-            try reflect(arguments)
-        case "runtime":
-            try await runtimeGroup(arguments)
-        case "mutations":
-            try await mutations(arguments)
-        case "paint-stack":
-            try await paintStack(arguments)
-        case "set-many":
-            try await setMany(arguments)
-        case "set", "mutate":
-            try await set(arguments)
-        case "set-constraint":
-            try await mutateConstraint(arguments, deactivate: false)
-        case "query":
-            try await query(arguments)
-        case "launch":
-            try await launch(arguments)
-        case "screenshot":
-            try screenshot(arguments)
-        case "screen-map":
-            try await screenMap(arguments)
         case "skills":
             try skills(arguments)
-        case "start":
-            try await start(arguments)
-        case "subtree":
-            try subtree(arguments)
-        case "tree":
-            try await tree(arguments)
-        case "use":
-            try await use(arguments)
-        case "current":
-            try await current(arguments)
-        case "text-map":
-            try await tree(arguments + ["--text"])
-        case "trace-summary":
-            try traceSummary(arguments)
-        case "tap", "swipe", "drag", "pinch", "type", "press":
-            try await action(command: command, arguments: arguments)
         case "version", "--version":
             printVersion()
-        case "wait-for-visible":
-            try await waitFor(arguments, mode: .visible)
-        case "wait-for-gone":
-            try await waitFor(arguments, mode: .gone)
-        case "wait-for-value":
-            try await waitFor(arguments, mode: .value)
         case "--help", "-h":
             printHelp()
         default:
@@ -150,7 +62,7 @@ struct LoupeCLI {
 
     static func compact(_ arguments: [String]) throws {
         guard arguments.count == 1 else {
-            throw CLIError("Usage: loupe compact <snapshot.json>")
+            throw CLIError("Usage: loupe ui compact <snapshot.json>")
         }
 
         let url = URL(fileURLWithPath: arguments[0])
@@ -882,27 +794,6 @@ struct LoupeCLI {
         return LoupeInjectorPathResolver().resolve()
     }
 
-    static func fetch(_ arguments: [String]) async throws {
-        let options = try FetchOptions(arguments)
-        let (data, response) = try await httpData(from: options.url, timeout: options.timeout, label: "fetch")
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw CLIError("fetch expected an HTTP response")
-        }
-
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw CLIError("fetch failed with HTTP \(httpResponse.statusCode)")
-        }
-
-        if let outputURL = options.outputURL {
-            try data.write(to: outputURL)
-            FileHandle.standardError.write(Data("wrote \(outputURL.path)\n".utf8))
-        } else {
-            FileHandle.standardOutput.write(data)
-            FileHandle.standardOutput.write(Data("\n".utf8))
-        }
-    }
-
     static let developmentVersion = "0.1.4-dev"
 
     static func versionString(
@@ -934,24 +825,17 @@ struct LoupeCLI {
 
         VERSION: \(version)
 
-        USAGE: loupe <domain> <subcommand>
+        USAGE: loupe <command-group> <subcommand>
 
         OPTIONS:
           -h, --help              Show help information.
           --version               Show the current Loupe version.
 
-        DOMAINS:
-          target                  Select a runtime target.
-          runtime                 Start, list, select, and query injected runtimes.
-          observe                 Capture screenshots, trees, maps, and raw runtime data.
-          inspect                 Query or inspect nodes and paint stacks.
+        COMMAND GROUPS:
+          app                     Launch, select, and inspect app runtimes.
+          ui                      Capture, inspect, audit, and mutate UI state.
           act                     Dispatch input and wait for UI state.
-          ui                      Audit, mutate, and compare UI structure.
-          debug                   Read logs, network events, and reference evidence.
-          state                   Inspect defaults, flags, and keychain metadata.
-          env                     Change runtime environment such as appearance.
-          perf                    Run small performance probes.
-          trace                   Explore, summarize, and diff action traces.
+          debug                   Read and change diagnostic app state.
           skills                  Install Loupe workflow skills.
 
         DIAGNOSTICS:
@@ -959,8 +843,7 @@ struct LoupeCLI {
           injector-path           Print the resolved injector path.
           version                 Show the current Loupe version.
 
-          Existing flat commands remain as compatibility aliases.
-          See 'loupe help <domain> <subcommand>' for detailed help.
+          See 'loupe help <command-group> <subcommand>' for detailed help.
         """
     }
 
@@ -1042,7 +925,7 @@ struct LoupeCLI {
             try await runtimeFetch(
                 arguments,
                 path: "/mutations",
-                usage: "loupe mutations [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+                usage: "loupe ui mutations [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
             return
         }
@@ -1120,7 +1003,7 @@ struct LoupeCLI {
             try await runtimeFetch(
                 arguments.filter { $0 != "--list" },
                 path: "/mutations",
-                usage: "loupe set --list [--host <url>] [--udid <sim>] [--output <path>]"
+                usage: "loupe ui set --list [--host <url>] [--udid <sim>] [--output <path>]"
             )
             return
         }
@@ -1595,7 +1478,7 @@ struct LoupeCLI {
 
     private static func renderExploreRoutesReport(_ report: ExploreRoutesReport) -> String {
         var lines = [
-            "explore-routes host=\(report.host) udid=\(report.udid) screen=\(format(report.screen.size.width))x\(format(report.screen.size.height))",
+            "debug trace explore host=\(report.host) udid=\(report.udid) screen=\(format(report.screen.size.width))x\(format(report.screen.size.height))",
         ]
         if let bundleID = report.bundleID {
             lines[0] += " bundle=\(bundleID)"
@@ -1791,7 +1674,7 @@ struct LoupeCLI {
                 }
             case .value:
                 guard let keyPath = options.keyPath, let expectedValue = options.expectedValue else {
-                    throw CLIError("wait-for-value requires --key <path> and --equals <value>")
+                    throw CLIError("act wait value requires --key <path> and --equals <value>")
                 }
                 if let node = firstMatchingNode(options.selector, in: snapshot),
                    let value = jsonValue(in: node, keyPath: keyPath),
@@ -3269,7 +3152,7 @@ struct LoupeCLI {
         outputURL: URL
     ) -> String {
         [
-            "wait-for-value matched ref=\(node.ref)",
+            "act wait value matched ref=\(node.ref)",
             node.testID.map { "testID=\($0)" },
             displayText(node).map { "text=\"\($0)\"" },
             "key=\(keyPath)",
@@ -3384,7 +3267,7 @@ struct LoupeCLI {
         }
         var output = lines.joined(separator: "\n")
         if let depth, depth <= 5, visiblePrefixContainsOnlyContainers(roots: roots, snapshot: snapshot, maxDepth: depth, includeHidden: includeHidden) {
-            output += "\n\nhint: Only container nodes found at depth \(depth). Try --depth 8 or `loupe tree --interesting`."
+            output += "\n\nhint: Only container nodes found at depth \(depth). Try --depth 8 or `loupe ui tree --interesting`."
         }
         return output
     }
@@ -3443,7 +3326,7 @@ struct LoupeCLI {
         }
         var output = lines.joined(separator: "\n")
         if let depth, depth <= 5, accessibilityPrefixContainsOnlyContainers(roots: roots, tree: tree, maxDepth: depth, includeHidden: includeHidden) {
-            output += "\n\nhint: Only container nodes found at depth \(depth). Try --depth 8 or `loupe tree --interesting`."
+            output += "\n\nhint: Only container nodes found at depth \(depth). Try --depth 8 or `loupe ui tree --interesting`."
         }
         return output
     }
@@ -3667,6 +3550,7 @@ struct LoupeCLI {
             node.testID.map { "testID=\($0)" },
             displayText(node).map { "text=\"\($0)\"" },
             node.frame.map { "frame=\(rectSummary($0))" },
+            node.uiKit?.layout.map(layoutSummary),
             node.uiKit?.isFocused == true ? "focused" : nil,
             node.uiKit?.canBecomeFocused == true ? "focusable" : nil,
             node.isVisible ? nil : "hidden",
@@ -3689,6 +3573,18 @@ struct LoupeCLI {
 
     private static func rectSummary(_ rect: LoupeRect) -> String {
         "\(format(rect.x)),\(format(rect.y)),\(format(rect.width)),\(format(rect.height))"
+    }
+
+    private static func layoutSummary(_ layout: LoupeUILayoutProperties) -> String {
+        [
+            "ambiguousLayout=\(layout.isAmbiguousLayout)",
+            "hugging=\(priorityPair(layout.hugging))",
+            "compression=\(priorityPair(layout.compressionResistance))",
+        ].joined(separator: " ")
+    }
+
+    private static func priorityPair(_ priorities: LoupeUILayoutPriorities) -> String {
+        "\(format(priorities.horizontal))/\(format(priorities.vertical))"
     }
 
     private static func displayText(_ node: LoupeNode) -> String? {

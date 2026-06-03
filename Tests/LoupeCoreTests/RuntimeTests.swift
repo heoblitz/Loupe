@@ -175,6 +175,7 @@ struct RuntimeTests {
                 isFirstResponder: false,
                 layout: LoupeUILayoutProperties(
                     translatesAutoresizingMaskIntoConstraints: false,
+                    isAmbiguousLayout: true,
                     hugging: LoupeUILayoutPriorities(horizontal: 250, vertical: 251),
                     compressionResistance: LoupeUILayoutPriorities(horizontal: 750, vertical: 751),
                     constraints: [
@@ -206,6 +207,7 @@ struct RuntimeTests {
         )
 
         #expect(node.uiKit?.layout?.translatesAutoresizingMaskIntoConstraints == false)
+        #expect(node.uiKit?.layout?.isAmbiguousLayout == true)
         #expect(node.uiKit?.layout?.hugging.horizontal == 250)
         #expect(node.uiKit?.layout?.compressionResistance.vertical == 751)
         #expect(node.uiKit?.layout?.constraints.first?.id == "c-height")
@@ -213,5 +215,27 @@ struct RuntimeTests {
         #expect(node.uiKit?.stackView?.axis == "horizontal")
         #expect(node.uiKit?.stackView?.distribution == "fillEqually")
         #expect(node.uiKit?.stackView?.arrangedSubviewCount == 3)
+    }
+
+    @Test func layoutPropertiesDecodeOlderSnapshots() throws {
+        let data = Data(
+            """
+            {
+              "translatesAutoresizingMaskIntoConstraints": false,
+              "hugging": { "horizontal": 250, "vertical": 251 },
+              "compressionResistance": { "horizontal": 750, "vertical": 751 }
+            }
+            """.utf8
+        )
+
+        let layout = try JSONDecoder().decode(LoupeUILayoutProperties.self, from: data)
+
+        #expect(layout.translatesAutoresizingMaskIntoConstraints == false)
+        #expect(layout.isAmbiguousLayout == false)
+        #expect(layout.hugging.vertical == 251)
+        #expect(layout.compressionResistance.horizontal == 750)
+        #expect(layout.constraints.isEmpty)
+        #expect(layout.affectingHorizontalConstraints.isEmpty)
+        #expect(layout.affectingVerticalConstraints.isEmpty)
     }
 }

@@ -64,7 +64,7 @@ struct ExploreRoutesOptions {
             case "--json":
                 json = true
             default:
-                throw CLIError("Unknown explore-routes option: \(arguments[index])")
+                throw CLIError("Unknown debug trace explore option: \(arguments[index])")
             }
             index += 1
         }

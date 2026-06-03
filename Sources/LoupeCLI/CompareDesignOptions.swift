@@ -16,7 +16,7 @@ struct CompareDesignOptions {
 
     init(_ arguments: [String]) throws {
         guard arguments.count >= 2, !arguments[0].hasPrefix("--"), !arguments[1].hasPrefix("--") else {
-            throw CLIError("Usage: loupe compare-design <snapshot.json> <design.json> [--json] [--limit <n>]")
+            throw CLIError("Usage: loupe ui compare-design <snapshot.json> <design.json> [--json] [--limit <n>]")
         }
         snapshotURL = URL(fileURLWithPath: arguments[0])
         designURL = URL(fileURLWithPath: arguments[1])

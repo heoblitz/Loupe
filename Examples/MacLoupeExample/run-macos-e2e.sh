@@ -13,14 +13,20 @@ APP_LOG="/tmp/loupe-macos-example.log"
 SNAPSHOT_PATH="/tmp/loupe-macos-snapshot.json"
 DARK_SNAPSHOT_PATH="/tmp/loupe-macos-dark-snapshot.json"
 ACCESSIBILITY_PATH="/tmp/loupe-macos-accessibility.json"
+VIEW_TREE_PATH="/tmp/loupe-macos-view-tree.txt"
+ACCESSIBILITY_TREE_PATH="/tmp/loupe-macos-accessibility-tree.txt"
 LOGS_PATH="/tmp/loupe-macos-logs.json"
+NEW_NAV_LOGS_PATH="/tmp/loupe-macos-new-nav-logs.json"
+LOGOUT_LOGS_PATH="/tmp/loupe-macos-logout-logs.json"
 NETWORK_PATH="/tmp/loupe-macos-network.json"
 REFS_PATH="/tmp/loupe-macos-refs.json"
 OBJECT_GRAPH_PATH="/tmp/loupe-macos-object-graph.json"
 FLAG_PATH="/tmp/loupe-macos-flag.json"
 FLAG_SET_PATH="/tmp/loupe-macos-flag-set.json"
+LOGOUT_FLAG_SET_PATH="/tmp/loupe-macos-logout-flag-set.json"
 EMPTY_FLAG_PATH="/tmp/loupe-macos-empty-flag.json"
 KEYCHAIN_PATH="/tmp/loupe-macos-keychain.json"
+KEYCHAIN_AFTER_LOGOUT_PATH="/tmp/loupe-macos-keychain-after-logout.json"
 HIT_TEST_PATH="/tmp/loupe-macos-hit-test.json"
 RESPONDER_PATH="/tmp/loupe-macos-responder-chain.json"
 ENV_PATH="/tmp/loupe-macos-env.json"
@@ -32,7 +38,7 @@ INSPECT_TITLE_PATH="/tmp/loupe-macos-inspect-title.json"
 INSPECT_EMPTY_PATH="/tmp/loupe-macos-inspect-empty.json"
 QUERY_PATH="/tmp/loupe-macos-query.json"
 
-rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$MUTATION_PATH" "$INSPECT_PATH" "$INSPECT_TITLE_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
+rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$LOGS_PATH" "$NEW_NAV_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$LOGOUT_FLAG_SET_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$MUTATION_PATH" "$INSPECT_PATH" "$INSPECT_TITLE_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH"
 
 LOUPE_PORT="$PORT" .build/debug/MacLoupeExample >"$APP_LOG" 2>&1 &
 APP_PID=$!
@@ -57,7 +63,7 @@ done
 curl -fsS "$HOST/health" | grep -q LoupeKit
 
 for _ in {1..120}; do
-  .build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH" >/dev/null
+  .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$SNAPSHOT_PATH" >/dev/null
   if ruby -rjson -e '
     snapshot = JSON.parse(File.read(ARGV.fetch(0)))
     exit(snapshot.fetch("nodes").values.any? { |node| node["testID"] == "mac.example.list" } ? 0 : 1)
@@ -67,20 +73,28 @@ for _ in {1..120}; do
   sleep 0.25
 done
 
-.build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH"
-.build/debug/loupe inspect query "$SNAPSHOT_PATH" --test-id mac.example.list > "$QUERY_PATH"
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id mac.example.root > "$INSPECT_PATH"
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id mac.example.title > "$INSPECT_TITLE_PATH"
-.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id mac.example.emptyFeed > "$INSPECT_EMPTY_PATH"
-.build/debug/loupe observe fetch "$HOST/accessibility" --timeout 10 --output "$ACCESSIBILITY_PATH" >/dev/null
-.build/debug/loupe debug console --host "$HOST" --output "$LOGS_PATH" >/dev/null
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$SNAPSHOT_PATH"
+.build/debug/loupe ui query "$SNAPSHOT_PATH" --test-id mac.example.list > "$QUERY_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id mac.example.root > "$INSPECT_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id mac.example.title > "$INSPECT_TITLE_PATH"
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id mac.example.emptyFeed > "$INSPECT_EMPTY_PATH"
+.build/debug/loupe ui accessibility --host "$HOST" --timeout 10 --output "$ACCESSIBILITY_PATH" >/dev/null
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --view --depth 6 > "$VIEW_TREE_PATH"
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --depth 6 > "$ACCESSIBILITY_TREE_PATH"
+.build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
 .build/debug/loupe debug object-graph DeviceActuationService --host "$HOST" --output "$OBJECT_GRAPH_PATH" >/dev/null
-.build/debug/loupe state flags get mac-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
-.build/debug/loupe state flags set mac-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
-.build/debug/loupe state flags get mac-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
-.build/debug/loupe state keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
+.build/debug/loupe debug flags get mac-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
+.build/debug/loupe debug flags set mac-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
+.build/debug/loupe act wait value --host "$HOST" --test-id mac.example.status --key text --equals "New nav active" --timeout 5 >/tmp/loupe-macos-wait-new-nav.json
+.build/debug/loupe debug logs --host "$HOST" --output "$NEW_NAV_LOGS_PATH" >/dev/null
+.build/debug/loupe debug flags get mac-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
+.build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
+.build/debug/loupe debug flags set mac-logout --bool true --host "$HOST" --output "$LOGOUT_FLAG_SET_PATH" >/dev/null
+.build/debug/loupe act wait value --host "$HOST" --test-id mac.example.status --key text --equals "Logged out" --timeout 5 >/tmp/loupe-macos-wait-logout.json
+.build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_AFTER_LOGOUT_PATH" >/dev/null
+.build/debug/loupe debug logs --host "$HOST" --output "$LOGOUT_LOGS_PATH" >/dev/null
 BUTTON_POINT="$(ruby -rjson -e '
   snapshot = JSON.parse(File.read(ARGV.fetch(0)))
   node = snapshot.fetch("nodes").values.find { |candidate| candidate["testID"] == "mac.example.refresh" }
@@ -90,17 +104,21 @@ BUTTON_POINT="$(ruby -rjson -e '
 ' "$SNAPSHOT_PATH")"
 .build/debug/loupe ui hit-test --host "$HOST" --point "$BUTTON_POINT" --output "$HIT_TEST_PATH" >/dev/null
 .build/debug/loupe ui responder-chain --host "$HOST" --test-id mac.example.refresh --output "$RESPONDER_PATH" >/dev/null
-.build/debug/loupe perf scroll --host "$HOST" --test-id mac.example.list --delta 0,40 --output "$PERF_PATH" >/dev/null
+.build/debug/loupe debug scroll --host "$HOST" --test-id mac.example.list --delta 0,40 --output "$PERF_PATH" >/dev/null
 .build/debug/loupe ui set --host "$HOST" --test-id mac.example.status text "AppKit mutation applied" --no-animate --output "$MUTATION_PATH" >/dev/null
-.build/debug/loupe env appearance dark --host "$HOST" --output "$ENV_PATH" >/dev/null
-.build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$DARK_SNAPSHOT_PATH" >/dev/null
+.build/debug/loupe ui appearance dark --host "$HOST" --output "$ENV_PATH" >/dev/null
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$DARK_SNAPSHOT_PATH" >/dev/null
 .build/debug/loupe ui audit "$DARK_SNAPSHOT_PATH" --kind lowTextContrast > "$AUDIT_PATH"
-.build/debug/loupe env appearance system --host "$HOST" >/dev/null
+.build/debug/loupe ui appearance system --host "$HOST" >/dev/null
 
 ruby -rjson -e '
   snapshot = JSON.parse(File.read(ARGV.fetch(0)))
   abort "expected AppKit snapshot" unless snapshot.fetch("nodes").values.any? { |node| node["uiKit"] && node["typeName"] == "NSScrollView" }
   abort "missing mac.example.list" unless snapshot.fetch("nodes").values.any? { |node| node["testID"] == "mac.example.list" }
+  view_tree = File.read(ARGV.fetch(21))
+  ax_tree = File.read(ARGV.fetch(22))
+  abort "expected macOS view tree evidence" unless view_tree.include?("mac.example.list") && view_tree.include?("ambiguousLayout=")
+  abort "expected macOS accessibility tree evidence" unless ax_tree.include?("mac.example.refresh")
 
   query = JSON.parse(File.read(ARGV.fetch(1)))
   abort "expected query match for mac.example.list" unless query.any? { |node| node["testID"] == "mac.example.list" }
@@ -206,12 +224,20 @@ ruby -rjson -e '
 
   flag_set = JSON.parse(File.read(ARGV.fetch(6)))
   abort "expected mac-new-nav=true after set" unless flag_set.dig("after", "value") == true
+  new_nav_logs = JSON.parse(File.read(ARGV.fetch(23)))
+  abort "missing macOS new-nav flow log" unless new_nav_logs.any? { |entry| entry["message"] == "mac_example_new_nav_flow" }
 
   empty_flag = JSON.parse(File.read(ARGV.fetch(16)))
   abort "expected mac-empty-feed=true" unless empty_flag.dig("value", "value") == true
 
   keychain = JSON.parse(File.read(ARGV.fetch(9)))
   abort "missing macOS keychain fixture metadata" unless keychain.any? { |entry| entry["service"] == "dev.loupe.macos-example" && entry["account"] == "fixture" }
+  logout_flag_set = JSON.parse(File.read(ARGV.fetch(24)))
+  abort "expected mac-logout set response" unless logout_flag_set.dig("after", "value") == true
+  keychain_after_logout = JSON.parse(File.read(ARGV.fetch(25)))
+  abort "expected macOS logout to clear keychain fixture" if keychain_after_logout.any? { |entry| entry["service"] == "dev.loupe.macos-example" && entry["account"] == "fixture" }
+  logout_logs = JSON.parse(File.read(ARGV.fetch(26)))
+  abort "missing macOS logout keychain-clear log" unless logout_logs.any? { |entry| entry["message"] == "mac_example_logout_cleared_keychain" }
 
   hit = JSON.parse(File.read(ARGV.fetch(10)))
   abort "expected mac.example.refresh hit-test" unless hit["hitTestID"] == "mac.example.refresh"
@@ -230,7 +256,7 @@ ruby -rjson -e '
   mutation = JSON.parse(File.read(ARGV.fetch(19)))
   abort "expected AppKit text mutation property" unless mutation["property"] == "text"
   abort "expected AppKit mutation target" unless mutation.dig("target", "testID") == "mac.example.status"
-  abort "expected AppKit mutation before text" unless mutation.dig("before", "renderedText") == "Runtime online"
+  abort "expected AppKit mutation before text" unless mutation.dig("before", "renderedText") == "Logged out"
   abort "expected AppKit mutation after text" unless mutation.dig("after", "renderedText") == "AppKit mutation applied"
   abort "expected AppKit mutation effective value" unless mutation.dig("effective", "value") == "AppKit mutation applied"
   abort "expected AppKit mutation changed" unless mutation["changed"] == true
@@ -247,7 +273,7 @@ ruby -rjson -e '
   abort "expected dark snapshot after AppKit mutation" unless dark_status && dark_status["renderedText"] == "AppKit mutation applied"
   bad_sentinel = audit.fetch("issues").select { |issue| issue["kind"] == "lowTextContrast" && issue["testID"] == "mac.example.dark.badContrast" }
   abort "expected macOS dark contrast sentinel issue" if bad_sentinel.empty?
-' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$INSPECT_TITLE_PATH" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$EMPTY_FLAG_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH" "$MUTATION_PATH" "$DARK_SNAPSHOT_PATH"
+' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$INSPECT_TITLE_PATH" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$EMPTY_FLAG_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH" "$MUTATION_PATH" "$DARK_SNAPSHOT_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$NEW_NAV_LOGS_PATH" "$LOGOUT_FLAG_SET_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$LOGOUT_LOGS_PATH"
 
 echo "macOS example E2E passed"
 echo "snapshot: $SNAPSHOT_PATH"

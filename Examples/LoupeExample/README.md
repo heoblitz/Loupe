@@ -35,7 +35,7 @@ Expected result:
 - the app launches on a booted simulator
 - the script prints the randomized Loupe runtime health response
 - `/snapshot` contains the UIKit view hierarchy
-- `loupe query ... --test-id example.customerList` returns the table node
+- `loupe ui query ... --test-id example.customerList` returns the table node
 
 Run the XCTest-free Loupe runtime smoke harness:
 
@@ -68,7 +68,7 @@ Run the bookmark app-style E2E harness:
 This launches the bookmark route, verifies the tab bar plus list observation,
 prints view/accessibility tree previews, blocks text-based tap, captures an
 automatic failure trace, opens detail by `testID`, checks and toggles favorite
-state with `wait-for-value`, returns by `ref`, types into the add form, saves a
+state with `loupe act wait value`, returns by `ref`, types into the add form, saves a
 new bookmark, waits for the editor to disappear, switches to Favorites, opens
 another detail screen, switches to Search, types a query, and audits the
 resulting view tree.

@@ -41,22 +41,22 @@ Loupe matches design nodes in this order:
 ## Runtime Evidence Loop
 
 ```bash
-loupe capture-report --bundle-id com.example.App --output loupe-report
-loupe screen-map loupe-report/snapshot.json --limit 120
-loupe tree loupe-report/snapshot.json --view --depth 6
-loupe paint-stack loupe-report/snapshot.json --point 201,319
-loupe compare-design loupe-report/snapshot.json figma-export.json
-loupe compare-design loupe-report/snapshot.json figma-export.json --json
+loupe ui report --bundle-id com.example.App --output loupe-report
+loupe ui screen loupe-report/snapshot.json --limit 120
+loupe ui tree loupe-report/snapshot.json --view --depth 6
+loupe ui paint loupe-report/snapshot.json --point 201,319
+loupe ui compare-design loupe-report/snapshot.json figma-export.json
+loupe ui compare-design loupe-report/snapshot.json figma-export.json --json
 ```
 
-Use `capture-report` when a design loop needs screenshot judgment and runtime
-structure together. Use `screen-map` before formal comparison when an agent
-needs a DOM-like runtime summary. Use `paint-stack` when a visual target is
+Use `ui report` when a design loop needs screenshot judgment and runtime
+structure together. Use `ui screen` before formal comparison when an agent
+needs a DOM-like runtime summary. Use `ui paint` when a visual target is
 covered by an overlay, content view, blur view, or same-frame child.
 
 ## Reported Deltas
 
-`compare-design` reports:
+`ui compare-design` reports:
 
 - missing design nodes
 - unexpected app nodes

@@ -47,7 +47,7 @@ struct AuditOptions {
     }
 
     static var usage: String {
-        "Usage: loupe audit <snapshot.json> [--tolerance <points>] [--min-overlap-area <points2>] [--min-touch-target <points>] [--min-contrast-ratio <ratio>] [--kind <kind[,kind]>] [--exclude-kind <kind[,kind]>]"
+        "Usage: loupe ui audit <snapshot.json> [--tolerance <points>] [--min-overlap-area <points2>] [--min-touch-target <points>] [--min-contrast-ratio <ratio>] [--kind <kind[,kind]>] [--exclude-kind <kind[,kind]>]"
     }
 
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {

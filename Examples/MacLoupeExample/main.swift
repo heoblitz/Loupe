@@ -21,11 +21,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var server: LoupeServer?
     private var window: NSWindow?
     private let statusLabel = NSTextField(labelWithString: "Ready")
+    private var flagPollTimer: Timer?
+    private var lastNewNavValue = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         startLoupeServer()
         buildWindow()
         publishRuntimeFixtures()
+        startFlagMonitor()
     }
 
     private func startLoupeServer() {
@@ -225,6 +228,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func publishRuntimeFixtures() {
         UserDefaults.standard.set(false, forKey: "mac-new-nav")
         UserDefaults.standard.set(true, forKey: "mac-empty-feed")
+        UserDefaults.standard.set(false, forKey: "mac-logout")
+        lastNewNavValue = UserDefaults.standard.bool(forKey: "mac-new-nav")
 
         Loupe.log(
             "mac_example_visible",
@@ -280,6 +285,35 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         Loupe.log("mac_example_refresh_tapped", metadata: ["screen": .string("workbench")])
     }
 
+    private func startFlagMonitor() {
+        flagPollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.applyFlagDrivenRuntimeState()
+            }
+        }
+    }
+
+    private func applyFlagDrivenRuntimeState() {
+        let newNavValue = UserDefaults.standard.bool(forKey: "mac-new-nav")
+        if newNavValue != lastNewNavValue {
+            lastNewNavValue = newNavValue
+            if newNavValue {
+                statusLabel.stringValue = "New nav active"
+                Loupe.log("mac_example_new_nav_flow", metadata: ["screen": .string("workbench")])
+            } else {
+                statusLabel.stringValue = "Legacy flow active"
+                Loupe.log("mac_example_legacy_flow", metadata: ["screen": .string("workbench")])
+            }
+        }
+
+        if UserDefaults.standard.bool(forKey: "mac-logout") {
+            UserDefaults.standard.set(false, forKey: "mac-logout")
+            clearKeychainFixture()
+            statusLabel.stringValue = "Logged out"
+            Loupe.log("mac_example_logout_cleared_keychain", metadata: ["screen": .string("workbench")])
+        }
+    }
+
     private func upsertKeychainFixture() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -295,6 +329,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             item[kSecValueData as String] = Data("fixture-token".utf8)
             SecItemAdd(item as CFDictionary, nil)
         }
+    }
+
+    private func clearKeychainFixture() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.loupe.macos-example",
+            kSecAttrAccount as String: "fixture",
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 }
 

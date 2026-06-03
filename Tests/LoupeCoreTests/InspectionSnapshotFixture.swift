@@ -41,6 +41,7 @@ enum InspectionSnapshotFixture {
                         isFirstResponder: false,
                         layout: LoupeUILayoutProperties(
                             translatesAutoresizingMaskIntoConstraints: false,
+                            isAmbiguousLayout: true,
                             hugging: LoupeUILayoutPriorities(horizontal: 250, vertical: 250),
                             compressionResistance: LoupeUILayoutPriorities(horizontal: 750, vertical: 750),
                             constraints: [

@@ -8,7 +8,7 @@ struct AccessibilityOptions {
 
     init(_ arguments: [String]) throws {
         guard let path = arguments.first, !path.hasPrefix("--") else {
-            throw CLIError("Usage: loupe accessibility <snapshot.json> [--include-hidden]")
+            throw CLIError("Usage: loupe ui accessibility <snapshot.json> [--include-hidden]")
         }
 
         snapshotURL = URL(fileURLWithPath: path)

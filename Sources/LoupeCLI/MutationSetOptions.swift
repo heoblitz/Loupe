@@ -146,13 +146,13 @@ struct MutationSetOptions {
     }
 
     static let usage = """
-    Usage: loupe set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]
-           loupe set --test-id card.title text "New title"
-           loupe set --test-id card backgroundColor --color '#ff3366'
-           loupe set --test-id card.title text "New title" --output /tmp/loupe-set.json
-           loupe set --test-id card frame --rect 20,120,220,80
-           loupe set --test-id card frame --rect 20,120,220,80 --duration 0.3
-           loupe set --test-id card frame --rect 20,120,220,80 --no-animate
+    Usage: loupe ui set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]
+           loupe ui set --test-id card.title text "New title"
+           loupe ui set --test-id card backgroundColor --color '#ff3366'
+           loupe ui set --test-id card.title text "New title" --output /tmp/loupe-set.json
+           loupe ui set --test-id card frame --rect 20,120,220,80
+           loupe ui set --test-id card frame --rect 20,120,220,80 --duration 0.3
+           loupe ui set --test-id card frame --rect 20,120,220,80 --no-animate
     """
 
     private static func mutationValue(_ rawValue: String, type: String, property: String) throws -> LoupeMutationValue {

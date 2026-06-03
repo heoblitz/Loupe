@@ -91,72 +91,72 @@ does not count as evidence that the CLI or skill improved agent performance.
   view tree is used for UIKit/layout/style validation, while accessibility tree
   is used first for selector-driven movement and input.
 - Accessibility tree export and query:
-  `loupe accessibility <snapshot.json>`, `loupe query --tree accessibility`,
+  `loupe ui accessibility <snapshot.json>`, `loupe ui query --tree accessibility`,
   and `/accessibility`.
 - Runtime `/accessibility` returns Loupe's view-derived accessibility tree by
   default, with native `UIAccessibility` container traversal kept behind
   `LOUPE_NATIVE_ACCESSIBILITY=1` while its simulator blocking behavior is
   stabilized.
 - On-demand full node inspection:
-  `loupe inspect <snapshot.json> --test-id <id>`
+  `loupe ui node <snapshot.json> --test-id <id>`
 - Runtime inspection endpoint:
   `/inspect?testID=<id>`
 - Bounded subtree inspection:
-  `loupe subtree <snapshot.json> --test-id <id> --depth <n>` and
+  `loupe ui subtree <snapshot.json> --test-id <id> --depth <n>` and
   `/subtree?testID=<id>&depth=<n>`
 - Runtime waiting:
-  `loupe wait-for-visible --test-id <id> --timeout <seconds>`,
-  `loupe wait-for-gone --test-id <id>`, and
-  `loupe wait-for-value --test-id <id> --key <path> --equals <value>`.
+  `loupe act wait visible --test-id <id> --timeout <seconds>`,
+  `loupe act wait gone --test-id <id>`, and
+  `loupe act wait value --test-id <id> --key <path> --equals <value>`.
 - Human-readable tree preview:
-  `loupe tree [snapshot.json] --view|--accessibility --depth <n>`.
+  `loupe ui tree [snapshot.json] --view|--accessibility --depth <n>`.
 - Snapshot diff and trace summary:
-  `loupe diff before-snapshot.json after-snapshot.json` reports appeared,
-  disappeared, changed, and moved nodes; `loupe trace-summary <trace-dir>`
+  `loupe debug trace diff before-snapshot.json after-snapshot.json` reports appeared,
+  disappeared, changed, and moved nodes; `loupe debug trace summary <trace-dir>`
   summarizes action target, errors, logs, target crop, and snapshot diff.
 - Design comparison:
-  `loupe compare-design snapshot.json figma-export.json` compares exported
+  `loupe ui compare-design snapshot.json figma-export.json` compares exported
   design nodes to a Loupe snapshot by `testID`, role/text, and geometry.
 - Skill installation:
   `loupe skills install` upserts the Loupe skill into existing Codex or Claude
   Code skill folders and skips missing clients.
 - Runtime start wrapper:
-  `loupe start --bundle-id <id> [--port <port>]` launches with injection and
+  `loupe app launch --bundle-id <id> [--port <port>]` launches with injection and
   waits for the in-app Loupe server to answer `/runtime`.
 - Cleanup:
-  `loupe cleanup` prunes stale runtime records and trace bundles older than 7
+  `loupe app cleanup` prunes stale runtime records and trace bundles older than 7
   days.
 - Runtime registry:
-  `loupe runtimes` / `loupe apps` lists known simulator hosts and live state.
+  `loupe app list` lists known simulator hosts and live state.
 - Runtime mutation:
-  `loupe set --test-id <id> <property> <value>` posts a typed mutation to the
+  `loupe ui set --test-id <id> <property> <value>` posts a typed mutation to the
   injected server and reports whether the after snapshot reflects the
   allowlisted UIKit property change. Property mutations animate by default, and
   `--no-animate` verifies the immediate path. Layout-owned values may be
   restored by UIKit and must be judged by the effective state.
 - Runtime mutation discovery:
-  `loupe set --list` / `/mutations` exposes the active mutation property
+  `loupe ui set --list` / `/mutations` exposes the active mutation property
   registry for agent planning.
 - Runtime edit-to-code loop:
-  `loupe set --output <mutation.json>`, `loupe inspect`, then
-  `loupe reflect <mutation.json> --source <dir>` verifies a runtime edit and
+  `loupe ui set --output <mutation.json>`, `loupe ui node`, then
+  `loupe ui reflect <mutation.json> --source <dir>` verifies a runtime edit and
   produces before/after summaries, hierarchy context, and source candidates for
   an agent-led code application step.
 - Runtime identity handshake:
-  `loupe runtime --udid <sim>` verifies that the contacted Loupe host belongs to
+  `--udid <sim>` on runtime commands verifies that the contacted Loupe host belongs to
   the expected simulator before runtime commands use it.
 - Injection communication:
   apps can post `dev.loupe.log` and `dev.loupe.viewMetadata` notifications to
   send custom logs and metadata without importing `LoupeKit`.
   `Examples/LoupeExample/run-injected.sh` verifies that the injected bridge
-  captures an app-posted `dev.loupe.log`, that `loupe logs` can fetch it, and
-  that view metadata is present in `loupe inspect` output.
+  captures an app-posted `dev.loupe.log`, that `loupe debug logs` can fetch it, and
+  that view metadata is present in `loupe ui node` output.
 - Basic action traces for public CLI actions:
   `--trace-dir <path>` saves before/after view snapshots, accessibility trees,
   runtime logs, screenshots, action records, and the resolved target query result
   around CLI actions.
 - Scroll profiling:
-  `loupe perf scroll` supports simulator gesture traces with `--from/--to` and
+  `loupe debug scroll` supports simulator gesture traces with `--from/--to` and
   runtime offset probes with `--delta` or `--to-offset` for linked/runtime
   platform examples.
 - Failed runtime actions automatically save `error.json`, failure snapshot,
@@ -164,7 +164,7 @@ does not count as evidence that the CLI or skill improved agent performance.
   `/tmp/loupe-traces`.
 - Action traces save `target-crop.png` when a resolved target frame is available.
 - Basic layout audit:
-  `loupe audit <snapshot.json>` and `/audit`
+  `loupe ui audit <snapshot.json>` and `/audit`
 - Layout audit currently checks sibling overlap, child-outside-parent,
   duplicate test IDs, missing public interactive test IDs, small interactive
   targets, and low text contrast.
@@ -188,12 +188,11 @@ does not count as evidence that the CLI or skill improved agent performance.
 
 ## Known Gaps
 
-- `loupe pinch` is still unsupported by the native HID backend.
-- `loupe audit` does not yet assert spacing, alignment, z-order intent,
+- `loupe ui audit` does not yet assert spacing, alignment, z-order intent,
   clipping, truncation, or typography rules.
 - Compact observations expose UIKit identity, but component-specific properties
-  intentionally require `inspect`.
-- `inspect` returns `UIView`-common properties at `uiKit` top level and
+  intentionally require `loupe ui node`.
+- `loupe ui node` returns `UIView`-common properties at `uiKit` top level and
   component-specific properties under nested objects such as `uiKit.stepper`,
   `uiKit.textField`, `uiKit.tabBar`, and `uiKit.webView`.
 - Retry policies beyond explicit wait commands are not implemented yet.

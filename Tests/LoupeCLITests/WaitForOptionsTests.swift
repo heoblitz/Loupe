@@ -47,7 +47,7 @@ import Testing
                 "--test-id", "example.status",
                 "Done",
             ], mode: .value)
-            #expect(Bool(false), "Expected wait-for-value parsing to fail")
+            #expect(Bool(false), "Expected act wait value parsing to fail")
         } catch {
             #expect(String(describing: error).contains("--key <path> --equals <value>"))
         }

@@ -49,8 +49,8 @@ Xcode and simulator versions can affect runtime injection, native HID input, and
 platform-specific runtime behavior.
 
 Loupe chooses an available localhost port for injected apps and records the
-runtime. Use `--bundle-id`, `--udid`, or `loupe target use <bundle-id>` to
-select the target app instead of hard-coding a host port.
+runtime. Use `--bundle-id`, `--udid`, or `loupe app use <bundle-id>` to select
+the target app instead of hard-coding a host port.
 
 ## Quick Start
 
@@ -63,28 +63,20 @@ Use Loupe as the runtime context for this app. Inspect view and accessibility tr
 For direct CLI control:
 
 ```bash
-loupe runtime start --bundle-id com.example.App --device <iPhone simulator UDID>
-loupe target list
-loupe target use com.example.App
-loupe target current
+loupe app launch --bundle-id com.example.App --device <iPhone simulator UDID>
+loupe app list
+loupe app use com.example.App
+loupe app current
 ```
 
-Existing flat commands such as `loupe start`, `loupe tap`, and `loupe tree`
-remain as compatibility aliases. New workflows should prefer the grouped
-interface:
+The public CLI keeps four stable groups. Older flat or overlapping commands are
+not part of the supported interface:
 
 ```text
-target   Select the current runtime target.
-runtime  Start, list, select, and query injected runtimes.
-observe  Capture screenshots, trees, maps, and raw runtime data.
-inspect  Query or inspect nodes and paint stacks.
-act      Dispatch input and wait for UI state.
-ui       Audit, mutate, and compare UI structure.
-  trace    Explore, summarize, and diff action traces.
-debug   Read logs, network events, and reference evidence.
-state   Inspect defaults, flags, and keychain metadata.
-env     Change runtime environment such as appearance.
-perf    Run lightweight runtime performance probes.
+app     Launch, select, list, and query app runtimes.
+ui      Capture UI evidence, inspect nodes, audit layout, and run UI probes.
+act     Dispatch input and wait for UI state.
+debug   Read diagnostic evidence, state, traces, and scroll profiles.
 skills   Install Loupe workflow skills.
 ```
 
@@ -95,13 +87,13 @@ diagnostic loops. These are Loupe-native versions of common agent questions:
 
 | Question | Loupe loop |
 | --- | --- |
-| Why is this list empty? | `observe` the screen, inspect the list node, fetch app-authored `debug network` and `debug console` evidence, then read relevant `state flags`. |
+| Why is this list empty? | Run `ui snapshot`/`ui tree`, inspect the list with `ui node` or `ui query`, fetch app-authored `debug network` and `debug logs` evidence, then read relevant `debug flags`. |
 | What still references this service? | Run `debug object-graph DeviceActuationService` to summarize app-authored owner -> target evidence. Loupe does not claim private heap graph traversal. |
-| Is dark mode hiding text? | Set `env appearance dark`, capture a fresh snapshot, and run `ui audit --kind lowTextContrast`. |
+| Is dark mode hiding text? | Set `ui appearance dark`, capture a fresh snapshot, and run `ui audit --kind lowTextContrast`. |
 | Why does this button not respond? | Run `ui hit-test` at the point, inspect the `ui responder-chain`, then compare accessibility and visible view state. |
-| Is this scroll hitching? | Run `perf scroll` with a trace directory for simulator gestures, or `--delta`/`--to-offset` for a runtime offset probe, then verify elapsed time and offset deltas. |
-| Did logout clear secrets? | Use `state keychain list` before and after the app's logout flow and assert the expected items are gone. |
-| Does the old feature-flag flow still work? | Change `state flags`, reload or relaunch the runtime, act through the old flow, and diff the resulting trace. |
+| Is this scroll hitching? | Run `debug scroll` with a trace directory for simulator gestures, or `--delta`/`--to-offset` for a runtime offset probe, then verify elapsed time and offset deltas. |
+| Did logout clear secrets? | Use `debug keychain list` before and after the app's logout flow and assert the expected items are gone. |
+| Does the old feature-flag flow still work? | Change `debug flags`, reload or relaunch the runtime, act through the old flow, and diff the resulting trace. |
 
 The examples verify these primitives across iOS Simulator, macOS, and tvOS where
 the platform backend supports them. iOS Simulator verifies native HID scroll
@@ -133,24 +125,24 @@ why a visible behavior failed.
 
 ## Inspect Runtime UI
 
-Use `observe capture` when you need a screenshot and UI structure together:
+Use `ui report` when you need a screenshot and UI structure together:
 
 ```bash
-loupe observe capture --bundle-id com.example.App --output loupe-report
-loupe observe compact loupe-report/snapshot.json
-loupe observe screen loupe-report/snapshot.json --limit 80
-loupe observe tree loupe-report/snapshot.json --accessibility --depth 3
-loupe observe tree loupe-report/snapshot.json --view --depth 3
-loupe inspect node loupe-report/snapshot.json --test-id checkout.payButton
+loupe ui report --bundle-id com.example.App --output loupe-report
+loupe ui compact loupe-report/snapshot.json
+loupe ui screen loupe-report/snapshot.json --limit 80
+loupe ui tree loupe-report/snapshot.json --accessibility --depth 3
+loupe ui tree loupe-report/snapshot.json --view --depth 3
+loupe ui node loupe-report/snapshot.json --test-id checkout.payButton
 ```
 
 Use the accessibility tree for text discovery and action targets. Use the view
 tree for layout, UIKit properties, style, mutation refs, and design checks. Use
-`inspect paint` when a visual change appears hidden by a same-frame child or
+`ui paint` when a visual change appears hidden by a same-frame child or
 overlay:
 
 ```bash
-loupe inspect paint loupe-report/snapshot.json --point 201,319
+loupe ui paint loupe-report/snapshot.json --point 201,319
 ```
 
 ## Act and Explore
@@ -168,14 +160,14 @@ A swipe verifies scroll offset changes when Loupe can identify a scrollable
 target. For quick route discovery:
 
 ```bash
-loupe trace explore --bundle-id com.example.App --limit 5 --trace-dir /tmp/loupe-routes --output /tmp/loupe-routes.json --json
+loupe debug trace explore --bundle-id com.example.App --limit 5 --trace-dir /tmp/loupe-routes --output /tmp/loupe-routes.json --json
 ```
 
 Review action evidence:
 
 ```bash
-loupe trace summary /tmp/loupe-tap
-loupe trace diff /tmp/loupe-tap/before-snapshot.json /tmp/loupe-tap/after-snapshot.json --changed-only
+loupe debug trace summary /tmp/loupe-tap
+loupe debug trace diff /tmp/loupe-tap/before-snapshot.json /tmp/loupe-tap/after-snapshot.json --changed-only
 ```
 
 ## Debug Runtime State
@@ -185,29 +177,29 @@ surface. For an empty list, gather UI state, app logs, network evidence, and
 feature flags:
 
 ```bash
-loupe observe fetch /snapshot --host <runtime-host> --output /tmp/loupe-snapshot.json
+loupe ui snapshot --host <runtime-host> --output /tmp/loupe-snapshot.json
 loupe debug network --host <runtime-host> --output /tmp/loupe-network.json
-loupe debug console --host <runtime-host> --output /tmp/loupe-logs.json
-loupe inspect query /tmp/loupe-snapshot.json --test-id customers.list
-loupe state flags get new-nav --host <runtime-host>
+loupe debug logs --host <runtime-host> --output /tmp/loupe-logs.json
+loupe ui query /tmp/loupe-snapshot.json --test-id customers.list
+loupe debug flags get new-nav --host <runtime-host>
 ```
 
 For visual, responder, storage, and regression checks:
 
 ```bash
-loupe env appearance dark --host <runtime-host>
+loupe ui appearance dark --host <runtime-host>
 loupe ui audit /tmp/loupe-snapshot.json --json
 loupe ui hit-test --point 201,437 --host <runtime-host>
 loupe ui responder-chain --test-id login.button --host <runtime-host>
-loupe state keychain list --host <runtime-host>
-loupe state flags set new-nav --bool false --host <runtime-host>
+loupe debug keychain list --host <runtime-host>
+loupe debug flags set new-nav --bool false --host <runtime-host>
 ```
 
 For scroll investigation:
 
 ```bash
-loupe perf scroll --from 220,760 --to 220,190 --udid <UDID> --host <runtime-host> --trace-dir /tmp/loupe-scroll --output /tmp/loupe-scroll.json
-loupe trace summary /tmp/loupe-scroll
+loupe debug scroll --from 220,760 --to 220,190 --udid <UDID> --host <runtime-host> --trace-dir /tmp/loupe-scroll --output /tmp/loupe-scroll.json
+loupe debug trace summary /tmp/loupe-scroll
 ```
 
 `debug network` records app-authored network events, so apps should call
@@ -220,7 +212,7 @@ summarizes those records into `owners`, `nodes`, and `edges`. Graph `edges` and
 `timestamp` so a leak/debug answer can point back to the exact app-authored
 record. `debug heap --target` uses the same app-authored evidence summary; it
 is not private heap traversal.
-`perf scroll` records elapsed time and scroll offset deltas;
+`debug scroll` records elapsed time and scroll offset deltas;
 frame-level hitch classification still requires deeper instrumentation.
 
 ## Runtime Diagnostic Experiments
@@ -276,5 +268,4 @@ Loupe's simulator inspection and action direction is inspired by
 [Baguette](https://github.com/tddworks/baguette), and
 [Pepper](https://github.com/skwallace36/Pepper). Loupe treats those projects as
 related work, not as an API template: its workflows stay skill-driven and its
-CLI is built around stable observe, act, inspect, UI, trace, and runtime
-primitives.
+CLI is built around the stable `app`, `ui`, `act`, and `debug` groups.
