@@ -28,6 +28,10 @@ let package = Package(
             name: "loupe",
             targets: ["LoupeCLI"]
         ),
+        .executable(
+            name: "MacLoupeExample",
+            targets: ["MacLoupeExample"]
+        ),
     ],
     targets: [
         .target(
@@ -59,6 +63,12 @@ let package = Package(
         .executableTarget(
             name: "LoupeCLI",
             dependencies: ["LoupeCore", "LoupeHID", "LoupeCLIModel"]
+        ),
+        .executableTarget(
+            name: "MacLoupeExample",
+            dependencies: ["LoupeCore", "LoupeKit"],
+            path: "Examples/MacLoupeExample",
+            exclude: ["run-macos-e2e.sh"]
         ),
         .testTarget(
             name: "LoupeCoreTests",
