@@ -23,9 +23,10 @@ RESPONDER_PATH="/tmp/loupe-macos-responder-chain.json"
 ENV_PATH="/tmp/loupe-macos-env.json"
 AUDIT_PATH="/tmp/loupe-macos-audit.json"
 INSPECT_PATH="/tmp/loupe-macos-inspect.json"
+INSPECT_TITLE_PATH="/tmp/loupe-macos-inspect-title.json"
 QUERY_PATH="/tmp/loupe-macos-query.json"
 
-rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$INSPECT_PATH" "$QUERY_PATH"
+rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$INSPECT_PATH" "$INSPECT_TITLE_PATH" "$QUERY_PATH"
 
 LOUPE_PORT="$PORT" .build/debug/MacLoupeExample >"$APP_LOG" 2>&1 &
 APP_PID=$!
@@ -63,6 +64,7 @@ done
 .build/debug/loupe observe fetch "$HOST/snapshot" --timeout 10 --output "$SNAPSHOT_PATH"
 .build/debug/loupe inspect query "$SNAPSHOT_PATH" --test-id mac.example.list > "$QUERY_PATH"
 .build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id mac.example.root > "$INSPECT_PATH"
+.build/debug/loupe inspect "$SNAPSHOT_PATH" --test-id mac.example.title > "$INSPECT_TITLE_PATH"
 .build/debug/loupe debug console --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
@@ -94,6 +96,15 @@ ruby -rjson -e '
   inspection = JSON.parse(File.read(ARGV.fetch(2)))
   custom = inspection.fetch("node").fetch("custom")
   abort "expected platform=macOS custom metadata" unless custom.dig("platform", "value") == "macOS"
+
+  title = JSON.parse(File.read(ARGV.fetch(13))).fetch("node")
+  abort "expected macOS rendered text" unless title["renderedText"] == "Mac Loupe Workbench"
+  abort "expected macOS semantic text" unless title["semanticText"] == "Mac Loupe Workbench"
+  abort "expected AppKit accessibility value" unless title.dig("accessibility", "value") == "Mac Loupe Workbench"
+  abort "expected AppKit font name" unless title.dig("style", "fontName")
+  abort "expected AppKit font size" unless title.dig("style", "fontSize").is_a?(Numeric)
+  abort "expected AppKit label properties" unless title.dig("uiKit", "label", "textAlignment") == "natural"
+  abort "expected AppKit label line break mode" unless title.dig("uiKit", "label", "lineBreakMode")
 
   logs = JSON.parse(File.read(ARGV.fetch(3)))
   abort "missing mac_example_visible log" unless logs.any? { |entry| entry["message"] == "mac_example_visible" }
@@ -131,7 +142,7 @@ ruby -rjson -e '
   target_ids = ["mac.example.title", "mac.example.status", "mac.example.refresh"]
   bad_contrast = audit.fetch("issues").select { |issue| issue["kind"] == "lowTextContrast" && target_ids.include?(issue["testID"]) }
   abort "unexpected macOS dark contrast issues: #{bad_contrast.inspect}" unless bad_contrast.empty?
-' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH"
+' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$INSPECT_TITLE_PATH"
 
 echo "macOS example E2E passed"
 echo "snapshot: $SNAPSHOT_PATH"

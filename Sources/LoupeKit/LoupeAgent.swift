@@ -1129,6 +1129,8 @@ private func uiKitProperties(for view: UIView) -> LoupeUIKitProperties {
         userInteractionEnabled: view.isUserInteractionEnabled,
         gestureRecognizers: view.gestureRecognizers?.map { typeName(of: $0) } ?? [],
         isFirstResponder: view.isFirstResponder,
+        isFocused: view.isFocused,
+        canBecomeFocused: view.canBecomeFocused,
         windowLevel: (view as? UIWindow).flatMap { finiteDouble($0.windowLevel.rawValue.doubleValue) },
         layout: layoutProperties(for: view),
         stackView: stackViewProperties(for: view),

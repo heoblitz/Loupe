@@ -461,6 +461,8 @@ public struct LoupeUIKitProperties: Codable, Equatable {
     public var userInteractionEnabled: Bool
     public var gestureRecognizers: [String]
     public var isFirstResponder: Bool
+    public var isFocused: Bool?
+    public var canBecomeFocused: Bool?
     public var windowLevel: Double?
     public var layout: LoupeUILayoutProperties?
     public var stackView: LoupeUIStackViewProperties?
@@ -495,6 +497,8 @@ public struct LoupeUIKitProperties: Codable, Equatable {
         userInteractionEnabled: Bool,
         gestureRecognizers: [String] = [],
         isFirstResponder: Bool,
+        isFocused: Bool? = nil,
+        canBecomeFocused: Bool? = nil,
         windowLevel: Double? = nil,
         layout: LoupeUILayoutProperties? = nil,
         stackView: LoupeUIStackViewProperties? = nil,
@@ -528,6 +532,8 @@ public struct LoupeUIKitProperties: Codable, Equatable {
         self.userInteractionEnabled = userInteractionEnabled
         self.gestureRecognizers = gestureRecognizers
         self.isFirstResponder = isFirstResponder
+        self.isFocused = isFocused
+        self.canBecomeFocused = canBecomeFocused
         self.windowLevel = windowLevel
         self.layout = layout
         self.stackView = stackView

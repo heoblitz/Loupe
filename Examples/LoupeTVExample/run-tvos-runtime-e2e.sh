@@ -167,6 +167,29 @@ ruby -rjson -e '
 
   list = JSON.parse(File.read(ARGV.fetch(4))).fetch("node")
   abort "expected UIScrollView list" unless list.dig("uiKit", "className") == "UIScrollView"
+  abort "expected tvOS list role" unless list["role"] == "scrollView"
+  abort "expected tvOS list scroll properties" unless list.dig("uiKit", "scrollView", "isScrollEnabled") == true
+  abort "expected tvOS list content taller than frame" unless list.dig("uiKit", "scrollView", "contentSize", "height").to_f > list.fetch("frame").fetch("height").to_f
+
+  refresh = snapshot.fetch("nodes").values.find { |node| node["testID"] == "tv.example.refresh" }
+  abort "missing tv.example.refresh focused node" unless refresh
+  abort "expected tv.example.refresh button role" unless refresh["role"] == "button"
+  abort "expected tv.example.refresh text" unless refresh["text"] == "Refresh snapshot"
+  abort "expected tv.example.refresh interactive" unless refresh["isInteractive"] == true
+  abort "expected tv.example.refresh focus state" unless refresh.dig("uiKit", "isFocused") == true
+  abort "expected tv.example.refresh focus eligibility" unless refresh.dig("uiKit", "canBecomeFocused") == true
+  abort "expected tv.example.refresh focused control state" unless refresh.dig("uiKit", "control", "controlState")&.include?("focused")
+  abort "expected tv.example.refresh primary action" unless refresh.dig("uiKit", "control", "controlEvents")&.include?("primaryActionTriggered")
+  abort "expected tv.example.refresh accessibility label" unless refresh.dig("accessibility", "label") == "Refresh snapshot"
+  abort "expected tv.example.refresh accessibility element" unless refresh.dig("accessibility", "isElement") == true
+
+  secondary = snapshot.fetch("nodes").values.find { |node| node["testID"] == "tv.example.secondary" }
+  abort "missing tv.example.secondary focusable node" unless secondary
+  abort "expected tv.example.secondary focus eligibility" unless secondary.dig("uiKit", "canBecomeFocused") == true
+  abort "expected tv.example.secondary not focused at launch" unless secondary.dig("uiKit", "isFocused") == false
+
+  focused_nodes = snapshot.fetch("nodes").values.select { |node| node.dig("uiKit", "isFocused") == true }
+  abort "expected exactly one focused tvOS node, got #{focused_nodes.map { |node| node["testID"] || node["typeName"] }.inspect}" unless focused_nodes.count == 1
 
   logs = JSON.parse(File.read(ARGV.fetch(5)))
   abort "missing tv_example_visible log" unless logs.any? { |entry| entry["message"] == "tv_example_visible" }

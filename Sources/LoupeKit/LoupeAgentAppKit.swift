@@ -370,7 +370,12 @@ public final class LoupeAgent {
             typeName: typeName(of: view),
             role: role(for: view),
             testID: testID,
+            label: nonEmpty(view.accessibilityLabel()),
+            value: accessibilityValueString(for: view),
+            placeholder: placeholder(for: view),
             text: text(for: view),
+            renderedText: text(for: view),
+            semanticText: semanticText(for: view),
             frame: frameInScreen(for: view, window: window),
             isVisible: isVisible(view),
             isEnabled: isEnabled(view),
@@ -951,9 +956,12 @@ private func appKitProperties(for view: NSView) -> LoupeUIKitProperties {
         userInteractionEnabled: isInteractive(view),
         gestureRecognizers: view.gestureRecognizers.map { typeName(of: $0) },
         isFirstResponder: view.window?.firstResponder === view,
+        isFocused: view.window?.firstResponder === view,
+        canBecomeFocused: view.acceptsFirstResponder,
         layout: layoutProperties(for: view),
         stackView: stackViewProperties(for: view),
         control: controlProperties(for: view),
+        label: labelProperties(for: view),
         button: buttonProperties(for: view),
         textField: textFieldProperties(for: view),
         scrollView: scrollViewProperties(for: view)
@@ -1039,6 +1047,18 @@ private func buttonProperties(for view: NSView) -> LoupeUIButtonProperties? {
 }
 
 @MainActor
+private func labelProperties(for view: NSView) -> LoupeUILabelProperties? {
+    guard let textField = view as? NSTextField else {
+        return nil
+    }
+    return LoupeUILabelProperties(
+        textAlignment: textAlignmentName(textField.alignment),
+        numberOfLines: textField.maximumNumberOfLines,
+        lineBreakMode: lineBreakModeName(textField.lineBreakMode)
+    )
+}
+
+@MainActor
 private func textFieldProperties(for view: NSView) -> LoupeUITextFieldProperties? {
     guard let textField = view as? NSTextField else {
         return nil
@@ -1060,12 +1080,26 @@ private func textAlignmentName(_ alignment: NSTextAlignment) -> String {
     }
 }
 
+private func lineBreakModeName(_ mode: NSLineBreakMode) -> String {
+    switch mode {
+    case .byWordWrapping: return "byWordWrapping"
+    case .byCharWrapping: return "byCharWrapping"
+    case .byClipping: return "byClipping"
+    case .byTruncatingHead: return "byTruncatingHead"
+    case .byTruncatingTail: return "byTruncatingTail"
+    case .byTruncatingMiddle: return "byTruncatingMiddle"
+    @unknown default: return "unknown"
+    }
+}
+
 @MainActor
 private func style(for view: NSView) -> LoupeStyle {
     LoupeStyle(
         alpha: finiteDouble(view.alphaValue),
         backgroundColor: color(from: view.layer?.backgroundColor),
         cornerRadius: view.layer.flatMap { finiteDouble($0.cornerRadius) },
+        fontName: font(for: view)?.fontName,
+        fontSize: font(for: view).flatMap { finiteDouble($0.pointSize) },
         textColor: textColor(for: view),
         borderColor: color(from: view.layer?.borderColor),
         borderWidth: view.layer.flatMap { finiteDouble($0.borderWidth) },
@@ -1079,6 +1113,17 @@ private func style(for view: NSView) -> LoupeStyle {
 @MainActor
 private func textColor(for view: NSView) -> LoupeColor? {
     (view as? NSTextField)?.textColor.flatMap(color(from:))
+}
+
+@MainActor
+private func font(for view: NSView) -> NSFont? {
+    if let control = view as? NSControl {
+        return control.font
+    }
+    if let textView = view as? NSTextView {
+        return textView.font
+    }
+    return nil
 }
 
 @MainActor
@@ -1285,6 +1330,8 @@ private func accessibility(for view: NSView) -> LoupeAccessibility? {
     return LoupeAccessibility(
         identifier: identifier,
         label: label,
+        value: accessibilityValueString(for: view),
+        hint: accessibilityHint(for: view),
         traits: role(for: view).map { [$0] } ?? [],
         frame: view.window.flatMap { frameInScreen(for: view, window: $0) },
         activationPoint: view.window.flatMap { frameInScreen(for: view, window: $0) }?.center,
@@ -1324,6 +1371,34 @@ private func text(for view: NSView) -> String? {
     default:
         return nil
     }
+}
+
+@MainActor
+private func placeholder(for view: NSView) -> String? {
+    (view as? NSTextField).flatMap { nonEmpty($0.placeholderString) }
+}
+
+@MainActor
+private func semanticText(for view: NSView) -> String? {
+    nonEmpty(view.accessibilityLabel())
+        ?? accessibilityValueString(for: view)
+        ?? text(for: view)
+}
+
+@MainActor
+private func accessibilityValueString(for view: NSView) -> String? {
+    guard let value = view.accessibilityValue() else {
+        return nil
+    }
+    if let string = value as? String {
+        return nonEmpty(string)
+    }
+    return nonEmpty(String(describing: value))
+}
+
+@MainActor
+private func accessibilityHint(for view: NSView) -> String? {
+    nonEmpty(view.accessibilityHelp())
 }
 
 @MainActor

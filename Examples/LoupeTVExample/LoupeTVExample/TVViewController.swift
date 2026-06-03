@@ -29,16 +29,27 @@ final class TVViewController: UIViewController {
 
         let button = UIButton(type: .system)
         button.accessibilityIdentifier = "tv.example.refresh"
+        button.isAccessibilityElement = true
+        button.accessibilityLabel = "Refresh snapshot"
         button.setTitle("Refresh snapshot", for: .normal)
         button.setTitleColor(.white, for: .normal)
         button.setTitleColor(UIColor(red: 0.74, green: 0.91, blue: 1, alpha: 1), for: .focused)
         button.titleLabel?.font = .systemFont(ofSize: 34, weight: .semibold)
         button.addTarget(self, action: #selector(refreshStatus), for: .primaryActionTriggered)
 
+        let secondaryButton = UIButton(type: .system)
+        secondaryButton.accessibilityIdentifier = "tv.example.secondary"
+        secondaryButton.isAccessibilityElement = true
+        secondaryButton.accessibilityLabel = "Secondary action"
+        secondaryButton.setTitle("Secondary action", for: .normal)
+        secondaryButton.setTitleColor(.white, for: .normal)
+        secondaryButton.setTitleColor(UIColor(red: 0.74, green: 0.91, blue: 1, alpha: 1), for: .focused)
+        secondaryButton.titleLabel?.font = .systemFont(ofSize: 30, weight: .semibold)
+
         let list = makeList()
         list.accessibilityIdentifier = "tv.example.collection"
 
-        let stack = UIStackView(arrangedSubviews: [title, statusLabel, button, list])
+        let stack = UIStackView(arrangedSubviews: [title, statusLabel, button, secondaryButton, list])
         stack.axis = .vertical
         stack.alignment = .leading
         stack.spacing = 32
