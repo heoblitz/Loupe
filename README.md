@@ -83,17 +83,19 @@ skills   Install Loupe workflow skills.
 ## How Loupe Answers Runtime Questions
 
 Loupe keeps the CLI small and lets skills compose commands into platform-aware
-diagnostic loops. These are Loupe-native versions of common agent questions:
+diagnostic loops. These examples are framed around Loupe's own runtime evidence
+model rather than generic debugger prompts:
 
 | Question | Loupe loop |
 | --- | --- |
-| Why is this list empty? | Run `ui snapshot`/`ui tree`, inspect the list with `ui node` or `ui query`, fetch app-authored `debug network` and `debug logs` evidence, then read relevant `debug flags`. |
-| What still references this service? | Run `debug object-graph DeviceActuationService` to summarize app-authored owner -> target evidence. Loupe does not claim private heap graph traversal. |
-| Is dark mode hiding text? | Set `ui appearance dark`, capture a fresh snapshot, and run `ui audit --kind lowTextContrast`. |
-| Why does this button not respond? | Run `ui hit-test` at the point, inspect the `ui responder-chain`, then compare accessibility and visible view state. |
-| Is this scroll hitching? | Run `debug scroll` with a trace directory for simulator gestures, or `--delta`/`--to-offset` for a runtime offset probe, then verify elapsed time and offset deltas. |
-| Did logout clear secrets? | Use `debug keychain list` before and after the app's logout flow and assert the expected items are gone. |
-| Does the old feature-flag flow still work? | Change `debug flags`, reload or relaunch the runtime, act through the old flow, and diff the resulting trace. |
+| Why did the app land on the error screen after reload? | Capture `ui snapshot`, inspect the error container and route title with `ui node`, then compare `debug network`, `debug logs`, and `debug flags` to identify the runtime evidence that selected the error route. |
+| The list shows a retry banner instead of rows. Did the backend return an empty payload or did the UI filter everything out? | Inspect the list and empty/retry nodes with `ui query`, fetch `debug network` response bodies, and verify app-authored logs that explain the rendered state. |
+| A route opened, but the wrong panel stayed focused on tvOS. What changed between button press and the next screen? | Record `act press --trace-dir`, compare before/after snapshots, then inspect the accessibility focusable nodes and route logs. |
+| The macOS detail screen opens, but its scroll area feels frozen. Is it content size, constraints, or runtime input? | Inspect the scroll node and layout evidence with `ui node`, run `debug scroll --delta` for a runtime offset probe, and assert the offset changed. |
+| Dark mode makes the error subtitle disappear. Which text actually failed contrast? | Set `ui appearance dark`, capture a fresh snapshot, then run `ui audit --kind lowTextContrast` and inspect the failing text node. |
+| The primary action looks enabled, but tapping it does nothing. Is something intercepting it? | Run `ui hit-test` at the tap point, inspect `ui responder-chain`, and compare accessibility, visible view state, and action trace output. |
+| Logout shows the signed-out screen. Did runtime secrets also disappear? | Capture `debug keychain list` before and after the logout route, act through the flow, and assert the expected items are absent. |
+| Turning off a feature flag should restore the legacy route. Did the old path actually render? | Change `debug flags`, reload or relaunch the runtime, act through the legacy route, and diff the resulting trace and route logs. |
 
 The examples verify these primitives across iOS Simulator, macOS, and tvOS where
 the platform backend supports them. iOS Simulator verifies native HID scroll
