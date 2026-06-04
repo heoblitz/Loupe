@@ -120,7 +120,7 @@ launch, manage simulators, inspect build output, and access Xcode or Apple
 documentation context.
 
 Loupe sits inside the running app. It captures runtime UI structure, framework
-properties, accessibility state, screenshots, logs, app-authored network events,
+properties, accessibility state, screenshots, logs, URLSession network evidence,
 defaults/flags/keychain metadata, reference evidence, and action traces. Use
 Xcode tooling to build and launch the app; use Loupe to answer what is actually
 on screen, what runtime state the app exposed, what changed after an action, and
@@ -205,13 +205,14 @@ loupe debug scroll --from 220,760 --to 220,190 --udid <UDID> --host <runtime-hos
 loupe debug trace summary /tmp/loupe-scroll
 ```
 
-`debug network` records app-authored network events, so apps should call
-`Loupe.recordNetwork(...)` or post the `dev.loupe.network` bridge notification
-where automatic URL loading interception is not available. `debug refs` records
-app-authored ownership evidence through `Loupe.recordReference(...)` or the
-`dev.loupe.reference` bridge notification; `debug object-graph <target>`
-summarizes those records into `owners`, `nodes`, and `edges`. Graph `edges` and
-`owners` include the original `evidenceID`, `kind`, `label`, `metadata`, and
+`debug network` records URLSession requests captured through LoupeKit's
+URLProtocol hook, plus app-authored events from `Loupe.recordNetwork(...)` or
+the `dev.loupe.network` bridge notification when explicit evidence is needed.
+`debug refs` records app-authored ownership evidence through
+`Loupe.recordReference(...)` or the `dev.loupe.reference` bridge notification;
+`debug object-graph <target>` summarizes those records into `owners`, `nodes`,
+and `edges`. Graph `edges` and `owners` include the original `evidenceID`,
+`kind`, `label`, `metadata`, and
 `timestamp` so a leak/debug answer can point back to the exact app-authored
 record. `debug heap --target` uses the same app-authored evidence summary; it
 is not private heap traversal.

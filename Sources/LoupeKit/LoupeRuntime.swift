@@ -120,6 +120,7 @@ public final class LoupeRuntime {
             name: .loupeReference,
             object: nil
         )
+        LoupeNetworkCaptureProtocol.install()
         didInstallBridge = true
     }
 

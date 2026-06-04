@@ -111,6 +111,11 @@ FLAG_PATH="/tmp/loupe-tvos-flag.json"
 FLAG_SET_PATH="/tmp/loupe-tvos-flag-set.json"
 FLAG_DISABLED_PATH="/tmp/loupe-tvos-flag-disabled.json"
 EMPTY_FLAG_PATH="/tmp/loupe-tvos-empty-flag.json"
+ERROR_FLAG_PATH="/tmp/loupe-tvos-error-flag.json"
+ERROR_FLAG_SET_PATH="/tmp/loupe-tvos-error-flag-set.json"
+ERROR_SNAPSHOT_PATH="/tmp/loupe-tvos-error-snapshot.json"
+ERROR_INSPECT_PATH="/tmp/loupe-tvos-error-inspect.json"
+ERROR_LOGS_PATH="/tmp/loupe-tvos-error-logs.json"
 KEYCHAIN_PATH="/tmp/loupe-tvos-keychain.json"
 KEYCHAIN_AFTER_LOGOUT_PATH="/tmp/loupe-tvos-keychain-after-logout.json"
 HIT_TEST_PATH="/tmp/loupe-tvos-hit-test.json"
@@ -135,8 +140,10 @@ PRESS_DETAIL_TRACE_DIR="/tmp/loupe-tvos-press-detail-route-trace"
 PRESS_DETAIL_BACK_TRACE_DIR="/tmp/loupe-tvos-press-detail-back-trace"
 PRESS_LONG_LIST_TRACE_DIR="/tmp/loupe-tvos-press-long-list-route-trace"
 PRESS_LONG_LIST_BACK_TRACE_DIR="/tmp/loupe-tvos-press-long-list-back-trace"
-rm -f "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$FOCUS_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$RUNTIME_PATH" "$LOGS_PATH" "$PRESS_LOGS_PATH" "$NEW_NAV_LOGS_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$ROUTE_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$DETAIL_SCROLL_PATH" "$LONG_LIST_SCROLL_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH" "$DETAIL_SNAPSHOT_PATH" "$LONG_LIST_SNAPSHOT_PATH"
-rm -rf "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$PRESS_NEW_NAV_TRACE_DIR" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$PRESS_DETAIL_TRACE_DIR" "$PRESS_DETAIL_BACK_TRACE_DIR" "$PRESS_LONG_LIST_TRACE_DIR" "$PRESS_LONG_LIST_BACK_TRACE_DIR"
+PRESS_ERROR_TRACE_DIR="/tmp/loupe-tvos-press-error-route-trace"
+PRESS_ERROR_BACK_TRACE_DIR="/tmp/loupe-tvos-press-error-back-trace"
+rm -f "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$FOCUS_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$RUNTIME_PATH" "$LOGS_PATH" "$PRESS_LOGS_PATH" "$NEW_NAV_LOGS_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$ROUTE_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$ERROR_FLAG_PATH" "$ERROR_FLAG_SET_PATH" "$ERROR_SNAPSHOT_PATH" "$ERROR_INSPECT_PATH" "$ERROR_LOGS_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$DETAIL_SCROLL_PATH" "$LONG_LIST_SCROLL_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH" "$DETAIL_SNAPSHOT_PATH" "$LONG_LIST_SNAPSHOT_PATH"
+rm -rf "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$PRESS_NEW_NAV_TRACE_DIR" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$PRESS_DETAIL_TRACE_DIR" "$PRESS_DETAIL_BACK_TRACE_DIR" "$PRESS_LONG_LIST_TRACE_DIR" "$PRESS_LONG_LIST_BACK_TRACE_DIR" "$PRESS_ERROR_TRACE_DIR" "$PRESS_ERROR_BACK_TRACE_DIR"
 
 curl -fsS "$HOST/health" | grep -q LoupeKit
 .build/debug/loupe app info --host "$HOST" --udid "$DEVICE" > "$RUNTIME_PATH"
@@ -161,7 +168,16 @@ done
 .build/debug/loupe ui tree "$SNAPSHOT_PATH" --view --depth 8 > "$VIEW_TREE_PATH"
 .build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --depth 8 > "$ACCESSIBILITY_TREE_PATH"
 .build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
-.build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
+for _ in {1..40}; do
+  .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
+  if ruby -rjson -e '
+    events = JSON.parse(File.read(ARGV.fetch(0)))
+    exit(events.any? { |entry| entry["url"]&.include?("/__loupe_network_fixture/tvos/error-route") } ? 0 : 1)
+  ' "$NETWORK_PATH"; then
+    break
+  fi
+  sleep 0.25
+done
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
 .build/debug/loupe debug object-graph DeviceActuationService --host "$HOST" --udid "$DEVICE" --output "$OBJECT_GRAPH_PATH" >/dev/null
 .build/debug/loupe debug flags get tv-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
@@ -217,6 +233,16 @@ BUTTON_POINT="$(ruby -rjson -e '
 .build/debug/loupe debug scroll --host "$HOST" --udid "$DEVICE" --test-id tv.example.longList.scroll --delta 0,160 --output "$LONG_LIST_SCROLL_PATH" >/dev/null
 .build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_LONG_LIST_BACK_TRACE_DIR" --expect-visible tv.example.root
 .build/debug/loupe debug logs --host "$HOST" --output "$ROUTE_LOGS_PATH" >/dev/null
+.build/debug/loupe debug flags get tv-error-route --host "$HOST" --output "$ERROR_FLAG_PATH" >/dev/null
+.build/debug/loupe debug flags set tv-error-route --bool true --host "$HOST" --output "$ERROR_FLAG_SET_PATH" >/dev/null
+.build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.secondary
+.build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.logout
+.build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.legacyFlow
+.build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_ERROR_TRACE_DIR" --expect-visible tv.example.error
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$ERROR_SNAPSHOT_PATH" >/dev/null
+.build/debug/loupe ui node "$ERROR_SNAPSHOT_PATH" --test-id tv.example.error > "$ERROR_INSPECT_PATH"
+.build/debug/loupe debug logs --host "$HOST" --output "$ERROR_LOGS_PATH" >/dev/null
+.build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_ERROR_BACK_TRACE_DIR" --expect-visible tv.example.root
 .build/debug/loupe ui appearance dark --host "$HOST" --output "$ENV_PATH" >/dev/null
 .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$DARK_SNAPSHOT_PATH" >/dev/null
 .build/debug/loupe ui audit "$DARK_SNAPSHOT_PATH" --kind lowTextContrast > "$AUDIT_PATH"
@@ -258,6 +284,8 @@ ruby -rjson -e '
   abort "expected empty feed role" unless empty["role"] == "scrollView"
   empty_children = snapshot.fetch("nodes").values.select { |node| node["testID"]&.start_with?("tv.example.emptyFeed.row") }
   abort "expected no rendered empty feed rows" unless empty_children.empty?
+  retry_banner = snapshot.fetch("nodes").values.find { |node| node["testID"] == "tv.example.emptyFeed.retryBanner" }
+  abort "expected tvOS retry banner evidence" unless retry_banner && retry_banner["text"]&.include?("Retry banner")
 
   ax_nodes = accessibility.fetch("nodes").values
   abort "missing tvOS accessibility tree refresh button" unless ax_nodes.any? { |node| node["testID"] == "tv.example.refresh" && node["role"] == "button" }
@@ -364,17 +392,23 @@ ruby -rjson -e '
   abort "expected tv.example.secondary focused after press down, got #{focused_after_down.map { |node| node["testID"] || node["typeName"] }.inspect}" unless focused_after_down.any? { |node| node["testID"] == "tv.example.secondary" }
 
   network = JSON.parse(File.read(ARGV.fetch(6)))
-  event = network.find { |entry| entry["url"] == "https://api.example.test/tvos/workbench" }
+  event = network.find { |entry| entry["url"]&.include?("/__loupe_network_fixture/tvos/workbench") }
   abort "missing tvOS network fixture" unless event
   abort "expected tvOS network status 200" unless event["statusCode"] == 200
   abort "expected tvOS GET method" unless event["method"] == "GET"
   abort "expected tvOS network metadata" unless event.dig("metadata", "screen", "value") == "workbench"
+  abort "expected tvOS automatic network capture" unless event.dig("metadata", "captureKind", "value") == "automatic" && event.dig("metadata", "source", "value") == "urlProtocol"
   abort "expected tvOS response body" unless event["responseBody"]&.include?("tvOS")
-  feed_event = network.find { |entry| entry["url"] == "https://api.example.test/tvos/feed" }
+  feed_event = network.find { |entry| entry["url"]&.include?("/__loupe_network_fixture/tvos/feed") }
   abort "missing empty feed network fixture" unless feed_event
   abort "expected empty feed 204" unless feed_event["statusCode"] == 204
   abort "expected empty feed metadata" unless feed_event.dig("metadata", "empty", "value") == true
   abort "expected empty feed response body" unless feed_event["responseBody"]&.include?("\"items\":[]")
+  error_event = network.find { |entry| entry["url"]&.include?("/__loupe_network_fixture/tvos/error-route") }
+  abort "missing tvOS error-route network fixture" unless error_event
+  abort "expected tvOS error-route 503" unless error_event["statusCode"] == 503
+  abort "expected tvOS error-route metadata" unless error_event.dig("metadata", "screen", "value") == "error" && error_event.dig("metadata", "retry", "value") == true
+  abort "expected tvOS error-route response body" unless error_event["responseBody"]&.include?("feed_service_unavailable")
 
   refs = JSON.parse(File.read(ARGV.fetch(11)))
   abort "missing tvOS reference evidence" unless refs.any? { |entry| entry["owner"] == "TVWorkbenchController" && entry["target"] == "DeviceActuationService" }
@@ -458,6 +492,29 @@ ruby -rjson -e '
   abort "missing tvOS long-list route log" unless route_logs.any? { |entry| entry["message"] == "tv_example_long_list_route" }
   abort "missing tvOS workbench route log" unless route_logs.any? { |entry| entry["message"] == "tv_example_workbench_route" }
 
+  error_flag = JSON.parse(File.read(ARGV.fetch(44)))
+  abort "expected tv-error-route=false" unless error_flag.dig("value", "value") == false
+  error_flag_set = JSON.parse(File.read(ARGV.fetch(45)))
+  abort "expected tv-error-route=true after set" unless error_flag_set.dig("after", "value") == true
+  error_snapshot = JSON.parse(File.read(ARGV.fetch(46)))
+  error_ids = error_snapshot.fetch("nodes").values.map { |node| node["testID"] }.compact
+  abort "expected tvOS error route root" unless error_ids.include?("tv.example.error")
+  abort "expected tvOS error route title" unless error_ids.include?("tv.example.error.title")
+  abort "expected tvOS error route retry banner" unless error_ids.include?("tv.example.error.retryBanner")
+  error_logs = JSON.parse(File.read(ARGV.fetch(48)))
+  abort "missing tvOS error-route log" unless error_logs.any? { |entry| entry["message"] == "tv_example_error_route" && entry.dig("metadata", "reason", "value") == "feed_service_unavailable" }
+  [ARGV.fetch(49), ARGV.fetch(50)].each do |trace|
+    ["action-before.json", "action-target.json", "action-after.json", "before-snapshot.json", "after-snapshot.json", "before-accessibility.json", "after-accessibility.json", "before-logs.json", "after-logs.json", "before.png", "after.png"].each do |name|
+      abort "missing tvOS error trace #{trace}/#{name}" unless File.exist?(File.join(trace, name))
+    end
+    action = JSON.parse(File.read(File.join(trace, "action-target.json")))
+    abort "expected tvOS error-route press trace" unless action["command"] == "press"
+  end
+  error_after = JSON.parse(File.read(File.join(ARGV.fetch(49), "after-snapshot.json")))
+  abort "expected error trace after snapshot" unless error_after.fetch("nodes").values.any? { |node| node["testID"] == "tv.example.error" }
+  error_back_after = JSON.parse(File.read(File.join(ARGV.fetch(50), "after-snapshot.json")))
+  abort "expected error back trace after snapshot" unless error_back_after.fetch("nodes").values.any? { |node| node["testID"] == "tv.example.root" }
+
   env = JSON.parse(File.read(ARGV.fetch(9)))
   abort "expected dark appearance" unless env["appearance"] == "dark"
 
@@ -467,7 +524,7 @@ ruby -rjson -e '
   abort "unexpected tvOS dark contrast issues: #{bad_contrast.inspect}" unless bad_contrast.empty?
   bad_sentinel = audit.fetch("issues").select { |issue| issue["kind"] == "lowTextContrast" && issue["testID"] == "tv.example.dark.badContrast" }
   abort "expected dark contrast sentinel issue" if bad_sentinel.empty?
-' "$RUNTIME_PATH" "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$DEVICE" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$FOCUS_SNAPSHOT_PATH" "$PRESS_LOGS_PATH" "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$NEW_NAV_LOGS_PATH" "$PRESS_NEW_NAV_TRACE_DIR" "$DETAIL_SNAPSHOT_PATH" "$DETAIL_SCROLL_PATH" "$PRESS_DETAIL_TRACE_DIR" "$PRESS_DETAIL_BACK_TRACE_DIR" "$LONG_LIST_SNAPSHOT_PATH" "$LONG_LIST_SCROLL_PATH" "$PRESS_LONG_LIST_TRACE_DIR" "$PRESS_LONG_LIST_BACK_TRACE_DIR" "$ROUTE_LOGS_PATH"
+' "$RUNTIME_PATH" "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_ROOT_PATH" "$INSPECT_LIST_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$DEVICE" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$FOCUS_SNAPSHOT_PATH" "$PRESS_LOGS_PATH" "$PRESS_SELECT_TRACE_DIR" "$PRESS_DOWN_TRACE_DIR" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$LEGACY_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$PRESS_LEGACY_TRACE_DIR" "$PRESS_LOGOUT_TRACE_DIR" "$FLAG_DISABLED_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$NEW_NAV_LOGS_PATH" "$PRESS_NEW_NAV_TRACE_DIR" "$DETAIL_SNAPSHOT_PATH" "$DETAIL_SCROLL_PATH" "$PRESS_DETAIL_TRACE_DIR" "$PRESS_DETAIL_BACK_TRACE_DIR" "$LONG_LIST_SNAPSHOT_PATH" "$LONG_LIST_SCROLL_PATH" "$PRESS_LONG_LIST_TRACE_DIR" "$PRESS_LONG_LIST_BACK_TRACE_DIR" "$ROUTE_LOGS_PATH" "$ERROR_FLAG_PATH" "$ERROR_FLAG_SET_PATH" "$ERROR_SNAPSHOT_PATH" "$ERROR_INSPECT_PATH" "$ERROR_LOGS_PATH" "$PRESS_ERROR_TRACE_DIR" "$PRESS_ERROR_BACK_TRACE_DIR"
 
 echo "tvOS example E2E passed"
 echo "snapshot: $SNAPSHOT_PATH"

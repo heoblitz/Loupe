@@ -14,8 +14,8 @@ runtime servers.
   or `loupe app use <bundle-id>`.
 - Capture full snapshots, compact observations, accessibility trees, visible
   screen maps, screenshots, layout audits, runtime logs, and action traces.
-- Read app-authored network events, reference evidence, defaults/flags, and
-  keychain metadata from the running app.
+- Read URLSession network evidence, app-authored network events, reference
+  evidence, defaults/flags, and keychain metadata from the running app.
 - Query and inspect nodes by `testID`, text, role, or ref.
 - Dispatch simulator-visible `tap`, `swipe`, `drag`, `type`, and tvOS remote
   `press` through Loupe's native host-side action backend where the simulator

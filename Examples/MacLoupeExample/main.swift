@@ -23,6 +23,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusLabel = NSTextField(labelWithString: "Ready")
     private var flagPollTimer: Timer?
     private var lastNewNavValue = false
+    private var lastErrorRouteValue = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         startLoupeServer()
@@ -175,6 +176,34 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         return root
     }
 
+    private func makeErrorView() -> NSView {
+        let root = routeRoot(testID: "mac.example.error")
+        let stack = routeStack(in: root)
+
+        let title = NSTextField(labelWithString: "macOS Error Route")
+        title.testID("mac.example.error.title")
+        title.font = .systemFont(ofSize: 26, weight: .semibold)
+
+        let subtitle = NSTextField(labelWithString: "Workbench reload selected the error route after a 503 response.")
+        subtitle.testID("mac.example.error.subtitle")
+        subtitle.font = .systemFont(ofSize: 16, weight: .medium)
+
+        let banner = NSTextField(labelWithString: "Retry available after feed service recovery")
+        banner.testID("mac.example.error.retryBanner")
+        banner.font = .systemFont(ofSize: 15, weight: .semibold)
+        banner.textColor = .systemRed
+
+        let back = NSButton(title: "Back to workbench", target: self, action: #selector(dismissErrorRoute))
+        back.testID("mac.example.error.back")
+        back.bezelStyle = .rounded
+
+        stack.addArrangedSubview(title)
+        stack.addArrangedSubview(subtitle)
+        stack.addArrangedSubview(banner)
+        stack.addArrangedSubview(back)
+        return root
+    }
+
     private func routeRoot(testID: String) -> NSView {
         let root = NSView()
         root.testID(testID)
@@ -254,21 +283,36 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makeEmptyFeed() -> NSScrollView {
+        let content = NSStackView()
+        content.orientation = .vertical
+        content.alignment = .leading
+        content.spacing = 6
+        content.translatesAutoresizingMaskIntoConstraints = false
+
         let placeholder = NSTextField(labelWithString: "No feed items")
         placeholder.testID("mac.example.emptyFeed.placeholder")
         placeholder.font = .systemFont(ofSize: 14, weight: .medium)
         placeholder.textColor = .secondaryLabelColor
         placeholder.translatesAutoresizingMaskIntoConstraints = false
 
+        let retry = NSTextField(labelWithString: "Retry banner: API returned no rows")
+        retry.testID("mac.example.emptyFeed.retryBanner")
+        retry.font = .systemFont(ofSize: 13, weight: .semibold)
+        retry.textColor = .secondaryLabelColor
+        retry.translatesAutoresizingMaskIntoConstraints = false
+
+        content.addArrangedSubview(placeholder)
+        content.addArrangedSubview(retry)
+
         let scroll = NSScrollView()
         scroll.testID("mac.example.emptyFeed")
         scroll.hasVerticalScroller = false
-        scroll.documentView = placeholder
+        scroll.documentView = content
         scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.heightAnchor.constraint(equalToConstant: 52).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 72).isActive = true
 
         NSLayoutConstraint.activate([
-            placeholder.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -18),
+            content.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -18),
         ])
 
         return scroll
@@ -347,8 +391,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func publishRuntimeFixtures() {
         UserDefaults.standard.set(false, forKey: "mac-new-nav")
         UserDefaults.standard.set(true, forKey: "mac-empty-feed")
+        UserDefaults.standard.set(false, forKey: "mac-error-route")
         UserDefaults.standard.set(false, forKey: "mac-logout")
         lastNewNavValue = UserDefaults.standard.bool(forKey: "mac-new-nav")
+        lastErrorRouteValue = UserDefaults.standard.bool(forKey: "mac-error-route")
 
         Loupe.log(
             "mac_example_visible",
@@ -365,23 +411,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 "flag": .string("mac-empty-feed"),
             ]
         )
-        Loupe.recordNetwork(
-            url: "https://api.example.test/macos/workbench",
-            method: "GET",
-            statusCode: 200,
-            responseBody: #"{"platform":"macOS","status":"ok"}"#,
-            metadata: ["screen": .string("workbench")]
-        )
-        Loupe.recordNetwork(
-            url: "https://api.example.test/macos/feed",
-            method: "GET",
-            statusCode: 204,
-            responseBody: #"{"items":[]}"#,
-            metadata: [
-                "screen": .string("feed"),
-                "empty": .bool(true),
-            ]
-        )
+        triggerNetworkFixtureRequests()
         Loupe.recordReference(
             owner: "MacWorkbenchController",
             target: "DeviceActuationService",
@@ -397,6 +427,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             metadata: ["screen": .string("workbench")]
         )
         upsertKeychainFixture()
+    }
+
+    private func triggerNetworkFixtureRequests() {
+        LoupeRuntime.shared.activateBridge()
+        let session = URLSession(configuration: .default)
+        let port = UInt16(ProcessInfo.processInfo.environment["LOUPE_PORT"] ?? "")
+            ?? LoupeServer.defaultPort
+        let baseURL = "http://127.0.0.1:\(port)/__loupe_network_fixture/macos"
+        [
+            "\(baseURL)/workbench",
+            "\(baseURL)/feed",
+            "\(baseURL)/error-route",
+        ].forEach { rawURL in
+            guard let url = URL(string: rawURL) else {
+                return
+            }
+            session.dataTask(with: url).resume()
+        }
     }
 
     @objc private func refreshStatus() {
@@ -417,6 +465,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showWorkbenchRoute() {
         window?.contentView = makeWorkbenchView()
         Loupe.log("mac_example_workbench_route", metadata: ["screen": .string("workbench")])
+    }
+
+    @objc private func dismissErrorRoute() {
+        UserDefaults.standard.set(false, forKey: "mac-error-route")
+        lastErrorRouteValue = false
+        showWorkbenchRoute()
     }
 
     private func startFlagMonitor() {
@@ -445,6 +499,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             clearKeychainFixture()
             statusLabel.stringValue = "Logged out"
             Loupe.log("mac_example_logout_cleared_keychain", metadata: ["screen": .string("workbench")])
+        }
+
+        let errorRouteValue = UserDefaults.standard.bool(forKey: "mac-error-route")
+        if errorRouteValue != lastErrorRouteValue {
+            lastErrorRouteValue = errorRouteValue
+            if errorRouteValue {
+                window?.contentView = makeErrorView()
+                Loupe.log(
+                    "mac_example_error_route",
+                    metadata: [
+                        "screen": .string("error"),
+                        "reason": .string("feed_service_unavailable"),
+                        "source": .string("mac-error-route"),
+                    ]
+                )
+            } else {
+                showWorkbenchRoute()
+            }
         }
     }
 

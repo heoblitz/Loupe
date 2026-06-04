@@ -26,6 +26,11 @@ FLAG_PATH="/tmp/loupe-macos-flag.json"
 FLAG_SET_PATH="/tmp/loupe-macos-flag-set.json"
 LOGOUT_FLAG_SET_PATH="/tmp/loupe-macos-logout-flag-set.json"
 EMPTY_FLAG_PATH="/tmp/loupe-macos-empty-flag.json"
+ERROR_FLAG_PATH="/tmp/loupe-macos-error-flag.json"
+ERROR_FLAG_SET_PATH="/tmp/loupe-macos-error-flag-set.json"
+ERROR_SNAPSHOT_PATH="/tmp/loupe-macos-error-snapshot.json"
+ERROR_INSPECT_PATH="/tmp/loupe-macos-error-inspect.json"
+ERROR_LOGS_PATH="/tmp/loupe-macos-error-logs.json"
 KEYCHAIN_PATH="/tmp/loupe-macos-keychain.json"
 KEYCHAIN_AFTER_LOGOUT_PATH="/tmp/loupe-macos-keychain-after-logout.json"
 HIT_TEST_PATH="/tmp/loupe-macos-hit-test.json"
@@ -47,7 +52,7 @@ DETAIL_BACK_TRACE_DIR="/tmp/loupe-macos-detail-back-trace"
 LONG_LIST_TRACE_DIR="/tmp/loupe-macos-long-list-route-trace"
 LONG_LIST_BACK_TRACE_DIR="/tmp/loupe-macos-long-list-back-trace"
 
-rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$LOGS_PATH" "$ROUTE_LOGS_PATH" "$NEW_NAV_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$LOGOUT_FLAG_SET_PATH" "$EMPTY_FLAG_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$DETAIL_SCROLL_PATH" "$LONG_LIST_SCROLL_PATH" "$MUTATION_PATH" "$INSPECT_PATH" "$INSPECT_TITLE_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH" "$DETAIL_SNAPSHOT_PATH" "$LONG_LIST_SNAPSHOT_PATH"
+rm -f "$APP_LOG" "$SNAPSHOT_PATH" "$DARK_SNAPSHOT_PATH" "$ACCESSIBILITY_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$LOGS_PATH" "$ROUTE_LOGS_PATH" "$NEW_NAV_LOGS_PATH" "$LOGOUT_LOGS_PATH" "$NETWORK_PATH" "$REFS_PATH" "$OBJECT_GRAPH_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$LOGOUT_FLAG_SET_PATH" "$EMPTY_FLAG_PATH" "$ERROR_FLAG_PATH" "$ERROR_FLAG_SET_PATH" "$ERROR_SNAPSHOT_PATH" "$ERROR_INSPECT_PATH" "$ERROR_LOGS_PATH" "$KEYCHAIN_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$ENV_PATH" "$AUDIT_PATH" "$PERF_PATH" "$DETAIL_SCROLL_PATH" "$LONG_LIST_SCROLL_PATH" "$MUTATION_PATH" "$INSPECT_PATH" "$INSPECT_TITLE_PATH" "$INSPECT_EMPTY_PATH" "$QUERY_PATH" "$DETAIL_SNAPSHOT_PATH" "$LONG_LIST_SNAPSHOT_PATH"
 rm -rf "$DETAIL_TRACE_DIR" "$DETAIL_BACK_TRACE_DIR" "$LONG_LIST_TRACE_DIR" "$LONG_LIST_BACK_TRACE_DIR"
 
 LOUPE_PORT="$PORT" .build/debug/MacLoupeExample >"$APP_LOG" 2>&1 &
@@ -92,7 +97,16 @@ done
 .build/debug/loupe ui tree "$SNAPSHOT_PATH" --view --depth 6 > "$VIEW_TREE_PATH"
 .build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --depth 6 > "$ACCESSIBILITY_TREE_PATH"
 .build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
-.build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
+for _ in {1..40}; do
+  .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
+  if ruby -rjson -e '
+    events = JSON.parse(File.read(ARGV.fetch(0)))
+    exit(events.any? { |entry| entry["url"]&.include?("/__loupe_network_fixture/macos/error-route") } ? 0 : 1)
+  ' "$NETWORK_PATH"; then
+    break
+  fi
+  sleep 0.25
+done
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
 .build/debug/loupe debug object-graph DeviceActuationService --host "$HOST" --output "$OBJECT_GRAPH_PATH" >/dev/null
 .build/debug/loupe debug flags get mac-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
@@ -133,6 +147,12 @@ BUTTON_POINT="$(ruby -rjson -e '
 .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$DARK_SNAPSHOT_PATH" >/dev/null
 .build/debug/loupe ui audit "$DARK_SNAPSHOT_PATH" --kind lowTextContrast > "$AUDIT_PATH"
 .build/debug/loupe ui appearance system --host "$HOST" >/dev/null
+.build/debug/loupe debug flags get mac-error-route --host "$HOST" --output "$ERROR_FLAG_PATH" >/dev/null
+.build/debug/loupe debug flags set mac-error-route --bool true --host "$HOST" --output "$ERROR_FLAG_SET_PATH" >/dev/null
+.build/debug/loupe act wait visible --host "$HOST" --test-id mac.example.error --timeout 5 >/tmp/loupe-macos-wait-error-route.json
+.build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$ERROR_SNAPSHOT_PATH" >/dev/null
+.build/debug/loupe ui node "$ERROR_SNAPSHOT_PATH" --test-id mac.example.error > "$ERROR_INSPECT_PATH"
+.build/debug/loupe debug logs --host "$HOST" --output "$ERROR_LOGS_PATH" >/dev/null
 
 ruby -rjson -e '
   snapshot = JSON.parse(File.read(ARGV.fetch(0)))
@@ -168,6 +188,8 @@ ruby -rjson -e '
   abort "expected empty feed role" unless empty["role"] == "scrollView"
   empty_rows = snapshot.fetch("nodes").values.select { |node| node["testID"]&.start_with?("mac.example.emptyFeed.row") }
   abort "expected no rendered empty feed rows" unless empty_rows.empty?
+  retry_banner = by_test_id.fetch("mac.example.emptyFeed.retryBanner")
+  abort "expected macOS retry banner evidence" unless retry_banner["renderedText"]&.include?("Retry banner")
 
   segmented = by_test_id.fetch("mac.example.segmented")
   abort "expected AppKit segmented role" unless segmented["role"] == "segmentedControl"
@@ -215,17 +237,23 @@ ruby -rjson -e '
   abort "missing macOS empty-feed diagnostic log" unless logs.any? { |entry| entry["message"] == "mac_example_empty_feed" && entry.dig("metadata", "reason", "value") == "api_returned_empty_items" }
 
   network = JSON.parse(File.read(ARGV.fetch(4)))
-  event = network.find { |entry| entry["url"] == "https://api.example.test/macos/workbench" }
+  event = network.find { |entry| entry["url"]&.include?("/__loupe_network_fixture/macos/workbench") }
   abort "missing macOS network fixture" unless event
   abort "expected macOS network status 200" unless event["statusCode"] == 200
   abort "expected macOS GET method" unless event["method"] == "GET"
   abort "expected macOS network metadata" unless event.dig("metadata", "screen", "value") == "workbench"
+  abort "expected macOS automatic network capture" unless event.dig("metadata", "captureKind", "value") == "automatic" && event.dig("metadata", "source", "value") == "urlProtocol"
   abort "expected macOS response body" unless event["responseBody"]&.include?("macOS")
-  feed_event = network.find { |entry| entry["url"] == "https://api.example.test/macos/feed" }
+  feed_event = network.find { |entry| entry["url"]&.include?("/__loupe_network_fixture/macos/feed") }
   abort "missing macOS empty feed network fixture" unless feed_event
   abort "expected macOS empty feed 204" unless feed_event["statusCode"] == 204
   abort "expected macOS empty feed metadata" unless feed_event.dig("metadata", "empty", "value") == true
   abort "expected macOS empty feed response body" unless feed_event["responseBody"]&.include?("\"items\":[]")
+  error_event = network.find { |entry| entry["url"]&.include?("/__loupe_network_fixture/macos/error-route") }
+  abort "missing macOS error-route network fixture" unless error_event
+  abort "expected macOS error-route 503" unless error_event["statusCode"] == 503
+  abort "expected macOS error-route metadata" unless error_event.dig("metadata", "screen", "value") == "error" && error_event.dig("metadata", "retry", "value") == true
+  abort "expected macOS error-route response body" unless error_event["responseBody"]&.include?("feed_service_unavailable")
 
   refs = JSON.parse(File.read(ARGV.fetch(8)))
   abort "missing macOS reference evidence" unless refs.any? { |entry| entry["owner"] == "MacWorkbenchController" && entry["target"] == "DeviceActuationService" }
@@ -327,7 +355,21 @@ ruby -rjson -e '
   abort "expected dark snapshot after AppKit mutation" unless dark_status && dark_status["renderedText"] == "AppKit mutation applied"
   bad_sentinel = audit.fetch("issues").select { |issue| issue["kind"] == "lowTextContrast" && issue["testID"] == "mac.example.dark.badContrast" }
   abort "expected macOS dark contrast sentinel issue" if bad_sentinel.empty?
-' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$INSPECT_TITLE_PATH" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$EMPTY_FLAG_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH" "$MUTATION_PATH" "$DARK_SNAPSHOT_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$NEW_NAV_LOGS_PATH" "$LOGOUT_FLAG_SET_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$LOGOUT_LOGS_PATH" "$DETAIL_SNAPSHOT_PATH" "$DETAIL_SCROLL_PATH" "$DETAIL_TRACE_DIR" "$DETAIL_BACK_TRACE_DIR" "$LONG_LIST_SNAPSHOT_PATH" "$LONG_LIST_SCROLL_PATH" "$LONG_LIST_TRACE_DIR" "$LONG_LIST_BACK_TRACE_DIR" "$ROUTE_LOGS_PATH"
+
+  error_flag = JSON.parse(File.read(ARGV.fetch(36)))
+  abort "expected mac-error-route=false" unless error_flag.dig("value", "value") == false
+  error_flag_set = JSON.parse(File.read(ARGV.fetch(37)))
+  abort "expected mac-error-route=true after set" unless error_flag_set.dig("after", "value") == true
+  error_snapshot = JSON.parse(File.read(ARGV.fetch(38)))
+  error_ids = error_snapshot.fetch("nodes").values.map { |node| node["testID"] }.compact
+  abort "expected macOS error route root" unless error_ids.include?("mac.example.error")
+  abort "expected macOS error route title" unless error_ids.include?("mac.example.error.title")
+  abort "expected macOS error route retry banner" unless error_ids.include?("mac.example.error.retryBanner")
+  error_root = JSON.parse(File.read(ARGV.fetch(39))).fetch("node")
+  abort "expected macOS error route platform metadata" unless error_root.fetch("custom").dig("platform", "value") == "macOS"
+  error_logs = JSON.parse(File.read(ARGV.fetch(40)))
+  abort "missing macOS error-route log" unless error_logs.any? { |entry| entry["message"] == "mac_example_error_route" && entry.dig("metadata", "reason", "value") == "feed_service_unavailable" }
+' "$SNAPSHOT_PATH" "$QUERY_PATH" "$INSPECT_PATH" "$LOGS_PATH" "$NETWORK_PATH" "$FLAG_PATH" "$FLAG_SET_PATH" "$ENV_PATH" "$REFS_PATH" "$KEYCHAIN_PATH" "$HIT_TEST_PATH" "$RESPONDER_PATH" "$AUDIT_PATH" "$INSPECT_TITLE_PATH" "$ACCESSIBILITY_PATH" "$INSPECT_EMPTY_PATH" "$EMPTY_FLAG_PATH" "$PERF_PATH" "$OBJECT_GRAPH_PATH" "$MUTATION_PATH" "$DARK_SNAPSHOT_PATH" "$VIEW_TREE_PATH" "$ACCESSIBILITY_TREE_PATH" "$NEW_NAV_LOGS_PATH" "$LOGOUT_FLAG_SET_PATH" "$KEYCHAIN_AFTER_LOGOUT_PATH" "$LOGOUT_LOGS_PATH" "$DETAIL_SNAPSHOT_PATH" "$DETAIL_SCROLL_PATH" "$DETAIL_TRACE_DIR" "$DETAIL_BACK_TRACE_DIR" "$LONG_LIST_SNAPSHOT_PATH" "$LONG_LIST_SCROLL_PATH" "$LONG_LIST_TRACE_DIR" "$LONG_LIST_BACK_TRACE_DIR" "$ROUTE_LOGS_PATH" "$ERROR_FLAG_PATH" "$ERROR_FLAG_SET_PATH" "$ERROR_SNAPSHOT_PATH" "$ERROR_INSPECT_PATH" "$ERROR_LOGS_PATH"
 
 echo "macOS example E2E passed"
 echo "snapshot: $SNAPSHOT_PATH"

@@ -179,6 +179,54 @@ final class TVViewController: UIViewController {
         setNeedsFocusUpdate()
     }
 
+    private func buildErrorRouteView() {
+        view.subviews.forEach { $0.removeFromSuperview() }
+        view.accessibilityIdentifier = "tv.example.error"
+        view.backgroundColor = UIColor(red: 0.06, green: 0.08, blue: 0.11, alpha: 1)
+
+        let title = UILabel()
+        title.accessibilityIdentifier = "tv.example.error.title"
+        title.text = "tvOS Error Route"
+        title.textColor = .white
+        title.font = .systemFont(ofSize: 54, weight: .bold)
+
+        let subtitle = UILabel()
+        subtitle.accessibilityIdentifier = "tv.example.error.subtitle"
+        subtitle.text = "Workbench reload selected the error route after a 503 response."
+        subtitle.textColor = UIColor(red: 0.74, green: 0.91, blue: 1, alpha: 1)
+        subtitle.font = .systemFont(ofSize: 30, weight: .medium)
+
+        let banner = UILabel()
+        banner.accessibilityIdentifier = "tv.example.error.retryBanner"
+        banner.text = "Retry available after feed service recovery"
+        banner.textColor = UIColor(red: 1, green: 0.67, blue: 0.64, alpha: 1)
+        banner.font = .systemFont(ofSize: 30, weight: .semibold)
+
+        let back = UIButton(type: .system)
+        back.accessibilityIdentifier = "tv.example.error.back"
+        back.isAccessibilityElement = true
+        back.accessibilityLabel = "Back to workbench"
+        back.setTitle("Back to workbench", for: .normal)
+        back.setTitleColor(.white, for: .normal)
+        back.setTitleColor(UIColor(red: 0.74, green: 0.91, blue: 1, alpha: 1), for: .focused)
+        back.titleLabel?.font = .systemFont(ofSize: 30, weight: .semibold)
+        back.addTarget(self, action: #selector(dismissErrorRoute), for: .primaryActionTriggered)
+
+        let stack = UIStackView(arrangedSubviews: [title, subtitle, banner, back])
+        stack.axis = .vertical
+        stack.alignment = .leading
+        stack.spacing = 32
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 96),
+            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -96),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 72),
+        ])
+        setNeedsFocusUpdate()
+    }
+
     private func makeRouteScroll(testID: String, rowPrefix: String, rows: Int) -> UIScrollView {
         let scrollView = UIScrollView()
         scrollView.accessibilityIdentifier = testID
@@ -256,12 +304,24 @@ final class TVViewController: UIViewController {
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(placeholder)
 
+        let retry = UILabel()
+        retry.accessibilityIdentifier = "tv.example.emptyFeed.retryBanner"
+        retry.text = "Retry banner: API returned no rows"
+        retry.textColor = UIColor(red: 0.74, green: 0.91, blue: 1, alpha: 1)
+        retry.font = .systemFont(ofSize: 24, weight: .semibold)
+        retry.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(retry)
+
         NSLayoutConstraint.activate([
             placeholder.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 28),
             placeholder.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -28),
             placeholder.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 24),
-            placeholder.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
             placeholder.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -56),
+            retry.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 28),
+            retry.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -28),
+            retry.topAnchor.constraint(equalTo: placeholder.bottomAnchor, constant: 8),
+            retry.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
+            retry.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -56),
         ])
 
         return scrollView
@@ -270,6 +330,7 @@ final class TVViewController: UIViewController {
     private func publishRuntimeFixtures() {
         UserDefaults.standard.set(false, forKey: "tv-new-nav")
         UserDefaults.standard.set(true, forKey: "tv-empty-feed")
+        UserDefaults.standard.set(false, forKey: "tv-error-route")
 
         Loupe.log(
             "tv_example_visible",
@@ -296,23 +357,7 @@ final class TVViewController: UIViewController {
                 ],
             ]
         )
-        Loupe.recordNetwork(
-            url: "https://api.example.test/tvos/workbench",
-            method: "GET",
-            statusCode: 200,
-            responseBody: #"{"platform":"tvOS","status":"ok"}"#,
-            metadata: ["screen": .string("workbench")]
-        )
-        Loupe.recordNetwork(
-            url: "https://api.example.test/tvos/feed",
-            method: "GET",
-            statusCode: 204,
-            responseBody: #"{"items":[]}"#,
-            metadata: [
-                "screen": .string("feed"),
-                "empty": .bool(true),
-            ]
-        )
+        triggerNetworkFixtureRequests()
         Loupe.recordReference(
             owner: "TVWorkbenchController",
             target: "DeviceActuationService",
@@ -328,6 +373,24 @@ final class TVViewController: UIViewController {
             metadata: ["screen": .string("workbench")]
         )
         upsertKeychainFixture()
+    }
+
+    private func triggerNetworkFixtureRequests() {
+        LoupeRuntime.shared.activateBridge()
+        let session = URLSession(configuration: .default)
+        let port = UInt16(ProcessInfo.processInfo.environment["LOUPE_PORT"] ?? "")
+            ?? LoupeServer.defaultPort
+        let baseURL = "http://127.0.0.1:\(port)/__loupe_network_fixture/tvos"
+        [
+            "\(baseURL)/workbench",
+            "\(baseURL)/feed",
+            "\(baseURL)/error-route",
+        ].forEach { rawURL in
+            guard let url = URL(string: rawURL) else {
+                return
+            }
+            session.dataTask(with: url).resume()
+        }
     }
 
     @objc private func refreshStatus() {
@@ -350,6 +413,18 @@ final class TVViewController: UIViewController {
     }
 
     @objc private func openLegacyFlow() {
+        if UserDefaults.standard.bool(forKey: "tv-error-route") {
+            buildErrorRouteView()
+            Loupe.log(
+                "tv_example_error_route",
+                metadata: [
+                    "screen": .string("error"),
+                    "reason": .string("feed_service_unavailable"),
+                    "source": .string("tv-error-route"),
+                ]
+            )
+            return
+        }
         let newNavEnabled = UserDefaults.standard.bool(forKey: "tv-new-nav")
         if newNavEnabled {
             statusLabel.text = "New nav active"
@@ -385,6 +460,11 @@ final class TVViewController: UIViewController {
     @objc private func showWorkbenchRoute() {
         buildView()
         Loupe.log("tv_example_workbench_route", metadata: ["screen": .string("workbench")])
+    }
+
+    @objc private func dismissErrorRoute() {
+        UserDefaults.standard.set(false, forKey: "tv-error-route")
+        showWorkbenchRoute()
     }
 
     private func upsertKeychainFixture() {
