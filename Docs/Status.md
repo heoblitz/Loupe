@@ -1,6 +1,6 @@
 # Loupe Status
 
-Last verified: 2026-06-03.
+Last verified: 2026-06-06.
 
 Loupe is a runtime diagnostic and E2E harness for Apple-platform apps. The
 current product surface is the `loupe` CLI plus injected or LoupeInjector-linked
@@ -32,9 +32,9 @@ runtime servers.
 - Save action traces with before/after snapshots, accessibility trees, logs,
   screenshots, action records, diffs, and target crops when available.
 - Run quick route sweeps with `loupe debug trace explore`.
-- Try allowlisted UIKit property mutations at runtime with `loupe ui set` and
-  `loupe ui set-many`; property mutations animate by default and report effective
-  state.
+- Try allowlisted UIKit property mutations at runtime with `loupe ui set`,
+  `loupe ui set-many`, and `loupe ui apply-design-suggestions`; property
+  mutations animate by default and report effective state.
 - Probe UIKit collection/table self-sizing during runtime mutations with
   `--try-self-sizing` on iOS 16+ when Loupe can identify a supported list
   sizing context. Repeated probes on an already-enabled container no-op and
@@ -44,6 +44,10 @@ runtime servers.
   verification.
 - Reflect verified runtime mutation experiments back toward source with
   `loupe ui reflect`.
+- Apply a small bounded batch of `ui compare-design --json` mutation
+  suggestions before committing to a source rebuild. The default selection
+  probes at most three copy/style/scalar-first changes and writes before/after
+  snapshots, mutation responses, diff, and summary artifacts.
 - Install the Codex/Claude skill with `loupe skills install`.
 
 ## Supported Verification
@@ -57,6 +61,8 @@ scripts/verify-agent-work.sh
 It runs:
 
 - `swift test`
+- benchmark helper syntax, case contracts, prompt generation,
+  transcript-diagnosis, usage parsing, and replay-matrix freshness checks
 - release CLI build
 - runtime injection smoke E2E
 - native HID and UIKit scenario E2E

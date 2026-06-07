@@ -3,9 +3,13 @@ import LoupeCLIModel
 import LoupeCore
 
 struct CompareDesignOptions {
+    static let usage = "Usage: loupe ui compare-design <snapshot.json> <design.json> [--json] [--suggest-mutations] [--host <url>] [--limit <n>] [--frame-tolerance <n>] [--color-tolerance <n>] [--corner-radius-tolerance <n>] [--font-size-tolerance <n>] [--max-match-distance <n>] [--no-unexpected]"
+
     var snapshotURL: URL
     var designURL: URL
     var json: Bool
+    var suggestMutations: Bool
+    var suggestionHost: URL?
     var limit: Int
     var frameTolerance: Double
     var colorTolerance: Double
@@ -16,11 +20,13 @@ struct CompareDesignOptions {
 
     init(_ arguments: [String]) throws {
         guard arguments.count >= 2, !arguments[0].hasPrefix("--"), !arguments[1].hasPrefix("--") else {
-            throw CLIError("Usage: loupe ui compare-design <snapshot.json> <design.json> [--json] [--limit <n>]")
+            throw CLIError(Self.usage)
         }
         snapshotURL = URL(fileURLWithPath: arguments[0])
         designURL = URL(fileURLWithPath: arguments[1])
         json = false
+        suggestMutations = false
+        suggestionHost = nil
         limit = 20
         frameTolerance = 2
         colorTolerance = 0.03
@@ -34,6 +40,10 @@ struct CompareDesignOptions {
             switch arguments[index] {
             case "--json":
                 json = true
+            case "--suggest-mutations":
+                suggestMutations = true
+            case "--host":
+                suggestionHost = try Self.url(after: "--host", in: arguments, index: &index)
             case "--limit":
                 limit = try Self.positiveInt(after: "--limit", in: arguments, index: &index)
             case "--frame-tolerance":
@@ -62,6 +72,14 @@ struct CompareDesignOptions {
         }
         index = valueIndex
         return arguments[valueIndex]
+    }
+
+    private static func url(after option: String, in arguments: [String], index: inout Int) throws -> URL {
+        let raw = try value(after: option, in: arguments, index: &index)
+        guard let url = URL(string: raw), url.scheme != nil, url.host != nil else {
+            throw CLIError("\(option) expects a URL")
+        }
+        return url
     }
 
     private static func positiveInt(after option: String, in arguments: [String], index: inout Int) throws -> Int {

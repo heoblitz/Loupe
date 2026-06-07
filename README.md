@@ -32,8 +32,8 @@ loupe skills install
 Launch an iOS Simulator app with Loupe injected:
 
 ```bash
-loupe app launch --bundle-id com.example.App --device <simulator-udid> --inject
-loupe ui report --bundle-id com.example.App --output loupe-report
+loupe app launch --bundle-id <bundle-id> --device <simulator-udid> --inject
+loupe ui report --bundle-id <bundle-id> --output loupe-report
 loupe ui compact loupe-report/snapshot.json
 loupe ui node loupe-report/snapshot.json --test-id checkout.payButton
 ```
@@ -71,9 +71,8 @@ Loupe currently supports these surfaces:
   diagnostics, and runtime mutation probes.
 - tvOS Simulator: injection, UI snapshots, accessibility, remote input,
   diagnostics, and traces.
-- macOS: linked runtime examples with snapshots, actions, diagnostics, and
-  mutation probes.
-- watchOS Simulator: registered-probe runtime example.
+- macOS: linked runtime snapshots, actions, diagnostics, and mutation probes.
+- watchOS Simulator: registered-probe runtime coverage.
 - visionOS Simulator: LoupeKit and LoupeInjector build compatibility.
 - Physical iOS devices: debug-only linked LoupeInjector runtime over HTTP.
 
@@ -88,7 +87,7 @@ App Store release builds.
 Simulator apps do not need a Loupe dependency:
 
 ```bash
-loupe app launch --bundle-id com.example.App --inject
+loupe app launch --bundle-id <bundle-id> --inject
 ```
 
 Physical-device apps need a debug-only dependency:
@@ -125,7 +124,7 @@ hard-coding a host port.
 Use `ui report` when you need a screenshot and UI structure together:
 
 ```bash
-loupe ui report --bundle-id com.example.App --output loupe-report
+loupe ui report --bundle-id <bundle-id> --output loupe-report
 loupe ui tree loupe-report/snapshot.json --accessibility --depth 3
 loupe ui tree loupe-report/snapshot.json --view --depth 3
 loupe ui query loupe-report/snapshot.json --test-id checkout.payButton
@@ -162,7 +161,7 @@ screenshots, action records, diffs, and target crops when available.
 For quick route discovery:
 
 ```bash
-loupe debug trace explore --bundle-id com.example.App --limit 5 --trace-dir /tmp/loupe-routes --output /tmp/loupe-routes.json --json
+loupe debug trace explore --bundle-id <bundle-id> --limit 5 --trace-dir /tmp/loupe-routes --output /tmp/loupe-routes.json --json
 ```
 
 ## Debug Runtime State
@@ -242,6 +241,6 @@ Loupe's simulator inspection and action direction is inspired by
 Loupe started with a UI-focused runtime inspection and interaction direction.
 Pepper was especially helpful in shaping how Loupe expands that workflow into
 debug diagnostics such as network evidence, runtime state, storage, traces, and
-platform-specific examples.
+platform-specific runtimes.
 
 </details>

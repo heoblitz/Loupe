@@ -6,12 +6,11 @@ This document captures the current in-progress state for continuing platform
 runtime support work on another machine. Do not treat this as a completed
 release note.
 
-Update: repository example apps should stay import-free when injection exists.
-iOS/tvOS Simulator and macOS examples now use injection paths rather than
-linking `LoupeKit` into the example app. Physical-device support still requires
-the target app to link and embed the dynamic `LoupeInjector` product in a
-debug-only target; launch-time `DYLD_INSERT_LIBRARIES` injection is
-simulator-only.
+Update: Loupe usage should be described as attachment mode. iOS/tvOS Simulator
+and macOS development flows use injection paths when possible. Physical-device
+support still requires the target app to link and embed the dynamic
+`LoupeInjector` product in a debug-only target; launch-time
+`DYLD_INSERT_LIBRARIES` injection is simulator-only.
 `loupe app launch --linked` now uses CoreDevice `devicectl`, so devices that are
 visible only through legacy Xcode device services still need manual app launch
 plus `loupe app use --host`.

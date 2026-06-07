@@ -24,7 +24,7 @@ import Testing
         )
     }
 
-    @Test func summaryHelpUsesFourStableCommandGroups() {
+    @Test func summaryHelpUsesStableCommandGroups() {
         let output = LoupeCLI.summaryHelp(version: "1.2.3")
 
         #expect(output.contains("OVERVIEW:"))
@@ -35,6 +35,7 @@ import Testing
         #expect(output.contains("ui                      Capture, inspect, audit, and mutate UI state."))
         #expect(output.contains("act                     Dispatch input and wait for UI state."))
         #expect(output.contains("debug                   Read and change diagnostic app state."))
+        #expect(output.contains("skills                  Install Loupe workflow skills."))
         #expect(output.contains("See 'loupe help <command-group> <subcommand>' for detailed help."))
         #expect(LoupeCLI.summaryHelpLineCount(version: "1.2.3") <= 50)
         #expect(!output.contains("Existing flat commands"))
@@ -57,6 +58,8 @@ import Testing
             "ui tree": "Usage: loupe ui tree [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--view|--accessibility] [--depth <n>]",
             "ui node": "Usage: loupe ui node <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--include-hidden] [--fields node,parent,children,siblings]",
             "ui query": "Usage: loupe ui query [snapshot.json] (--test-id <id> | --text <text> | --exact-text <text> | --role <role> | --ref <ref>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--tree view|accessibility] [--include-hidden] [--max-results <n>] [--timeout <seconds>]",
+            "ui compare-design": "Usage: loupe ui compare-design <snapshot.json> <design.json> [--json] [--suggest-mutations] [--host <url>] [--limit <n>] [--frame-tolerance <n>] [--color-tolerance <n>] [--corner-radius-tolerance <n>] [--font-size-tolerance <n>] [--max-match-distance <n>] [--no-unexpected]",
+            "ui apply-design-suggestions": "Usage: loupe ui apply-design-suggestions <compare-design.json> [--host <url>] [--snapshot <snapshot.json>] [--output-dir <dir>] [--max <n>] [--properties <list>] [--dry-run]",
             "ui set": "Usage: loupe ui set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--snapshot <snapshot.json>] [--include-hidden] [--output <path>]",
             "act": "Usage: loupe act <subcommand>",
             "act tap": "Usage: loupe act tap (--test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
@@ -77,6 +80,8 @@ import Testing
             "debug flags": "Usage: loupe debug flags get|set|unset <key> [value] [--bool true|false] [--number n] [--host <url>] [--output <path>]",
             "debug trace summary": "Usage: loupe debug trace summary <trace-dir> [--json] [--limit <n>]",
             "debug scroll": "Usage: loupe debug scroll --from x,y --to x,y --udid <sim> [--host <url>] [--duration <seconds>] [--trace-dir <path>] [--output <path>]",
+            "skills": "Usage: loupe skills <subcommand>",
+            "skills install": "Usage: loupe skills install [--target all|codex|claude] [--source <skills/loupe>]",
         ]
 
         for (command, expected) in expectedUsage {
@@ -137,6 +142,7 @@ import Testing
             "ui deactivate-constraint",
             "ui reflect",
             "ui compare-design",
+            "ui apply-design-suggestions",
             "act",
             "act tap",
             "act swipe",
@@ -163,6 +169,8 @@ import Testing
             "debug trace explore",
             "debug trace cleanup",
             "debug scroll",
+            "skills",
+            "skills install",
         ]
 
         for command in publicCommands {

@@ -6,6 +6,7 @@ PORT="${LOUPE_PORT:-}"
 LAUNCH_TIMEOUT="${LOUPE_LAUNCH_TIMEOUT:-30}"
 
 cd "$ROOT_DIR"
+source Examples/LoupeExample/build-simulator-artifacts.sh
 
 booted_udid() {
   xcrun simctl list devices booted --json | ruby -rjson -e '
@@ -23,31 +24,7 @@ if [[ -z "$DEVICE" ]]; then
 fi
 
 swift build
-
-xcodebuild \
-  -scheme LoupeInjector \
-  -destination 'generic/platform=iOS Simulator' \
-  -configuration Debug \
-  build >/tmp/loupe-injector-build.log
-
-xcodebuild \
-  -project Examples/LoupeExample/LoupeExample.xcodeproj \
-  -scheme LoupeExample \
-  -destination 'generic/platform=iOS Simulator' \
-  -configuration Debug \
-  build >/tmp/loupe-example-build.log
-
-export LOUPE_INJECTOR_PATH="$(
-  find "$HOME/Library/Developer/Xcode/DerivedData" \
-    -path '*Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector' \
-    -print0 | xargs -0 ls -t | head -1
-)"
-
-APP_PATH="$(
-  find "$HOME/Library/Developer/Xcode/DerivedData" \
-    -path '*Debug-iphonesimulator/LoupeExample.app' \
-    -print0 | xargs -0 ls -td | head -1
-)"
+build_loupe_example_simulator_artifacts "$ROOT_DIR" "platform=iOS Simulator,id=$DEVICE"
 
 xcrun simctl install "$DEVICE" "$APP_PATH"
 xcrun simctl terminate "$DEVICE" dev.loupe.example >/dev/null 2>&1 || true

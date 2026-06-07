@@ -6,6 +6,7 @@ PORT="${LOUPE_PORT:-}"
 LAUNCH_TIMEOUT="${LOUPE_LAUNCH_TIMEOUT:-30}"
 
 cd "$ROOT_DIR"
+source Examples/LoupeExample/build-simulator-artifacts.sh
 
 run_with_timeout() {
   local seconds="$1"
@@ -85,31 +86,7 @@ assert_device_ready() {
 
 assert_device_ready
 swift build
-
-xcodebuild \
-  -scheme LoupeInjector \
-  -destination 'generic/platform=iOS Simulator' \
-  -configuration Debug \
-  build >/tmp/loupe-injector-build.log
-
-xcodebuild \
-  -project Examples/LoupeExample/LoupeExample.xcodeproj \
-  -scheme LoupeExample \
-  -destination 'generic/platform=iOS Simulator' \
-  -configuration Debug \
-  build >/tmp/loupe-example-build.log
-
-export LOUPE_INJECTOR_PATH="$(
-  find "$HOME/Library/Developer/Xcode/DerivedData" \
-    -path '*Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector' \
-    -print0 | xargs -0 ls -t | head -1
-)"
-
-APP_PATH="$(
-  find "$HOME/Library/Developer/Xcode/DerivedData" \
-    -path '*Debug-iphonesimulator/LoupeExample.app' \
-    -print0 | xargs -0 ls -td | head -1
-)"
+build_loupe_example_simulator_artifacts "$ROOT_DIR" "platform=iOS Simulator,id=$DEVICE"
 
 terminate_app
 run_with_timeout 30 xcrun simctl install "$DEVICE" "$APP_PATH"
@@ -126,13 +103,16 @@ TRACE_SUMMARY_PATH="/tmp/loupe-native-trace-summary.txt"
 FRAME_MUTATION_PATH="/tmp/loupe-native-frame-mutation.json"
 LAYOUT_MUTATION_PATH="/tmp/loupe-native-layout-mutation.json"
 STACK_MUTATION_PATH="/tmp/loupe-native-stack-mutation.json"
+APPLY_DESIGN_FIXTURE_PATH="/tmp/loupe-native-apply-design.json"
+APPLY_DESIGN_COMPARE_PATH="/tmp/loupe-native-apply-design-compare.json"
+APPLY_DESIGN_TRACE_DIR="/tmp/loupe-native-apply-design-suggestions"
 SELF_SIZING_SKIP_PATH="/tmp/loupe-native-self-sizing-skip.json"
 SELF_SIZING_MUTATION_PATH="/tmp/loupe-native-self-sizing-mutation.json"
 SELF_SIZING_ALREADY_PATH="/tmp/loupe-native-self-sizing-already.json"
 CONSTRAINTS_PATH="/tmp/loupe-native-constraints.json"
 CONSTRAINT_MUTATION_PATH="/tmp/loupe-native-constraint-mutation.json"
 CONSTRAINT_DEACTIVATE_PATH="/tmp/loupe-native-constraint-deactivate.json"
-rm -rf "$TRACE_DIR"
+rm -rf "$TRACE_DIR" "$APPLY_DESIGN_TRACE_DIR"
 
 launch_app() {
   local route="${1:-}"
@@ -402,6 +382,62 @@ fetch_snapshot
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.switchRow > "$INSPECT_PATH"
 grep -q '"axis" : "vertical"' "$INSPECT_PATH"
 
+echo "case: compare-design suggestion application"
+ruby -rjson -e '
+  snapshot = JSON.parse(File.read(ARGV.fetch(0)))
+  node = snapshot.fetch("nodes").values.find { |candidate| candidate["testID"] == "example.components.label" }
+  abort("missing label node for design suggestion probe") unless node
+  screen = snapshot.fetch("screen").fetch("size")
+  design = {
+    "frame" => {
+      "name" => "Apply Design Suggestions Probe",
+      "width" => screen.fetch("width"),
+      "height" => screen.fetch("height")
+    },
+    "nodes" => [
+      {
+        "id" => "probe.components.label",
+        "aliases" => ["example.components.label"],
+        "name" => "UIKit label color probe",
+        "role" => "staticText",
+        "text" => node.fetch("text", "UIKit Label"),
+        "frame" => node.fetch("frame"),
+        "style" => {
+          "textColor" => "#FF3366"
+        }
+      }
+    ]
+  }
+  File.write(ARGV.fetch(1), JSON.pretty_generate(design))
+' "$SNAPSHOT_PATH" "$APPLY_DESIGN_FIXTURE_PATH"
+.build/debug/loupe ui compare-design "$SNAPSHOT_PATH" "$APPLY_DESIGN_FIXTURE_PATH" --json --suggest-mutations > "$APPLY_DESIGN_COMPARE_PATH"
+ruby -rjson -e '
+  comparison = JSON.parse(File.read(ARGV.fetch(0)))
+  suggestion = comparison.fetch("suggestions").find { |item| item.fetch("property") == "textColor" }
+  abort("missing textColor suggestion") unless suggestion
+' "$APPLY_DESIGN_COMPARE_PATH"
+.build/debug/loupe ui apply-design-suggestions "$APPLY_DESIGN_COMPARE_PATH" --host "$HOST" --snapshot "$SNAPSHOT_PATH" --properties textColor --max 1 --output-dir "$APPLY_DESIGN_TRACE_DIR"
+ruby -rjson -e '
+  summary = JSON.parse(File.read(File.join(ARGV.fetch(0), "summary.json")))
+  abort("expected one selected suggestion") unless summary.fetch("selectedSuggestions") == 1
+  abort("expected one mutation request") unless summary.fetch("mutationRequests") == 1
+  abort("expected one changed mutation") unless summary.fetch("changedMutations") == 1
+  abort("expected no failed mutations") unless summary.fetch("failedMutations") == 0
+  application = summary.fetch("applications").fetch(0)
+  abort("expected textColor application") unless application.fetch("property") == "textColor"
+  abort("missing mutation response path") unless File.file?(application.fetch("response"))
+' "$APPLY_DESIGN_TRACE_DIR"
+fetch_snapshot
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.label > "$INSPECT_PATH"
+ruby -rjson -e '
+  node = JSON.parse(File.read(ARGV.fetch(0))).fetch("node")
+  color = node.fetch("style").fetch("textColor")
+  red = color.fetch("red").to_f
+  green = color.fetch("green").to_f
+  blue = color.fetch("blue").to_f
+  abort("textColor mutation did not apply") unless (red - 1).abs < 0.02 && (green - 0.2).abs < 0.03 && (blue - 0.4).abs < 0.03
+' "$INSPECT_PATH"
+
 echo "case: collection self-sizing probe only runs for supported sizing contexts"
 .build/debug/loupe ui set --host "$HOST" --test-id example.components.collection.0.label layout.hugging.horizontal 260 --try-self-sizing --no-animate --output "$SELF_SIZING_SKIP_PATH"
 ruby -rjson -e '
@@ -534,6 +570,7 @@ echo "subtree: $SUBTREE_PATH"
 echo "frame mutation: $FRAME_MUTATION_PATH"
 echo "layout mutation: $LAYOUT_MUTATION_PATH"
 echo "stack mutation: $STACK_MUTATION_PATH"
+echo "apply design suggestions: $APPLY_DESIGN_TRACE_DIR"
 echo "self-sizing skip: $SELF_SIZING_SKIP_PATH"
 echo "self-sizing mutation: $SELF_SIZING_MUTATION_PATH"
 echo "self-sizing already: $SELF_SIZING_ALREADY_PATH"

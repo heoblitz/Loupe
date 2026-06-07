@@ -577,7 +577,255 @@ struct LoupeCLI {
             return
         }
 
-        print(renderDesignComparison(comparison, limit: options.limit))
+        print(
+            renderDesignComparison(
+                comparison,
+                limit: options.limit,
+                suggestMutations: options.suggestMutations,
+                snapshotURL: options.snapshotURL,
+                suggestionHost: options.suggestionHost
+            )
+        )
+    }
+
+    static func applyDesignSuggestions(_ arguments: [String]) async throws {
+        let options = try ApplyDesignSuggestionsOptions(arguments)
+        let decoder = JSONDecoder()
+        let comparison = try decoder.decode(
+            LoupeDesignComparison.self,
+            from: Data(contentsOf: options.compareURL)
+        )
+        let selectedSuggestions = options.selectedSuggestions(from: comparison.suggestions)
+        guard !selectedSuggestions.isEmpty else {
+            throw CLIError("apply-design-suggestions found no suggestions matching the requested filters")
+        }
+
+        try FileManager.default.createDirectory(
+            at: options.outputDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let selectedURL = options.outputDirectory.appendingPathComponent("selected-suggestions.json")
+        let beforeURL = options.outputDirectory.appendingPathComponent("before-snapshot.json")
+        let afterURL = options.outputDirectory.appendingPathComponent("after-snapshot.json")
+        let diffURL = options.outputDirectory.appendingPathComponent("diff.json")
+        let responsesURL = options.outputDirectory.appendingPathComponent("responses.json")
+        let summaryURL = options.outputDirectory.appendingPathComponent("summary.json")
+        try writeJSON(selectedSuggestions, to: selectedURL)
+
+        if options.dryRun {
+            let applications = selectedSuggestions.enumerated().map { offset, suggestion in
+                ApplyDesignSuggestionApplication(
+                    index: offset + 1,
+                    issueKind: suggestion.issueKind,
+                    designID: suggestion.designID,
+                    designName: suggestion.designName,
+                    originalRef: suggestion.ref,
+                    appliedRef: nil,
+                    appliedSelectorKind: nil,
+                    appliedSelectorValue: nil,
+                    property: suggestion.property,
+                    valueType: suggestion.valueType,
+                    valueLabel: suggestion.valueLabel,
+                    changed: nil,
+                    warning: nil,
+                    response: nil,
+                    error: nil
+                )
+            }
+            let result = ApplyDesignSuggestionsResult(
+                host: nil,
+                dryRun: true,
+                compareDesign: options.compareURL.path,
+                referenceSnapshot: options.snapshotURL?.path,
+                outputDirectory: options.outputDirectory.path,
+                selectedSuggestions: selectedSuggestions.count,
+                mutationRequests: 0,
+                changedMutations: 0,
+                failedMutations: 0,
+                beforeSnapshot: nil,
+                afterSnapshot: nil,
+                diff: nil,
+                responses: nil,
+                applications: applications
+            )
+            try writeJSON(result, to: summaryURL)
+            print("apply-design-suggestions dry-run selected=\(selectedSuggestions.count)")
+            print("summary: \(summaryURL.path)")
+            print("selected: \(selectedURL.path)")
+            return
+        }
+
+        let host = try await resolvedRuntimeHost(
+            requestedHost: options.host,
+            hostWasExplicit: options.hostWasExplicit,
+            udid: options.udid,
+            bundleID: options.bundleID
+        )
+        if let udid = options.udid {
+            try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
+        }
+
+        let referenceSnapshot = try options.snapshotURL.map { try decodeSnapshot(from: $0) }
+        var liveSnapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
+        let before = liveSnapshot
+        try writeSnapshot(before, to: beforeURL)
+
+        var applications: [ApplyDesignSuggestionApplication] = []
+        var responses: [LoupeMutationResponse] = []
+        for (offset, suggestion) in selectedSuggestions.enumerated() {
+            var attemptedSelector: LoupeMutationSelector?
+            let baseRequest = LoupeMutationRequest(
+                selector: mutationSelector(for: suggestion),
+                property: suggestion.property,
+                value: suggestion.value,
+                layout: true,
+                animation: nil
+            )
+
+            do {
+                let request: LoupeMutationRequest
+                if let referenceSnapshot {
+                    request = try requestByResolvingMutationSnapshotRef(
+                        baseRequest,
+                        referenceSnapshot: referenceSnapshot,
+                        liveSnapshot: liveSnapshot
+                    )
+                } else {
+                    request = baseRequest
+                }
+                attemptedSelector = request.selector
+
+                let response = try await postMutation(request, host: host, timeout: options.timeout)
+                responses.append(response)
+                let responseURL = options.outputDirectory
+                    .appendingPathComponent("response-\(String(format: "%02d", offset + 1))-\(safeArtifactName(suggestion.property))-\(safeArtifactName(request.selector.value)).json")
+                try writeJSON(response, to: responseURL)
+                applications.append(
+                    ApplyDesignSuggestionApplication(
+                        index: offset + 1,
+                        issueKind: suggestion.issueKind,
+                        designID: suggestion.designID,
+                        designName: suggestion.designName,
+                        originalRef: suggestion.ref,
+                        appliedRef: request.selector.kind == .ref ? request.selector.value : nil,
+                        appliedSelectorKind: request.selector.kind.rawValue,
+                        appliedSelectorValue: request.selector.value,
+                        property: suggestion.property,
+                        valueType: suggestion.valueType,
+                        valueLabel: suggestion.valueLabel,
+                        changed: mutationResponseChanged(response),
+                        warning: response.warning,
+                        response: responseURL.path,
+                        error: nil
+                    )
+                )
+                liveSnapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
+            } catch {
+                applications.append(
+                    ApplyDesignSuggestionApplication(
+                        index: offset + 1,
+                        issueKind: suggestion.issueKind,
+                        designID: suggestion.designID,
+                        designName: suggestion.designName,
+                        originalRef: suggestion.ref,
+                        appliedRef: attemptedSelector?.kind == .ref ? attemptedSelector?.value : nil,
+                        appliedSelectorKind: attemptedSelector?.kind.rawValue,
+                        appliedSelectorValue: attemptedSelector?.value,
+                        property: suggestion.property,
+                        valueType: suggestion.valueType,
+                        valueLabel: suggestion.valueLabel,
+                        changed: nil,
+                        warning: nil,
+                        response: nil,
+                        error: String(describing: error)
+                    )
+                )
+            }
+        }
+
+        let after = try await fetchSnapshot(host: host, timeout: options.timeout)
+        try writeSnapshot(after, to: afterURL)
+        let diff = snapshotDiff(before: before, after: after)
+        try writeJSON(diff, to: diffURL)
+        try writeJSON(responses, to: responsesURL)
+
+        let changedCount = responses.filter { mutationResponseChanged($0) }.count
+        let failedCount = applications.filter { $0.error != nil }.count
+        let result = ApplyDesignSuggestionsResult(
+            host: host.absoluteString,
+            dryRun: false,
+            compareDesign: options.compareURL.path,
+            referenceSnapshot: options.snapshotURL?.path,
+            outputDirectory: options.outputDirectory.path,
+            selectedSuggestions: selectedSuggestions.count,
+            mutationRequests: responses.count,
+            changedMutations: changedCount,
+            failedMutations: failedCount,
+            beforeSnapshot: beforeURL.path,
+            afterSnapshot: afterURL.path,
+            diff: diffURL.path,
+            responses: responsesURL.path,
+            applications: applications
+        )
+        try writeJSON(result, to: summaryURL)
+
+        print("apply-design-suggestions selected=\(selectedSuggestions.count) mutations=\(responses.count) changed=\(changedCount) failed=\(failedCount)")
+        print("summary: \(summaryURL.path)")
+        print("before: \(beforeURL.path)")
+        print("after: \(afterURL.path)")
+        print("responses: \(responsesURL.path)")
+    }
+
+    static func mutationSelector(for suggestion: LoupeDesignMutationSuggestion) -> LoupeMutationSelector {
+        if let testID = suggestion.testID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !testID.isEmpty {
+            return LoupeMutationSelector(kind: .testID, value: testID)
+        }
+        return LoupeMutationSelector(kind: .ref, value: suggestion.ref)
+    }
+
+    static func mutationResponseChanged(_ response: LoupeMutationResponse) -> Bool {
+        if response.changed == true || response.changed == nil {
+            return true
+        }
+        guard let requested = response.requested, let effective = response.effective else {
+            return false
+        }
+        return mutationValuesApproximatelyEqual(requested, effective)
+    }
+
+    static func mutationValuesApproximatelyEqual(_ requested: LoupeMutationValue, _ effective: LoupeMutationValue) -> Bool {
+        switch (requested, effective) {
+        case let (.bool(lhs), .bool(rhs)):
+            return lhs == rhs
+        case let (.int(lhs), .int(rhs)):
+            return lhs == rhs
+        case let (.int(lhs), .double(rhs)):
+            return abs(Double(lhs) - rhs) < 0.5
+        case let (.double(lhs), .int(rhs)):
+            return abs(lhs - Double(rhs)) < 0.5
+        case let (.double(lhs), .double(rhs)):
+            return abs(lhs - rhs) < 0.5
+        case let (.string(lhs), .string(rhs)):
+            return lhs == rhs
+        case let (.color(lhs), .color(rhs)):
+            return abs(lhs.red - rhs.red) < 0.01
+                && abs(lhs.green - rhs.green) < 0.01
+                && abs(lhs.blue - rhs.blue) < 0.01
+                && abs(lhs.alpha - rhs.alpha) < 0.01
+        case let (.point(lhs), .point(rhs)):
+            return abs(lhs.x - rhs.x) < 0.5 && abs(lhs.y - rhs.y) < 0.5
+        case let (.size(lhs), .size(rhs)):
+            return abs(lhs.width - rhs.width) < 0.5 && abs(lhs.height - rhs.height) < 0.5
+        case let (.rect(lhs), .rect(rhs)):
+            return abs(lhs.x - rhs.x) < 0.5
+                && abs(lhs.y - rhs.y) < 0.5
+                && abs(lhs.width - rhs.width) < 0.5
+                && abs(lhs.height - rhs.height) < 0.5
+        default:
+            return false
+        }
     }
 
     static func skills(_ arguments: [String]) throws {
@@ -3765,7 +4013,13 @@ struct LoupeCLI {
         return String(describing: value)
     }
 
-    private static func renderDesignComparison(_ comparison: LoupeDesignComparison, limit: Int) -> String {
+    private static func renderDesignComparison(
+        _ comparison: LoupeDesignComparison,
+        limit: Int,
+        suggestMutations: Bool = false,
+        snapshotURL: URL? = nil,
+        suggestionHost: URL? = nil
+    ) -> String {
         var lines = [
             "design \(comparison.designFrameName) vs snapshot \(comparison.snapshotID)",
             "matched=\(comparison.matchedCount) issues=\(comparison.issueCount)",
@@ -3791,7 +4045,77 @@ struct LoupeCLI {
             }
         }
 
+        if suggestMutations, !comparison.suggestions.isEmpty {
+            lines.append("")
+            lines.append("suggested mutations:")
+            for suggestion in comparison.suggestions.prefix(limit) {
+                lines.append("  \(renderDesignMutationSuggestion(suggestion, snapshotURL: snapshotURL, host: suggestionHost))")
+                lines.append("    \(suggestion.reason)")
+            }
+        }
+
         return lines.joined(separator: "\n")
+    }
+
+    private static func renderDesignMutationSuggestion(
+        _ suggestion: LoupeDesignMutationSuggestion,
+        snapshotURL: URL?,
+        host: URL?
+    ) -> String {
+        var parts = ["loupe", "ui", "set"]
+        if let host {
+            parts.append("--host")
+            parts.append(host.absoluteString)
+        }
+        if let snapshotURL {
+            parts.append("--snapshot")
+            parts.append(snapshotURL.path)
+        }
+        parts.append("--ref")
+        parts.append(suggestion.ref)
+        parts.append(suggestion.property)
+        parts.append(contentsOf: mutationValueArguments(for: suggestion))
+        parts.append("--no-animate")
+        return parts.map(shellArgument).joined(separator: " ")
+    }
+
+    private static func mutationValueArguments(for suggestion: LoupeDesignMutationSuggestion) -> [String] {
+        switch suggestion.value {
+        case .color:
+            return ["--color", suggestion.valueLabel]
+        case .rect:
+            return ["--rect", suggestion.valueLabel]
+        case .point:
+            return ["--point", suggestion.valueLabel]
+        case .size:
+            return ["--size", suggestion.valueLabel]
+        case .bool:
+            return ["--bool", suggestion.valueLabel]
+        case .int, .double:
+            return ["--number", suggestion.valueLabel]
+        case .string:
+            return ["--string", suggestion.valueLabel]
+        }
+    }
+
+    private static func shellArgument(_ value: String) -> String {
+        guard !value.isEmpty else {
+            return "''"
+        }
+        let safeScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-=,@")
+        if value.unicodeScalars.allSatisfy({ safeScalars.contains($0) }) {
+            return value
+        }
+        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    private static func safeArtifactName(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-."))
+        let scalars = value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let name = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return name.isEmpty ? "value" : String(name.prefix(80))
     }
 
     private static func resolvedSkillSource(_ explicitSource: URL?) throws -> URL {

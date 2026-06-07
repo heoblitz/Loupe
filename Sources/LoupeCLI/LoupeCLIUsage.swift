@@ -38,6 +38,7 @@ extension LoupeCLI {
       deactivate-constraint   Deactivate a captured constraint.
       reflect                 Reflect a mutation response into source.
       compare-design          Compare a snapshot with exported design data.
+      apply-design-suggestions  Apply compare-design mutation suggestions.
     """
 
     static let actUsage = """
@@ -52,6 +53,13 @@ extension LoupeCLI {
       wait                    Wait for visible, gone, or value state.
     """
 
+    static let skillsUsage = """
+    Usage: loupe skills <subcommand>
+
+    SUBCOMMANDS:
+      install                 Install the Loupe skill into supported agent clients.
+    """
+
     static func commandUsage(_ command: String) -> String? {
         switch command {
         case "app":
@@ -62,6 +70,8 @@ extension LoupeCLI {
             return actUsage
         case "debug":
             return debugUsage
+        case "skills":
+            return skillsUsage
         case "app launch":
             return """
             Usage: loupe app launch --bundle-id <id> [--device <sim|device|udid>] [--inject|--linked] [--host <url>] [--port <port>] [--bind-host <ip>] [--env KEY=VALUE] [--timeout <seconds>]
@@ -130,7 +140,9 @@ extension LoupeCLI {
         case "ui reflect":
             return "Usage: loupe ui reflect <mutation-response.json> --source <dir> [--output <path>]"
         case "ui compare-design":
-            return "Usage: loupe ui compare-design <snapshot.json> <design.json> [--json] [--limit <n>]"
+            return CompareDesignOptions.usage
+        case "ui apply-design-suggestions":
+            return ApplyDesignSuggestionsOptions.usage
         case "act tap":
             return "Usage: loupe act tap (--test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]"
         case "act swipe":
@@ -191,6 +203,12 @@ extension LoupeCLI {
             return "Usage: loupe doctor"
         case "injector-path":
             return "Usage: loupe injector-path"
+        case "skills install":
+            return """
+            Usage: loupe skills install [--target all|codex|claude] [--source <skills/loupe>]
+
+            Installs the Loupe skill into existing ~/.codex and/or ~/.claude skill folders. Missing clients are skipped.
+            """
         default:
             return nil
         }

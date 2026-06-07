@@ -29,6 +29,34 @@ screenshots when supported; macOS host runtimes may need JSON-only proof.
   `--include-hidden`, hit-test/focus the point, then prove state with trace plus
   fresh report/screen/node evidence.
 
+## Design Implementation Evidence
+
+- Use the target screenshot or selected design frame as the visual target, then
+  choose the simulator/device viewport before detailed source work.
+- After meaningful source changes, capture a fresh `ui report`; inspect the
+  current screen with `ui screen`, `ui query`, and `ui node`.
+- If design JSON is available for the current target, run
+  `ui compare-design <snapshot.json> <design.json>` for role, text, frame,
+  color, corner-radius, and font drift. Keep screenshot judgment for
+  pixel-level fidelity, media crops, and platform chrome.
+- Match identifiers to the design node's visual bounds. Text-node identifiers
+  should be on the actual label, not on a wider row, column, card, or stack
+  container. Use separate identifiers for backgrounds, dividers, icons, and
+  cards when the design names those nodes.
+- If `compare-design` improves while the screenshot looks worse, record a
+  split result and keep iterating on visual fidelity. Structural proof is not
+  visual proof.
+- Never accept a better structural score by truncating visible text. Unless the
+  target itself has ellipsis, the final screenshot should show complete target
+  labels; record any compare-design tradeoff needed to keep text readable.
+- For photo-heavy, map-heavy, or avatar-heavy targets, preserve provided assets
+  or target-derived non-text media crops before synthetic placeholders. Native
+  structure does not compensate for visibly wrong product imagery.
+- Use `ui set`, `ui compare-design --suggest-mutations`, or
+  `ui apply-design-suggestions` only as live probes for small, local deltas.
+- Verify a probe with fresh report/node/effective-state evidence, then patch
+  source, relaunch, and recapture. Mutation-only state is not final proof.
+
 ## SwiftUI And Bridges
 
 - Screenshot-visible text, buttons, metadata, or rows may be absent from both

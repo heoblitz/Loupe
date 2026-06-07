@@ -935,6 +935,10 @@ private func mutationValuesApproximatelyEqual(_ requested: LoupeMutationValue, _
         return lhs == rhs
     case let (.int(lhs), .int(rhs)):
         return lhs == rhs
+    case let (.int(lhs), .double(rhs)):
+        return abs(Double(lhs) - rhs) < 0.5
+    case let (.double(lhs), .int(rhs)):
+        return abs(lhs - Double(rhs)) < 0.5
     case let (.double(lhs), .double(rhs)):
         return abs(lhs - rhs) < 0.5
     case let (.string(lhs), .string(rhs)):

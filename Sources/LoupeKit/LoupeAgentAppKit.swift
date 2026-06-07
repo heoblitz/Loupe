@@ -1126,6 +1126,10 @@ private func mutationValuesApproximatelyEqual(_ requested: LoupeMutationValue, _
         return lhs == rhs
     case let (.int(lhs), .int(rhs)):
         return lhs == rhs
+    case let (.int(lhs), .double(rhs)):
+        return abs(Double(lhs) - rhs) < 0.5
+    case let (.double(lhs), .int(rhs)):
+        return abs(lhs - Double(rhs)) < 0.5
     case let (.double(lhs), .double(rhs)):
         return abs(lhs - rhs) < 0.5
     case let (.string(lhs), .string(rhs)):
@@ -1818,7 +1822,7 @@ private func role(for view: NSView) -> String? {
     case is NSImageView:
         return "image"
     default:
-        return nil
+        return accessibilityRoleName(for: view.accessibilityRole())
     }
 }
 
@@ -1919,7 +1923,11 @@ private func accessibilityValueString(for element: NSAccessibilityElement) -> St
 }
 
 private func accessibilityRoleName(for element: NSAccessibilityElement) -> String? {
-    guard let role = element.accessibilityRole() else {
+    accessibilityRoleName(for: element.accessibilityRole())
+}
+
+private func accessibilityRoleName(for role: NSAccessibility.Role?) -> String? {
+    guard let role else {
         return nil
     }
     switch role {

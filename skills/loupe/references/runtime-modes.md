@@ -6,15 +6,23 @@ does not.
 ## iOS/tvOS Simulator Injection
 
 ```bash
-$LOUPE app launch --device <sim-udid> --bundle-id com.example.App --inject
+$LOUPE app launch --device <sim-udid> --bundle-id <bundle-id> --inject
 ```
 
 - `app launch` prints the runtime host. Prefer that host for the scenario.
 - External `.app` bundles must already be installed with
   `xcrun simctl install <udid> /path/App.app`; `app launch` launches and
   attaches, not installs.
-- For repo-local validation, rebuild and pass the local injector with
-  `LOUPE_INJECTOR_PATH` so stale installed artifacts cannot mask the result.
+- If the task explicitly provides a local CLI or injector path, use that path;
+  otherwise use the installed Loupe CLI/injector.
+- The injector must be built for the simulator runtime. Do not use the host
+  SwiftPM product at `.build/debug/libLoupeInjector.dylib` for iOS/tvOS
+  Simulator apps; that macOS dylib can start the app without making Loupe
+  reachable. Build the `LoupeInjector` scheme for `generic/platform=iOS
+  Simulator` or `generic/platform=tvOS Simulator`, then point
+  `LOUPE_INJECTOR_PATH` at
+  `DerivedData/Build/Products/Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector`
+  or the matching tvOS simulator product.
 - If multiple simulators are booted, pass the explicit UDID to action commands.
 - Unsigned real-app builds may crash before observation because of CloudKit, app
   groups, widgets, or entitlements. A documented external-only env bypass is

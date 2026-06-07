@@ -18,7 +18,7 @@ extension LoupeCLI {
     }
 
     static func isCommandGroup(_ command: String) -> Bool {
-        ["app", "ui", "act", "debug"].contains(command)
+        ["app", "ui", "act", "debug", "skills"].contains(command)
     }
 
     static func app(_ arguments: [String]) async throws {
@@ -117,6 +117,8 @@ extension LoupeCLI {
             try reflect(rest)
         case "compare-design":
             try compareDesign(rest)
+        case "apply-design-suggestions":
+            try await applyDesignSuggestions(rest)
         case "hit-test":
             try await hitTest(rest)
         case "responder-chain":

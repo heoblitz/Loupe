@@ -291,6 +291,7 @@ import SwiftUI
         let progressNode = try #require(snapshot.nodes.values.first { $0.testID == fixture.progressTestID })
         let imageNode = try #require(snapshot.nodes.values.first { $0.testID == fixture.imageTestID })
         let nativeAXHostNode = try #require(snapshot.nodes.values.first { $0.testID == fixture.nativeAXHostTestID })
+        let customAXTextNode = try #require(snapshot.nodes.values.first { $0.testID == fixture.customAXTextTestID })
 
         #expect(appNode.kind == .application)
         #expect(appNode.typeName == "NSApplication")
@@ -324,6 +325,10 @@ import SwiftUI
         #expect(progressNode.uiKit?.progressView?.value == 0.75)
         #expect(imageNode.role == "image")
         #expect(imageNode.uiKit?.imageView?.imageSize == LoupeSize(width: 18, height: 18))
+        #expect(customAXTextNode.typeName == "AccessibilityRoleTextView")
+        #expect(customAXTextNode.role == "staticText")
+        #expect(customAXTextNode.semanticText == "Custom accessible text")
+        #expect(customAXTextNode.accessibility?.traits == ["staticText"])
         #expect(snapshot.nodes.values.first { $0.testID == fixture.nativeAXActionTestID } == nil)
 
         let accessibilityTree = agent.captureAccessibilityTree()
@@ -398,6 +403,16 @@ import SwiftUI
         )
         #expect(sliderMutation.effective == .double(30))
         #expect(sliderMutation.changed == true)
+
+        let cornerRadiusMutation = try agent.mutate(
+            LoupeMutationRequest(
+                selector: LoupeMutationSelector(kind: .testID, value: fixture.nativeAXHostTestID),
+                property: "cornerRadius",
+                value: .int(8)
+            )
+        )
+        #expect(cornerRadiusMutation.effective == .double(8))
+        #expect(cornerRadiusMutation.changed == true)
     }
 
     @MainActor
@@ -436,6 +451,7 @@ private final class AppKitFixture {
     let imageTestID = "platform.image"
     let nativeAXHostTestID = "platform.nativeAX.host"
     let nativeAXActionTestID = "platform.nativeAX.action"
+    let customAXTextTestID = "platform.customAXText"
 
     private let window: NSWindow
     private let nativeAXHost: NativeAccessibilityHostView
@@ -506,6 +522,8 @@ private final class AppKitFixture {
             actionTestID: nativeAXActionTestID
         )
         nativeAXHost.testID(nativeAXHostTestID)
+        let customAXText = AccessibilityRoleTextView(frame: NSRect(x: 210, y: 96, width: 130, height: 24))
+        customAXText.testID(customAXTextTestID)
 
         contentView.addSubview(label)
         contentView.addSubview(button)
@@ -515,6 +533,7 @@ private final class AppKitFixture {
         contentView.addSubview(progress)
         contentView.addSubview(imageView)
         contentView.addSubview(nativeAXHost)
+        contentView.addSubview(customAXText)
         window.contentView = contentView
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
@@ -621,6 +640,20 @@ private final class NativeAccessibilityHostView: NSView {
         let frameInScreen = window.convertToScreen(frameInWindow)
         actionElement.setAccessibilityFrame(frameInScreen)
         actionElement.setAccessibilityActivationPoint(NSPoint(x: frameInScreen.midX, y: frameInScreen.midY))
+    }
+}
+
+private final class AccessibilityRoleTextView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel("Custom accessible text")
+        setAccessibilityValue("Custom accessible text")
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 #endif
