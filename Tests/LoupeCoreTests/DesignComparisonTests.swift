@@ -563,7 +563,7 @@ struct DesignComparisonTests {
                     isVisible: true,
                     isEnabled: true,
                     isInteractive: false,
-                    children: ["wide", "centered", "offcenter"]
+                    children: ["wide", "centered", "taller", "offcenter", "tooTall"]
                 ),
                 "wide": LoupeNode(
                     ref: "wide",
@@ -591,6 +591,19 @@ struct DesignComparisonTests {
                     isEnabled: true,
                     isInteractive: false
                 ),
+                "taller": LoupeNode(
+                    ref: "taller",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UILabel",
+                    role: "staticText",
+                    testID: "signup.field.fullName.label",
+                    text: "Full name",
+                    frame: LoupeRect(x: 36, y: 195, width: 214, height: 18),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false
+                ),
                 "offcenter": LoupeNode(
                     ref: "offcenter",
                     parentRef: "root",
@@ -600,6 +613,19 @@ struct DesignComparisonTests {
                     testID: "admin.priority.offcenter",
                     text: "Low",
                     frame: LoupeRect(x: 750, y: 656, width: 35, height: 15),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false
+                ),
+                "tooTall": LoupeNode(
+                    ref: "tooTall",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UILabel",
+                    role: "staticText",
+                    testID: "signup.field.email.label",
+                    text: "Email address",
+                    frame: LoupeRect(x: 36, y: 356, width: 214, height: 28),
                     isVisible: true,
                     isEnabled: true,
                     isInteractive: false
@@ -630,6 +656,151 @@ struct DesignComparisonTests {
                     text: "Low",
                     frame: LoupeRect(x: 770, y: 656, width: 22, height: 15)
                 ),
+                LoupeDesignNode(
+                    id: "signup.field.fullName.label",
+                    name: "Full name label",
+                    role: "staticText",
+                    text: "Full name",
+                    frame: LoupeRect(x: 36, y: 195, width: 214, height: 14)
+                ),
+                LoupeDesignNode(
+                    id: "signup.field.email.label",
+                    name: "Email label",
+                    role: "staticText",
+                    text: "Email address",
+                    frame: LoupeRect(x: 36, y: 356, width: 214, height: 14)
+                ),
+            ]
+        )
+
+        let comparison = LoupeDesignComparator.compare(snapshot: snapshot, design: design)
+
+        #expect(comparison.matchedCount == 5)
+        #expect(!comparison.issues.contains { issue in
+            issue.kind == .frameDelta && issue.designID == "admin.sidebar.dashboard"
+        })
+        #expect(!comparison.issues.contains { issue in
+            issue.kind == .frameDelta && issue.designID == "admin.priority.low"
+        })
+        #expect(!comparison.issues.contains { issue in
+            issue.kind == .frameDelta && issue.designID == "signup.field.fullName.label"
+        })
+        #expect(comparison.issues.contains { issue in
+            issue.kind == .frameDelta && issue.designID == "admin.priority.offcenter"
+        })
+        #expect(comparison.issues.contains { issue in
+            issue.kind == .frameDelta && issue.designID == "signup.field.email.label"
+        })
+    }
+
+    @Test func iconTextColorCanUseTintOrChildForegroundColor() {
+        let orange = LoupeColor(red: 0.9569, green: 0.3176, blue: 0.1412, alpha: 1)
+        let snapshot = LoupeSnapshot(
+            id: "icon-foreground-color",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 393, height: 852), scale: 3),
+            rootRefs: ["root"],
+            nodes: [
+                "root": LoupeNode(
+                    ref: "root",
+                    parentRef: nil,
+                    kind: .view,
+                    typeName: "UIView",
+                    frame: LoupeRect(x: 0, y: 0, width: 393, height: 852),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["image", "social", "socialText", "mismatch", "mismatchText"]
+                ),
+                "image": LoupeNode(
+                    ref: "image",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIImageView",
+                    role: "image",
+                    testID: "signup.field.password.visibility",
+                    frame: LoupeRect(x: 325, y: 313, width: 17, height: 14),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(tintColor: orange)
+                ),
+                "social": LoupeNode(
+                    ref: "social",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIView",
+                    testID: "signup.social.google",
+                    frame: LoupeRect(x: 136, y: 714, width: 34, height: 34),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["socialText"]
+                ),
+                "socialText": LoupeNode(
+                    ref: "socialText",
+                    parentRef: "social",
+                    kind: .view,
+                    typeName: "UILabel",
+                    role: "staticText",
+                    text: "G",
+                    frame: LoupeRect(x: 136, y: 714, width: 34, height: 34),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(textColor: orange)
+                ),
+                "mismatch": LoupeNode(
+                    ref: "mismatch",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIView",
+                    testID: "signup.social.facebook",
+                    frame: LoupeRect(x: 179, y: 714, width: 34, height: 34),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["mismatchText"]
+                ),
+                "mismatchText": LoupeNode(
+                    ref: "mismatchText",
+                    parentRef: "mismatch",
+                    kind: .view,
+                    typeName: "UILabel",
+                    role: "staticText",
+                    text: "f",
+                    frame: LoupeRect(x: 179, y: 714, width: 34, height: 34),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(textColor: LoupeColor(red: 0, green: 0, blue: 1, alpha: 1))
+                ),
+            ]
+        )
+        let design = LoupeDesignDocument(
+            frame: LoupeDesignFrame(name: "YumQuick", width: 393, height: 852),
+            nodes: [
+                LoupeDesignNode(
+                    id: "signup.field.password.visibility",
+                    name: "Password visibility",
+                    role: "image",
+                    frame: LoupeRect(x: 325, y: 313, width: 17, height: 14),
+                    style: LoupeDesignStyle(textColor: "#F45124")
+                ),
+                LoupeDesignNode(
+                    id: "signup.social.google",
+                    name: "Google sign-up",
+                    role: "view",
+                    frame: LoupeRect(x: 136, y: 714, width: 34, height: 34),
+                    style: LoupeDesignStyle(textColor: "#F45124")
+                ),
+                LoupeDesignNode(
+                    id: "signup.social.facebook",
+                    name: "Facebook sign-up",
+                    role: "view",
+                    frame: LoupeRect(x: 179, y: 714, width: 34, height: 34),
+                    style: LoupeDesignStyle(textColor: "#F45124")
+                ),
             ]
         )
 
@@ -637,13 +808,13 @@ struct DesignComparisonTests {
 
         #expect(comparison.matchedCount == 3)
         #expect(!comparison.issues.contains { issue in
-            issue.kind == .frameDelta && issue.designID == "admin.sidebar.dashboard"
+            issue.kind == .textColorDelta && issue.designID == "signup.field.password.visibility"
         })
         #expect(!comparison.issues.contains { issue in
-            issue.kind == .frameDelta && issue.designID == "admin.priority.low"
+            issue.kind == .textColorDelta && issue.designID == "signup.social.google"
         })
         #expect(comparison.issues.contains { issue in
-            issue.kind == .frameDelta && issue.designID == "admin.priority.offcenter"
+            issue.kind == .textColorDelta && issue.designID == "signup.social.facebook"
         })
     }
 

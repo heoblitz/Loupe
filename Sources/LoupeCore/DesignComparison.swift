@@ -832,7 +832,7 @@ public enum LoupeDesignComparator {
                 kind: .textColorDelta,
                 property: "textColor",
                 expected: style.textColor,
-                actual: appNode.style?.textColor,
+                actual: observableTextColor(for: appNode, snapshot: snapshot),
                 designNode: designNode,
                 appNode: appNode,
                 options: options,
@@ -879,12 +879,67 @@ public enum LoupeDesignComparator {
         let centerTolerance = max(tolerance, 3)
         let horizontalPositionMatches = abs(expected.x - appFrame.x) <= tolerance
             || abs(expected.center.x - appFrame.center.x) <= centerTolerance
+        let verticalPositionMatches = abs(expected.y - appFrame.y) <= tolerance
+            || abs(expected.center.y - appFrame.center.y) <= centerTolerance
         guard horizontalPositionMatches,
-              abs(expected.y - appFrame.y) <= tolerance,
-              abs(expected.height - appFrame.height) <= tolerance else {
+              verticalPositionMatches,
+              isNativeTextIntrinsicSizeNoise(expected: expected, actual: appFrame, tolerance: tolerance) else {
             return false
         }
         return appFrame.width >= expected.width
+    }
+
+    private static func isNativeTextIntrinsicSizeNoise(
+        expected: LoupeRect,
+        actual: LoupeRect,
+        tolerance: Double
+    ) -> Bool {
+        if abs(expected.height - actual.height) <= tolerance {
+            return true
+        }
+        let extraHeight = actual.height - expected.height
+        let maxIntrinsicHeightExpansion = min(6, max(4, expected.height * 0.35))
+        return extraHeight > 0 && extraHeight <= maxIntrinsicHeightExpansion
+    }
+
+    private static func observableTextColor(for appNode: LoupeNode, snapshot: LoupeSnapshot) -> LoupeColor? {
+        if let textColor = appNode.style?.textColor {
+            return textColor
+        }
+        if let tintColor = appNode.style?.tintColor {
+            return tintColor
+        }
+        let childColors = descendants(of: appNode, in: snapshot, maxDepth: 2).compactMap { child -> LoupeColor? in
+            guard child.isVisible, !child.isInteractive, isForegroundStyleCarrier(child) else {
+                return nil
+            }
+            if let parentFrame = appNode.frame, let childFrame = child.frame,
+               !rectContains(parentFrame, childFrame, tolerance: 1) {
+                return nil
+            }
+            return child.style?.textColor ?? child.style?.tintColor
+        }
+        guard let first = childColors.first,
+              childColors.allSatisfy({ colorDelta(first, $0) <= 0.001 }) else {
+            return nil
+        }
+        return first
+    }
+
+    private static func isForegroundStyleCarrier(_ node: LoupeNode) -> Bool {
+        switch normalizedRole(node.role) {
+        case "statictext", "image":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func rectContains(_ parent: LoupeRect, _ child: LoupeRect, tolerance: Double) -> Bool {
+        child.x >= parent.x - tolerance
+            && child.y >= parent.y - tolerance
+            && child.x + child.width <= parent.x + parent.width + tolerance
+            && child.y + child.height <= parent.y + parent.height + tolerance
     }
 
     private static func isViewportClippedRootFrameNoise(
