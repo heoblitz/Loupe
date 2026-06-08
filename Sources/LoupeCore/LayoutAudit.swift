@@ -613,7 +613,13 @@ public enum LoupeLayoutAuditor {
     }
 
     private static func shouldAuditTextContrast(_ node: LoupeNode, in snapshot: LoupeSnapshot) -> Bool {
-        !isTextFieldPlaceholderLabel(node, in: snapshot)
+        if isTextFieldPlaceholderLabel(node, in: snapshot) {
+            return false
+        }
+        if isButtonImplementationLabelDuplicate(node, in: snapshot) {
+            return false
+        }
+        return true
     }
 
     private static func isTextFieldPlaceholderLabel(_ node: LoupeNode, in snapshot: LoupeSnapshot) -> Bool {
@@ -631,6 +637,29 @@ public enum LoupeLayoutAuditor {
         }
 
         return LoupeObservationCompactor.displayText(for: parent) == LoupeObservationCompactor.displayText(for: node)
+    }
+
+    private static func isButtonImplementationLabelDuplicate(_ node: LoupeNode, in snapshot: LoupeSnapshot) -> Bool {
+        guard isAppleRuntime(node),
+              node.testID == nil,
+              node.role == "staticText",
+              node.uiKit?.label != nil,
+              node.accessibility?.isElement != true,
+              !node.isInteractive,
+              let parentRef = node.parentRef,
+              let parent = snapshot.nodes[parentRef],
+              isAppleRuntime(parent),
+              parent.uiKit?.button != nil,
+              let nodeText = LoupeObservationCompactor.displayText(for: node),
+              let parentText = LoupeObservationCompactor.displayText(for: parent),
+              nodeText == parentText else {
+            return false
+        }
+
+        guard let parentFrame = parent.frame, let nodeFrame = node.frame else {
+            return true
+        }
+        return parentFrame.contains(nodeFrame, tolerance: 1)
     }
 
     private static func effectiveBackgroundColor(for node: LoupeNode, in snapshot: LoupeSnapshot) -> LoupeColor? {

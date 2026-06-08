@@ -885,6 +885,93 @@ struct LayoutAuditTests {
         #expect(audit.issues.contains { $0.kind == .lowTextContrast && $0.ref == "low-contrast-label" })
     }
 
+    @Test func auditIgnoresButtonImplementationLabelContrastDuplicate() {
+        let snapshot = LoupeSnapshot(
+            id: "layout-button-label-contrast-duplicate",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 390, height: 844), scale: 3),
+            rootRefs: ["root"],
+            nodes: [
+                "root": LoupeNode(
+                    ref: "root",
+                    parentRef: nil,
+                    kind: .view,
+                    typeName: "UIView",
+                    frame: LoupeRect(x: 0, y: 0, width: 390, height: 844),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(backgroundColor: LoupeColor(red: 1, green: 1, blue: 1, alpha: 1)),
+                    children: ["button", "standalone-label"]
+                ),
+                "button": LoupeNode(
+                    ref: "button",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIButton",
+                    role: "button",
+                    testID: "settings.help",
+                    text: "Help",
+                    frame: LoupeRect(x: 20, y: 40, width: 160, height: 32),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: true,
+                    style: LoupeStyle(textColor: LoupeColor(red: 0.7, green: 0.7, blue: 0.7, alpha: 1)),
+                    runtime: LoupeNodeRuntimeProperties(frameworkBundleIdentifier: "com.apple.UIKitCore"),
+                    uiKit: LoupeUIKitProperties(
+                        className: "UIButton",
+                        tag: 0,
+                        alpha: 1,
+                        isHidden: false,
+                        isOpaque: false,
+                        clipsToBounds: false,
+                        userInteractionEnabled: true,
+                        isFirstResponder: false,
+                        control: LoupeUIControlProperties(),
+                        button: LoupeUIButtonProperties()
+                    ),
+                    children: ["button-label"]
+                ),
+                "button-label": LoupeNode(
+                    ref: "button-label",
+                    parentRef: "button",
+                    kind: .view,
+                    typeName: "UILabel",
+                    role: "staticText",
+                    text: "Help",
+                    frame: LoupeRect(x: 24, y: 45, width: 60, height: 20),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(textColor: LoupeColor(red: 0.7, green: 0.7, blue: 0.7, alpha: 1)),
+                    runtime: LoupeNodeRuntimeProperties(frameworkBundleIdentifier: "com.apple.UIKitCore"),
+                    uiKit: labelProperties(className: "UIButtonLabel")
+                ),
+                "standalone-label": LoupeNode(
+                    ref: "standalone-label",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UILabel",
+                    role: "staticText",
+                    text: "Muted",
+                    frame: LoupeRect(x: 20, y: 100, width: 120, height: 20),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(textColor: LoupeColor(red: 0.7, green: 0.7, blue: 0.7, alpha: 1)),
+                    runtime: LoupeNodeRuntimeProperties(frameworkBundleIdentifier: "com.apple.UIKitCore"),
+                    uiKit: labelProperties(className: "UILabel")
+                ),
+            ]
+        )
+
+        let audit = LoupeLayoutAuditor.audit(snapshot)
+
+        #expect(audit.issues.contains { $0.kind == .lowTextContrast && $0.ref == "button" })
+        #expect(!audit.issues.contains { $0.kind == .lowTextContrast && $0.ref == "button-label" })
+        #expect(audit.issues.contains { $0.kind == .lowTextContrast && $0.ref == "standalone-label" })
+    }
+
     @Test func auditIgnoresPassiveAppKitImageElementSmallTargetNoise() {
         let snapshot = LoupeSnapshot(
             id: "layout-passive-image-noise",
