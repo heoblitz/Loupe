@@ -424,6 +424,9 @@ public enum LoupeDesignComparator {
                     guard !isIgnorableUnexpectedProbeBackedNode(node, snapshot: comparisonSnapshot) else {
                         return false
                     }
+                    guard !isFullFrameProbeLabelNoise(node, design: design, snapshot: comparisonSnapshot, options: options) else {
+                        return false
+                    }
                     guard !isFullScreenWrapperNoise(node, design: design, snapshot: comparisonSnapshot, options: options) else {
                         return false
                     }
@@ -995,6 +998,32 @@ public enum LoupeDesignComparator {
             return false
         }
         return !node.children.isEmpty || isPlaceholderTextStyle(node.style)
+    }
+
+    private static func isFullFrameProbeLabelNoise(
+        _ node: LoupeNode,
+        design: LoupeDesignDocument,
+        snapshot: LoupeSnapshot,
+        options: LoupeDesignComparisonOptions
+    ) -> Bool {
+        guard isProbeBackedNode(node, snapshot: snapshot) else { return false }
+        guard !node.isInteractive, node.children.isEmpty else { return false }
+        guard isGenericRuntimeViewRole(node.role) else { return false }
+        guard trimmedNonEmpty(node.text) == nil,
+              trimmedNonEmpty(node.renderedText) == nil,
+              trimmedNonEmpty(node.value) == nil,
+              trimmedNonEmpty(node.placeholder) == nil else {
+            return false
+        }
+        guard isProbeBackedStyleUnavailable(node, snapshot: snapshot) else {
+            return false
+        }
+        guard let frame = node.frame else { return false }
+
+        let tolerance = max(options.frameTolerance, 2)
+        let designRect = LoupeRect(x: 0, y: 0, width: design.frame.width, height: design.frame.height)
+        let screenRect = LoupeRect(x: 0, y: 0, width: snapshot.screen.size.width, height: snapshot.screen.size.height)
+        return rectDelta(frame, designRect) <= tolerance || rectDelta(frame, screenRect) <= tolerance
     }
 
     private static func hasOwnTextContent(_ node: LoupeNode) -> Bool {

@@ -2309,4 +2309,104 @@ struct DesignComparisonTests {
             issue.kind == .unexpectedAppNode && issue.testID == "contact.probeLayer"
         })
     }
+
+    @Test func fullFrameProbeLabelSurfaceDoesNotCountAsUnexpectedNode() {
+        let snapshot = LoupeSnapshot(
+            id: "full-frame-probe-label",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 1200, height: 800), scale: 2),
+            rootRefs: ["root"],
+            nodes: [
+                "root": LoupeNode(
+                    ref: "root",
+                    parentRef: nil,
+                    kind: .application,
+                    typeName: "Admin",
+                    frame: LoupeRect(x: 0, y: 0, width: 1200, height: 800),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["adapter", "small-adapter"]
+                ),
+                "adapter": LoupeNode(
+                    ref: "adapter",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "AppKitPlatformViewHost<PlatformViewRepresentableAdaptor<LoupeProbeView>>",
+                    frame: LoupeRect(x: 0, y: 0, width: 1200, height: 800),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["background"]
+                ),
+                "background": LoupeNode(
+                    ref: "background",
+                    parentRef: "adapter",
+                    kind: .view,
+                    typeName: "NSView",
+                    role: "Group",
+                    testID: "admin.background",
+                    label: "Dashboard background",
+                    semanticText: "Dashboard background",
+                    frame: LoupeRect(x: 0, y: 0, width: 1200, height: 800),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(
+                        backgroundColor: LoupeColor(red: 0, green: 0, blue: 0, alpha: 0),
+                        cornerRadius: 0
+                    ),
+                    accessibility: LoupeAccessibility(
+                        identifier: "admin.background",
+                        label: "Dashboard background",
+                        traits: ["Group"],
+                        frame: LoupeRect(x: 0, y: 0, width: 1200, height: 800),
+                        isElement: true
+                    )
+                ),
+                "small-adapter": LoupeNode(
+                    ref: "small-adapter",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "AppKitPlatformViewHost<PlatformViewRepresentableAdaptor<LoupeProbeView>>",
+                    frame: LoupeRect(x: 24, y: 24, width: 200, height: 44),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["small-group"]
+                ),
+                "small-group": LoupeNode(
+                    ref: "small-group",
+                    parentRef: "small-adapter",
+                    kind: .view,
+                    typeName: "NSView",
+                    role: "Group",
+                    testID: "admin.unexpected.group",
+                    label: "Unexpected group",
+                    semanticText: "Unexpected group",
+                    frame: LoupeRect(x: 24, y: 24, width: 200, height: 44),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(
+                        backgroundColor: LoupeColor(red: 0, green: 0, blue: 0, alpha: 0),
+                        cornerRadius: 0
+                    )
+                ),
+            ]
+        )
+        let design = LoupeDesignDocument(
+            frame: LoupeDesignFrame(name: "Admin", width: 1200, height: 800),
+            nodes: []
+        )
+
+        let comparison = LoupeDesignComparator.compare(snapshot: snapshot, design: design)
+
+        #expect(!comparison.issues.contains { issue in
+            issue.kind == .unexpectedAppNode && issue.testID == "admin.background"
+        })
+        #expect(comparison.issues.contains { issue in
+            issue.kind == .unexpectedAppNode && issue.testID == "admin.unexpected.group"
+        })
+    }
 }
