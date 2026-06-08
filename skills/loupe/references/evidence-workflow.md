@@ -66,6 +66,13 @@ screenshots when supported; macOS host runtimes may need JSON-only proof.
   ID, or a probe proves it.
 - Use bridge controls, hit-tests, coordinate traces, screenshots, app-authored
   probes, logs, or defaults to prove workflows.
+- For SwiftUI design checks, prefer real accessibility identifiers first. If
+  the raw hosting tree is sparse, add minimal debug-only probes to expose
+  intended bounds and identifiers, then record that comparison is probe-backed.
+  Probe-backed `compare-design=0` is structural proof, not visual proof.
+- Transparent probe overlays can create overlap or small-target audit noise.
+  Separate that synthetic noise from real visual, accessibility, and interaction
+  issues in the result.
 - Treat `ui audit` on SwiftUI-hosted internals as triage. Empty
   `ui reflect sourceCandidates` can be correct for framework wrappers or
   synthetic probes.

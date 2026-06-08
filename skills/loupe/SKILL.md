@@ -49,11 +49,11 @@ runtimes through the in-process server.
 2. Capture `ui report` and keep `snapshot.json`.
 3. Discover with text/role/accessibility, then switch to `testID` or a ref from
    the same snapshot. Inspect with `ui node` before acting.
-4. For design checks, use one report plus one `ui compare-design` pass before
-   deciding whether source or a small mutation probe is needed.
-5. Keep each design iteration bounded: report, compare, optional one small
-   mutation batch, after-proof, then source patch/relaunch. Avoid broad
-   diagnostics unless the scenario requires them.
+4. For design checks, capture one report, review the screenshot and audit
+   summary, then run `ui compare-design` when a design fixture exists.
+5. Keep each design iteration bounded: report, screenshot/audit judgment,
+   compare, optional one small mutation batch, after-proof, then source
+   patch/relaunch. Avoid broad diagnostics unless the scenario requires them.
 6. For overlays, alerts, reused cells, or stale refs, recapture and use
    hit-test, responder-chain, screenshot, or trace proof.
 7. Act or mutate with a fresh output/trace path, then prove the result with a

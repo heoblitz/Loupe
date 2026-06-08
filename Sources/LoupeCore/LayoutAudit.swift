@@ -241,10 +241,19 @@ public enum LoupeLayoutAuditor {
         if isSystemTabBarItem(first, in: snapshot), isSystemTabBarItem(second, in: snapshot) {
             return false
         }
+        if isPassiveStyledSurface(first) {
+            return false
+        }
+        if isPassiveStyledSurface(second) {
+            return isOverlapAuditCandidate(first)
+        }
         return isOverlapAuditCandidate(first) && isOverlapAuditCandidate(second)
     }
 
     private static func shouldAuditContainment(parent: LoupeNode, child: LoupeNode, screenFrame: LoupeRect) -> Bool {
+        if isPassiveStyledSurface(child) {
+            return false
+        }
         if isSystemOwnedImplementationDetail(child) {
             return false
         }
@@ -265,10 +274,57 @@ public enum LoupeLayoutAuditor {
     }
 
     private static func isOverlapAuditCandidate(_ node: LoupeNode) -> Bool {
-        node.isInteractive
-            || node.testID != nil
-            || node.accessibility?.isElement == true
-            || LoupeObservationCompactor.displayText(for: node) != nil
+        if node.isInteractive { return true }
+        if node.accessibility?.isElement == true { return true }
+        if LoupeObservationCompactor.displayText(for: node) != nil { return true }
+        if node.testID != nil { return true }
+        return false
+    }
+
+    private static func isPassiveStyledSurface(_ node: LoupeNode) -> Bool {
+        guard !node.isInteractive,
+              visualContentText(for: node) == nil,
+              let style = node.style else {
+            return false
+        }
+        guard isPassiveSurfaceRole(node.role) else {
+            return false
+        }
+        return hasVisibleSurfaceStyle(style)
+    }
+
+    private static func visualContentText(for node: LoupeNode) -> String? {
+        [node.text, node.renderedText, node.value, node.placeholder]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
+    private static func isPassiveSurfaceRole(_ role: String?) -> Bool {
+        guard let role = role?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !role.isEmpty else {
+            return true
+        }
+        switch role.lowercased() {
+        case "unknown", "none":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func hasVisibleSurfaceStyle(_ style: LoupeStyle) -> Bool {
+        if let color = style.backgroundColor, color.alpha > 0 {
+            return true
+        }
+        if let borderWidth = style.borderWidth, borderWidth > 0,
+           let borderColor = style.borderColor, borderColor.alpha > 0 {
+            return true
+        }
+        if let shadowOpacity = style.shadowOpacity, shadowOpacity > 0,
+           let shadowColor = style.shadowColor, shadowColor.alpha > 0 {
+            return true
+        }
+        return false
     }
 
     private static func isDecorativeImageNode(_ node: LoupeNode) -> Bool {
@@ -582,6 +638,10 @@ public enum LoupeLayoutAuditor {
             return color
         }
 
+        if let color = containingSiblingBackgroundColor(for: node, in: snapshot) {
+            return color
+        }
+
         var parentRef = node.parentRef
         while let ref = parentRef, let parent = snapshot.nodes[ref] {
             if isRootWindowNode(parent) {
@@ -593,6 +653,55 @@ public enum LoupeLayoutAuditor {
             parentRef = parent.parentRef
         }
         return nil
+    }
+
+    private static func containingSiblingBackgroundColor(for node: LoupeNode, in snapshot: LoupeSnapshot) -> LoupeColor? {
+        guard let nodeFrame = node.frame else { return nil }
+
+        var currentRef = node.ref
+        var parentRef = node.parentRef
+        var candidates: [(area: Double, color: LoupeColor)] = []
+
+        while let ref = parentRef, let parent = snapshot.nodes[ref] {
+            let siblings = siblingRefsBefore(currentRef, in: parent)
+            for siblingRef in siblings {
+                guard let sibling = snapshot.nodes[siblingRef],
+                      let siblingFrame = sibling.frame,
+                      siblingFrame.contains(nodeFrame, tolerance: 1),
+                      isContrastBackgroundCandidate(sibling),
+                      let color = sibling.style?.backgroundColor,
+                      color.alpha > 0
+                else {
+                    continue
+                }
+                candidates.append((area: area(siblingFrame), color: color))
+            }
+
+            currentRef = parent.ref
+            parentRef = parent.parentRef
+        }
+
+        return candidates.min { $0.area < $1.area }?.color
+    }
+
+    private static func siblingRefsBefore(_ ref: String, in parent: LoupeNode) -> ArraySlice<String> {
+        guard let index = parent.children.firstIndex(of: ref) else {
+            return parent.children[...]
+        }
+        return parent.children[..<index]
+    }
+
+    private static func isContrastBackgroundCandidate(_ node: LoupeNode) -> Bool {
+        guard node.isVisible,
+              !node.isInteractive,
+              node.accessibility?.isElement != true,
+              LoupeObservationCompactor.displayText(for: node) == nil,
+              let color = node.style?.backgroundColor,
+              color.alpha > 0
+        else {
+            return false
+        }
+        return true
     }
 
     private static func isSystemOwnedImplementationDetail(_ node: LoupeNode) -> Bool {

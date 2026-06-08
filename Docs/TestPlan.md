@@ -44,7 +44,8 @@ baseline instead of reusing the current agent's context.
 Required setup:
 
 - Start two fresh subagents without inherited conversation context.
-- Give both agents the same design link, target screen, and app requirements.
+- Give both agents the same design link, target screen, exported design
+  metadata when available, and app requirements.
 - Give the Loupe agent only the Loupe CLI/skill as the extra capability.
 - Give the baseline agent no Loupe CLI, snapshots, traces, view tree, or skill.
 - Use separate work directories and simulator devices.
@@ -55,6 +56,7 @@ Score both outputs with the same artifacts:
 - visual distance to the design reference
 - view-tree structure for native text, image views, tab bars, scroll views, and
   layout/style metadata
+- audit output for contrast, overlap, target-size, and layout regressions
 - action traces for critical routes and scroll gestures
 - runtime correctness, including whether fixed chrome is outside content scrolls
 - runtime screen size and device-class correctness before visual scoring
@@ -88,8 +90,27 @@ Score both outputs with the same artifacts:
   prompt echoing, memory lookup, broad simulator lists, repeated image loads,
   and build-log tails so token drift is tied to observable context weight
   rather than guessed from command count.
+  Report raw token usage separately from quality-normalized token usage. A
+  baseline that spends fewer raw tokens but still misses acceptance after the
+  allowed correction rounds is not a token-efficiency win for the requested
+  quality level. The replay matrix should surface both readings side by side.
   If exact tokens are unavailable, use prompt/context bytes only as proxy
   evidence and keep token winners unmeasured.
+- Keep benchmark result count labels machine-readable. `Build count`,
+  `Install count`, `Launch count`, `Mutation count`, and `Correction rounds`
+  should contain integers only; record app-build, CLI-build, injector-build, or
+  correction details on separate note lines.
+- Label issue counts by source. Use `compare-design issues` for design fixture
+  matching and `audit issues` for runtime layout/contrast/touch-target checks;
+  do not collapse them into a single unqualified `issues` score.
+- For SwiftUI benchmark cases, record whether evidence comes from native
+  accessibility, raw hosting-tree nodes, or app-authored probes. Probe-backed
+  `compare-design` can prove intended bounds and identifiers, but visual review
+  and audit still decide whether the screen is acceptable.
+- When screenshot fidelity and runtime inspectability disagree, record visual
+  winner and proof winner separately. A screenshot-close SwiftUI result with a
+  sparse runtime tree is not the same outcome as a screenshot-close result with
+  queryable text, identifiers, and design-node matches.
 - Keep benchmark workers on the smallest runnable app/project that satisfies
   the case. Loupe attachment is only one of these paths: simulator injection at
   launch with the Loupe CLI/injector, or a physical-device debug-only app
@@ -112,6 +133,11 @@ Treat the benchmark as failed when the Loupe output has worse visual distance
 than the no-Loupe baseline and the extra view-tree evidence did not lead to a
 concrete structural or interaction advantage. In that case, update the skill or
 CLI feedback loop before claiming Loupe improves design implementation quality.
+Do not accept `compare-design` as the only success signal; it is structural and
+property evidence, not a replacement for screenshot review and audit results.
+For non-rectangular simulator screenshots, prefer `simctl io screenshot --mask
+ignored` when available, and record any device, scale, or simulator chrome
+caveat before visual scoring.
 
 This benchmark is useful only when the Loupe result is produced from fresh
 runtime evidence. A result produced from remembered fixes or prior screenshots
@@ -171,6 +197,12 @@ Current benchmark status:
   (`1,461,153` versus `4,021,520`). This confirms the guardrails reduced Loupe
   overhead from the earlier PROD001 replay, but not enough to claim token
   efficiency.
+- `PROD001-REPLAY-20260607170000` is the first lint-clean replay with a
+  quality-normalized token follow-up. Baseline won raw token and raw loop cost
+  (`947,886` tokens and `1/1/1` build/install/launch versus Loupe's
+  `2,416,905` tokens and `5/5/5`), but Loupe won quality (`55` matched, `0`
+  issues) and quality-normalized token cost because the baseline reached
+  `2,639,975` tokens after two correction rounds and still had `28` issues.
 - `TRV001-REPLAY-20260606134323` is an exact-token measured travel/map replay.
   It differs from the earlier negative fresh replay: Loupe won structure/proof
   (`matched=16`, `issues=13` versus baseline `matched=15`, `issues=40`), loop
@@ -212,6 +244,60 @@ Current benchmark status:
   baseline still won token cost (`1,574,969` versus Loupe's `3,213,843`). The
   replay used fewer Loupe image-output bytes than baseline, so the remaining
   token gap is not explained by repeated screenshot viewing alone.
+- `YQ001-FRESH-20260608003529` is the first Desktop Figma MCP-derived iOS
+  UIKit product-flow case. Loupe won quality/proof on the YumQuick live
+  tracking screen (`issues=6` versus baseline `37`) and loop cost was
+  effectively tied (`15` baseline loop ops versus `14` Loupe loop ops), with no
+  measured token winner and no runtime-saved rebuild.
+- `YQS001-FRESH-20260608010604` is the first iOS SwiftUI Figma case. Loupe won
+  quality/proof by making the support-chat screen queryable with probe-backed
+  evidence (`issues=0` versus baseline `24`), while baseline won loop cost
+  (`7` loop ops versus Loupe's `15`).
+- `YQ003-REPLAY-20260608070108` repeats the iOS SwiftUI path on the YumQuick
+  Contact Us screen. Both sides produced target-close screenshots, but baseline
+  stayed screenshot-only after two correction rounds (`nodes=6`,
+  `visibleTexts=0`, `matched=0`, current `issues=29`). Loupe won
+  quality/proof by adding a debug-only probe layer (`nodes=55`,
+  `visibleTexts=36`, `matched=28`). After probe-layer placeholder style
+  cleanup, the same snapshots compare at `0` Loupe issues versus baseline
+  `29`. Loupe narrowly won loop cost (`11` loop ops versus baseline `12`). Its
+  three live mutation probes changed runtime state but did not count as a
+  saved rebuild.
+- `YQ004-REPLAY-20260608073549` adds a Desktop Figma MCP-derived iOS UIKit FAQ
+  accordion case. Both sides produced target-close native UIKit screens. Loupe
+  won quality/proof with richer runtime evidence. After general system-font
+  alias normalization and a corrected FAQ disclosure fixture, the same
+  snapshots compare at `10` Loupe issues versus baseline `79`. Baseline won
+  loop cost (`6` loop ops versus Loupe `19`) after Loupe needed one visual
+  correction for bottom safe area/status chrome. This is a post-run compare
+  cleanup, not a runtime-saved rebuild.
+- `ADM002A-FRESH-20260608013416` is the first AppKit-only Figma desktop case.
+  Baseline won both quality and loop cost (`issues=142` versus Loupe `150`,
+  `5` loop ops versus `13`). The run exposed noisy AppKit audit behavior around
+  passive styled card/footer backgrounds, which is now covered by unit tests.
+- `ADM002A-REPLAY-20260608032754` repeats the AppKit dashboard after the audit
+  fix and one Loupe correction round. Visual quality was close enough to count
+  as a split result. Baseline still won loop cost (`8` loop ops versus Loupe
+  `21`), but post-run tooling cleanup improves the evidence from the same
+  snapshots: current compare-design reports `114` Loupe issues versus `132`
+  baseline issues, and current audit reports `47` Loupe issues versus `61`
+  baseline issues. The compare cleanup ignores non-tight native static text
+  frame width and viewport-clipped root height noise; the audit cleanup ignores
+  accessible passive ShapeView/background surfaces that only expose generated
+  layer labels. This is a post-run tooling improvement, not a saved
+  implementation loop.
+- `ADMS001-FRESH-20260608020301` is the first macOS SwiftUI-only Figma desktop
+  case. Loupe won quality/proof by making the SwiftUI-hosted dashboard
+  inspectable (`issues=43` versus baseline `48`, with richer runtime evidence),
+  while baseline won loop cost (`5` loop ops versus Loupe's `15`).
+- `ADMS001-REPLAY-20260608054041` repeats the macOS SwiftUI dashboard with a
+  leaner prompt. Both sides produced near-identical screenshots, but baseline
+  remained runtime-sparse (`0` matched design nodes, `48` issues). With current
+  compare-design cleanup, Loupe keeps all `48` design nodes matched and drops to
+  `2` issues by normalizing macOS window-origin offsets for clipped descendants
+  and treating transparent SwiftUI probe backing leaves as style-unavailable
+  geometry probes. Baseline still won loop cost; this is a post-run tooling
+  improvement, not a saved rebuild.
 - Next independent Community cases should expand beyond the completed food,
   finance, travel, productivity, and banking files, or revisit rejected
   chat/commerce candidates only after MCP/manual evidence shows usable

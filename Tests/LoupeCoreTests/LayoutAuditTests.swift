@@ -804,6 +804,87 @@ struct LayoutAuditTests {
         #expect(audit.issues.contains { $0.kind == .lowTextContrast && $0.ref == "low-contrast-title" })
     }
 
+    @Test func auditUsesContainingPassiveSiblingSurfaceForTextContrast() {
+        let snapshot = LoupeSnapshot(
+            id: "layout-flattened-background-contrast",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 390, height: 844), scale: 3),
+            rootRefs: ["root"],
+            nodes: [
+                "root": LoupeNode(
+                    ref: "root",
+                    parentRef: nil,
+                    kind: .view,
+                    typeName: "NSView",
+                    frame: LoupeRect(x: 0, y: 0, width: 390, height: 844),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(backgroundColor: LoupeColor(red: 1, green: 1, blue: 1, alpha: 1)),
+                    children: ["card", "badge", "badge-label", "low-contrast-label"]
+                ),
+                "card": LoupeNode(
+                    ref: "card",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "NSView",
+                    frame: LoupeRect(x: 16, y: 16, width: 240, height: 120),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(backgroundColor: LoupeColor(red: 1, green: 1, blue: 1, alpha: 1))
+                ),
+                "badge": LoupeNode(
+                    ref: "badge",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "NSView",
+                    frame: LoupeRect(x: 32, y: 40, width: 80, height: 28),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(
+                        backgroundColor: LoupeColor(red: 0, green: 0, blue: 0, alpha: 1),
+                        cornerRadius: 14
+                    )
+                ),
+                "badge-label": LoupeNode(
+                    ref: "badge-label",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "NSTextField",
+                    role: "staticText",
+                    text: "Open",
+                    frame: LoupeRect(x: 42, y: 45, width: 60, height: 18),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(textColor: LoupeColor(red: 1, green: 1, blue: 1, alpha: 1)),
+                    uiKit: labelProperties(className: "NSTextField")
+                ),
+                "low-contrast-label": LoupeNode(
+                    ref: "low-contrast-label",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "NSTextField",
+                    role: "staticText",
+                    text: "Muted",
+                    frame: LoupeRect(x: 32, y: 92, width: 80, height: 18),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(textColor: LoupeColor(red: 0.8, green: 0.8, blue: 0.8, alpha: 1)),
+                    uiKit: labelProperties(className: "NSTextField")
+                ),
+            ]
+        )
+
+        let audit = LoupeLayoutAuditor.audit(snapshot)
+
+        #expect(!audit.issues.contains { $0.kind == .lowTextContrast && $0.ref == "badge-label" })
+        #expect(audit.issues.contains { $0.kind == .lowTextContrast && $0.ref == "low-contrast-label" })
+    }
+
     @Test func auditIgnoresPassiveAppKitImageElementSmallTargetNoise() {
         let snapshot = LoupeSnapshot(
             id: "layout-passive-image-noise",
@@ -961,6 +1042,198 @@ struct LayoutAuditTests {
         let audit = LoupeLayoutAuditor.audit(snapshot)
 
         #expect(!audit.issues.contains { $0.kind == .overlappingSiblings })
+    }
+
+    @Test func auditIgnoresIdentifiedPassiveBackgroundSurfaceOverlap() {
+        let snapshot = LoupeSnapshot(
+            id: "identified-background-overlap",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 390, height: 844), scale: 3),
+            rootRefs: ["root"],
+            nodes: [
+                "root": LoupeNode(
+                    ref: "root",
+                    parentRef: nil,
+                    kind: .view,
+                    typeName: "UIView",
+                    frame: LoupeRect(x: 0, y: 0, width: 390, height: 844),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["card-background", "title", "button"]
+                ),
+                "card-background": LoupeNode(
+                    ref: "card-background",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIView",
+                    role: "Unknown",
+                    testID: "dashboard.card.background",
+                    label: "Card background",
+                    semanticText: "Card background",
+                    frame: LoupeRect(x: 20, y: 80, width: 260, height: 120),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(
+                        backgroundColor: LoupeColor(red: 1, green: 1, blue: 1, alpha: 1),
+                        cornerRadius: 12
+                    ),
+                    accessibility: LoupeAccessibility(
+                        identifier: "dashboard.card.background",
+                        label: "Card background",
+                        traits: ["Unknown"],
+                        frame: LoupeRect(x: 20, y: 80, width: 260, height: 120),
+                        isElement: true
+                    )
+                ),
+                "title": LoupeNode(
+                    ref: "title",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UILabel",
+                    text: "Revenue",
+                    frame: LoupeRect(x: 40, y: 102, width: 120, height: 24),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false
+                ),
+                "button": button(
+                    ref: "button",
+                    testID: "dashboard.card.action",
+                    frame: LoupeRect(x: 40, y: 140, width: 120, height: 44)
+                ),
+            ]
+        )
+
+        let audit = LoupeLayoutAuditor.audit(snapshot)
+
+        #expect(!audit.issues.contains { $0.kind == .overlappingSiblings })
+    }
+
+    @Test func auditReportsForegroundPassiveSurfaceOverlap() {
+        let snapshot = LoupeSnapshot(
+            id: "foreground-passive-surface-overlap",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 390, height: 844), scale: 3),
+            rootRefs: ["root"],
+            nodes: [
+                "root": LoupeNode(
+                    ref: "root",
+                    parentRef: nil,
+                    kind: .view,
+                    typeName: "UIView",
+                    frame: LoupeRect(x: 0, y: 0, width: 390, height: 844),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["button", "overlay"]
+                ),
+                "button": button(
+                    ref: "button",
+                    testID: "dashboard.card.action",
+                    frame: LoupeRect(x: 40, y: 140, width: 120, height: 44)
+                ),
+                "overlay": LoupeNode(
+                    ref: "overlay",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIView",
+                    role: "Unknown",
+                    testID: "dashboard.card.foreground",
+                    frame: LoupeRect(x: 20, y: 120, width: 260, height: 120),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(
+                        backgroundColor: LoupeColor(red: 1, green: 1, blue: 1, alpha: 1),
+                        cornerRadius: 12
+                    )
+                ),
+            ]
+        )
+
+        let audit = LoupeLayoutAuditor.audit(snapshot)
+
+        #expect(audit.issues.contains { issue in
+            issue.kind == .overlappingSiblings
+                && issue.ref == "button"
+                && issue.otherRef == "overlay"
+        })
+    }
+
+    @Test func auditIgnoresOversizedAccessiblePassiveBackgroundContainmentNoise() {
+        let snapshot = LoupeSnapshot(
+            id: "oversized-accessible-background-containment",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 1440, height: 900), scale: 2),
+            rootRefs: ["window"],
+            nodes: [
+                "window": LoupeNode(
+                    ref: "window",
+                    parentRef: nil,
+                    kind: .window,
+                    typeName: "NSWindow",
+                    frame: LoupeRect(x: 0, y: 0, width: 1440, height: 900),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["content"]
+                ),
+                "content": LoupeNode(
+                    ref: "content",
+                    parentRef: "window",
+                    kind: .view,
+                    typeName: "DashboardView",
+                    frame: LoupeRect(x: 0, y: 0, width: 1440, height: 900),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["background", "title"]
+                ),
+                "background": LoupeNode(
+                    ref: "background",
+                    parentRef: "content",
+                    kind: .view,
+                    typeName: "ShapeView",
+                    role: "Unknown",
+                    testID: "figma.dashboard.background",
+                    label: "background",
+                    semanticText: "background",
+                    frame: LoupeRect(x: 0, y: 0, width: 1920, height: 2000),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(
+                        backgroundColor: LoupeColor(red: 0.94, green: 0.95, blue: 0.97, alpha: 1)
+                    ),
+                    accessibility: LoupeAccessibility(
+                        identifier: "figma.dashboard.background",
+                        label: "background",
+                        traits: ["Unknown"],
+                        frame: LoupeRect(x: 0, y: 0, width: 1920, height: 2000),
+                        isElement: true
+                    )
+                ),
+                "title": LoupeNode(
+                    ref: "title",
+                    parentRef: "content",
+                    kind: .view,
+                    typeName: "NSTextField",
+                    role: "staticText",
+                    text: "Dashboard",
+                    frame: LoupeRect(x: 260, y: 100, width: 160, height: 28),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false
+                ),
+            ]
+        )
+
+        let audit = LoupeLayoutAuditor.audit(snapshot)
+
+        #expect(!audit.issues.contains { $0.kind == .childOutsideParent && $0.ref == "background" })
+        #expect(!audit.issues.contains { $0.kind == .overlappingSiblings && $0.ref == "background" })
     }
 
     @Test func auditIgnoresLoupeProbeOverlapNoise() {

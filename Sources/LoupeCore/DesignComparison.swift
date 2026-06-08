@@ -409,6 +409,7 @@ public enum LoupeDesignComparator {
                     designNode: designNode,
                     appNode: match.node,
                     snapshot: comparisonSnapshot,
+                    designFrame: design.frame,
                     options: options
                 )
             )
@@ -420,6 +421,9 @@ public enum LoupeDesignComparator {
                 .filter { node in
                     guard let testID = node.testID, !testID.isEmpty else { return false }
                     guard !testID.hasPrefix("com.apple.") else { return false }
+                    guard !isIgnorableUnexpectedProbeBackedNode(node, snapshot: comparisonSnapshot) else {
+                        return false
+                    }
                     guard !isFullScreenWrapperNoise(node, design: design, snapshot: comparisonSnapshot, options: options) else {
                         return false
                     }
@@ -529,8 +533,8 @@ public enum LoupeDesignComparator {
         let tolerance = 2.0
         guard frame.x >= windowFrame.x - tolerance,
               frame.y >= windowFrame.y - tolerance,
-              frame.maxX <= windowFrame.maxX + tolerance,
-              frame.maxY <= windowFrame.maxY + tolerance else {
+              frame.x <= windowFrame.maxX + tolerance,
+              frame.y <= windowFrame.maxY + tolerance else {
             return false
         }
         return abs(windowFrame.x) > tolerance || abs(windowFrame.y) > tolerance
@@ -692,6 +696,7 @@ public enum LoupeDesignComparator {
         designNode: LoupeDesignNode,
         appNode: LoupeNode,
         snapshot: LoupeSnapshot,
+        designFrame: LoupeDesignFrame,
         options: LoupeDesignComparisonOptions
     ) -> [LoupeDesignComparisonIssue] {
         var issues: [LoupeDesignComparisonIssue] = []
@@ -718,7 +723,21 @@ public enum LoupeDesignComparator {
 
         if let appFrame = frameNode.frame {
             let delta = rectDelta(designNode.frame, appFrame)
-            if delta > frameTolerance {
+            if delta > frameTolerance,
+               !isNonTightNativeTextFrameNoise(
+                designNode: designNode,
+                appNode: appNode,
+                appFrame: appFrame,
+                tolerance: frameTolerance
+               ),
+               !isViewportClippedRootFrameNoise(
+                designNode: designNode,
+                appNode: appNode,
+                appFrame: appFrame,
+                snapshot: snapshot,
+                designFrame: designFrame,
+                tolerance: frameTolerance
+               ) {
                 issues.append(
                     issue(
                         .frameDelta,
@@ -739,10 +758,11 @@ public enum LoupeDesignComparator {
         guard let style = designNode.style else {
             return issues
         }
-        let shouldCompareObservableContainerStyle = !isProbeBackedStyleUnavailable(styleNode)
+        let shouldCompareObservableContainerStyle = !isProbeBackedStyleUnavailable(styleNode, snapshot: snapshot)
         let shouldCompareObservableTextStyle = !isTextStyleUnobservable(
             designNode: designNode,
-            appNode: appNode
+            appNode: appNode,
+            snapshot: snapshot
         )
 
         if shouldCompareObservableContainerStyle {
@@ -802,15 +822,90 @@ public enum LoupeDesignComparator {
         return issues
     }
 
-    private static func isTextStyleUnobservable(
+    private static func isNonTightNativeTextFrameNoise(
         designNode: LoupeDesignNode,
-        appNode: LoupeNode
+        appNode: LoupeNode,
+        appFrame: LoupeRect,
+        tolerance: Double
     ) -> Bool {
-        guard normalizedRole(designNode.role) == "statictext",
-              trimmedNonEmpty(designNode.text) != nil else {
+        guard normalizedRole(designNode.role) == "statictext" else {
             return false
         }
-        guard trimmedNonEmpty(displayText(appNode)) == trimmedNonEmpty(designNode.text) else {
+        guard let expectedText = trimmedNonEmpty(designNode.text),
+              textValuesEquivalent(expectedText, trimmedNonEmpty(displayText(appNode))) else {
+            return false
+        }
+        let expected = designNode.frame
+        guard abs(expected.x - appFrame.x) <= tolerance,
+              abs(expected.y - appFrame.y) <= tolerance,
+              abs(expected.height - appFrame.height) <= tolerance else {
+            return false
+        }
+        return appFrame.width >= expected.width
+    }
+
+    private static func isViewportClippedRootFrameNoise(
+        designNode: LoupeDesignNode,
+        appNode: LoupeNode,
+        appFrame: LoupeRect,
+        snapshot: LoupeSnapshot,
+        designFrame: LoupeDesignFrame,
+        tolerance: Double
+    ) -> Bool {
+        guard normalizedRole(designNode.role) == "view" else {
+            return false
+        }
+        guard trimmedNonEmpty(designNode.text) == nil else {
+            return false
+        }
+        guard isTopLevelViewportNode(appNode, snapshot: snapshot) else {
+            return false
+        }
+        let expected = designNode.frame
+        guard abs(expected.x) <= tolerance,
+              abs(expected.y) <= tolerance,
+              abs(appFrame.x) <= tolerance,
+              abs(appFrame.y) <= tolerance else {
+            return false
+        }
+        let viewportWidth = min(designFrame.width, snapshot.screen.size.width)
+        let viewportHeight = min(designFrame.height, snapshot.screen.size.height)
+        guard expected.height > viewportHeight + tolerance,
+              abs(expected.width - viewportWidth) <= tolerance,
+              abs(appFrame.width - viewportWidth) <= tolerance,
+              abs(appFrame.height - viewportHeight) <= tolerance else {
+            return false
+        }
+        return true
+    }
+
+    private static func isTopLevelViewportNode(_ node: LoupeNode, snapshot: LoupeSnapshot) -> Bool {
+        if snapshot.rootRefs.contains(node.ref) {
+            return true
+        }
+        guard let parentRef = node.parentRef,
+              let parent = snapshot.nodes[parentRef] else {
+            return true
+        }
+        return parent.kind == .window || parent.kind == .application
+    }
+
+    private static func isTextStyleUnobservable(
+        designNode: LoupeDesignNode,
+        appNode: LoupeNode,
+        snapshot: LoupeSnapshot
+    ) -> Bool {
+        guard let expectedText = trimmedNonEmpty(designNode.text) else {
+            return false
+        }
+        guard textValuesEquivalent(expectedText, trimmedNonEmpty(displayText(appNode))) else {
+            return false
+        }
+        if isProbeBackedNode(appNode, snapshot: snapshot),
+           isPlaceholderTextStyle(appNode.style) {
+            return true
+        }
+        guard normalizedRole(designNode.role) == "statictext" else {
             return false
         }
         guard appNode.style?.textColor == nil,
@@ -832,15 +927,89 @@ public enum LoupeDesignComparator {
             || trimmedNonEmpty(appNode.accessibility?.value) != nil
     }
 
-    private static func isProbeBackedStyleUnavailable(_ node: LoupeNode) -> Bool {
-        guard node.custom["loupe.probe"] == .bool(true) else {
+    private static func isProbeBackedStyleUnavailable(_ node: LoupeNode, snapshot: LoupeSnapshot) -> Bool {
+        guard isProbeBackedNode(node, snapshot: snapshot) else {
             return false
         }
-        return node.style?.backgroundColor == nil
-            && node.style?.cornerRadius == nil
-            && node.style?.textColor == nil
-            && node.style?.fontName == nil
-            && node.style?.fontSize == nil
+        guard let style = node.style else {
+            return true
+        }
+        let transparentOrMissingBackground = style.backgroundColor.map { $0.alpha <= 0.001 } ?? true
+        let zeroOrMissingCornerRadius = style.cornerRadius.map { abs($0) <= 0.001 } ?? true
+        return transparentOrMissingBackground
+            && zeroOrMissingCornerRadius
+            && (
+                (style.textColor == nil && style.fontName == nil && style.fontSize == nil)
+                    || isPlaceholderTextStyle(style)
+            )
+    }
+
+    private static func isIgnorableUnexpectedProbeBackedNode(_ node: LoupeNode, snapshot: LoupeSnapshot) -> Bool {
+        guard isProbeBackedNode(node, snapshot: snapshot) else {
+            return false
+        }
+        if node.custom["loupe.probe"] == .bool(true) || isProbeTypeName(node.typeName) {
+            return true
+        }
+        if hasOwnTextContent(node) || node.accessibility?.isElement == true {
+            return false
+        }
+        if node.isInteractive && node.children.isEmpty {
+            return false
+        }
+        return !node.children.isEmpty || isPlaceholderTextStyle(node.style)
+    }
+
+    private static func hasOwnTextContent(_ node: LoupeNode) -> Bool {
+        if trimmedNonEmpty(node.text) != nil
+            || trimmedNonEmpty(node.renderedText) != nil
+            || trimmedNonEmpty(node.label) != nil
+            || trimmedNonEmpty(node.value) != nil
+            || trimmedNonEmpty(node.placeholder) != nil
+            || trimmedNonEmpty(node.accessibility?.label) != nil
+            || trimmedNonEmpty(node.accessibility?.value) != nil
+            || trimmedNonEmpty(node.accessibility?.hint) != nil {
+            return true
+        }
+        return node.children.isEmpty && trimmedNonEmpty(node.semanticText) != nil
+    }
+
+    private static func isProbeBackedNode(_ node: LoupeNode, snapshot: LoupeSnapshot) -> Bool {
+        if node.custom["loupe.probe"] == .bool(true) {
+            return true
+        }
+        if isProbeTypeName(node.typeName) {
+            return true
+        }
+        var current = node
+        var depth = 0
+        while depth < 4, let parentRef = current.parentRef, let parent = snapshot.nodes[parentRef] {
+            if parent.custom["loupe.probe"] == .bool(true) ||
+                isProbeTypeName(parent.typeName) {
+                return true
+            }
+            current = parent
+            depth += 1
+        }
+        return false
+    }
+
+    private static func isProbeTypeName(_ typeName: String) -> Bool {
+        let lowercased = typeName.lowercased()
+        if lowercased.contains("loupeprobe") {
+            return true
+        }
+        return lowercased.contains("platformviewrepresentableadaptor<")
+            && lowercased.contains("probe")
+    }
+
+    private static func isPlaceholderTextStyle(_ style: LoupeStyle?) -> Bool {
+        guard let style else {
+            return true
+        }
+        let transparentOrMissingTextColor = style.textColor.map { $0.alpha <= 0.001 } ?? true
+        let tinyOrMissingFontSize = style.fontSize.map { $0 <= 1.001 } ?? true
+        return transparentOrMissingTextColor && tinyOrMissingFontSize
     }
 
     private static func appendColorIssue(
@@ -958,7 +1127,7 @@ public enum LoupeDesignComparator {
         if normalizedExpected == normalizedRole(appNode.role) {
             return true
         }
-        if normalizedExpected == "view", appNode.role == nil, appNode.kind == .view {
+        if normalizedExpected == "view", isGenericRuntimeViewRole(appNode.role), appNode.kind == .view {
             return true
         }
         if normalizedExpected == "view",
@@ -976,6 +1145,13 @@ public enum LoupeDesignComparator {
             return true
         }
         return false
+    }
+
+    private static func isGenericRuntimeViewRole(_ role: String?) -> Bool {
+        guard let normalized = normalizedRole(role) else {
+            return true
+        }
+        return normalized == "unknown" || normalized == "group"
     }
 
     private static func normalizedRole(_ role: String?) -> String? {
@@ -1150,6 +1326,9 @@ public enum LoupeDesignComparator {
         guard let expected, !expected.isEmpty, expected != actual else {
             return
         }
+        if kind == .textDelta, textValuesEquivalent(expected, actual) {
+            return
+        }
         if kind == .fontNameDelta, fontNamesEquivalent(expected, actual) {
             return
         }
@@ -1164,6 +1343,20 @@ public enum LoupeDesignComparator {
                 message: "\(displayName(designNode)) \(property) differs"
             )
         )
+    }
+
+    private static func textValuesEquivalent(_ expected: String, _ actual: String?) -> Bool {
+        guard let actual else {
+            return false
+        }
+        return normalizedTextValue(expected) == normalizedTextValue(actual)
+    }
+
+    private static func normalizedTextValue(_ text: String) -> String {
+        text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private static func fontNamesEquivalent(_ expected: String, _ actual: String?) -> Bool {
@@ -1206,21 +1399,21 @@ public enum LoupeDesignComparator {
             .replacingOccurrences(of: "-", with: "")
 
         switch cleaned {
-        case ".applesystemuifont", "applesystemuifont", ".sfuiregular", "sfuiregular", ".sfuiproregular", "sfuiproregular", "interregular":
+        case ".applesystemuifont", "applesystemuifont", ".sfuiregular", "sfuiregular", ".sfuiproregular", "sfuiproregular", "systemregular", "interregular":
             return NormalizedFontName(family: "native-sans", weight: "regular")
-        case ".applesystemuifontbold", "applesystemuifontbold", ".sfuibold", "sfuibold", ".sfuiprobold", "sfuiprobold", "interbold":
+        case ".applesystemuifontbold", "applesystemuifontbold", ".sfuibold", "sfuibold", ".sfuiprobold", "sfuiprobold", "systembold", "interbold":
             return NormalizedFontName(family: "native-sans", weight: "bold")
-        case ".applesystemuifontdemi", "applesystemuifontdemi", ".applesystemuifontsemibold", "applesystemuifontsemibold", ".sfuisemibold", "sfuisemibold", ".sfuiprosemibold", "sfuiprosemibold", "intersemibold":
+        case ".applesystemuifontdemi", "applesystemuifontdemi", ".applesystemuifontsemibold", "applesystemuifontsemibold", ".sfuisemibold", "sfuisemibold", ".sfuiprosemibold", "sfuiprosemibold", "systemsemibold", "systemdemi", "intersemibold":
             return NormalizedFontName(family: "native-sans", weight: "semibold")
-        case ".applesystemuifontmedium", "applesystemuifontmedium", ".sfuimedium", "sfuimedium", ".sfuipromedium", "sfuipromedium", "intermedium":
+        case ".applesystemuifontmedium", "applesystemuifontmedium", ".sfuimedium", "sfuimedium", ".sfuipromedium", "sfuipromedium", "systemmedium", "intermedium":
             return NormalizedFontName(family: "native-sans", weight: "medium")
-        case ".applesystemuifontlight", "applesystemuifontlight", ".sfuilight", "sfuilight", ".sfuiprolight", "sfuiprolight", "interlight":
+        case ".applesystemuifontlight", "applesystemuifontlight", ".sfuilight", "sfuilight", ".sfuiprolight", "sfuiprolight", "systemlight", "interlight":
             return NormalizedFontName(family: "native-sans", weight: "light")
-        case ".applesystemuifontthin", "applesystemuifontthin", ".sfuithin", "sfuithin", ".sfuiprothin", "sfuiprothin", "interthin":
+        case ".applesystemuifontthin", "applesystemuifontthin", ".sfuithin", "sfuithin", ".sfuiprothin", "sfuiprothin", "systemthin", "interthin":
             return NormalizedFontName(family: "native-sans", weight: "thin")
-        case ".applesystemuifontheavy", "applesystemuifontheavy", ".sfuiheavy", "sfuiheavy", ".sfuiproheavy", "sfuiproheavy", "interheavy":
+        case ".applesystemuifontheavy", "applesystemuifontheavy", ".sfuiheavy", "sfuiheavy", ".sfuiproheavy", "sfuiproheavy", "systemheavy", "interheavy":
             return NormalizedFontName(family: "native-sans", weight: "heavy")
-        case "inter":
+        case "inter", "system":
             return NormalizedFontName(family: "native-sans", weight: nil)
         default:
             return NormalizedFontName(family: cleaned, weight: nil)

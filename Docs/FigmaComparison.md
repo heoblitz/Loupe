@@ -79,10 +79,22 @@ This is separate from screenshot baseline diffing. Figma comparison is for
 structural and property drift; screenshot diffing is for pixel-level visual
 regressions.
 
+Do not use a zero-issue `compare-design` result as the whole acceptance gate.
+It can miss simulator chrome, viewport mismatch, safe-area/background coverage,
+media crops, contrast, touch-target, or visually worse layout tradeoffs. Treat
+the final decision as screenshot review plus runtime audit plus comparison
+counts. If comparison improves while the screenshot or audit gets worse, record
+that split result and keep iterating.
+
 Use style fields sparingly. In native-app comparisons, map the design's font
 weight/size/color to the expected platform implementation and add tolerances
 when minor color or radius differences are not meaningful. Do not tune
 tolerances so high that real emphasis mistakes disappear.
+
+For SwiftUI or AppKit probe-backed evidence, compare-design treats transparent
+probe backing views and 1pt placeholder text styles as structural evidence, not
+visual style evidence. Use the screenshot and audit output to decide whether the
+rendered UI actually matches the design.
 
 Use `--suggest-mutations` when a Loupe-assisted implementation loop needs to
 test small fixes before rebuilding. Suggestions are runtime probes for text,
