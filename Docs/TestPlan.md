@@ -151,6 +151,12 @@ candidate pool and intake/scoring checklist.
 
 Current benchmark status:
 
+- The current 56-row replay matrix supports a bounded claim: Loupe is positive
+  for quality/proof, but compile-loop and raw token efficiency are not yet
+  proven as Loupe strengths. Loupe wins quality/proof on most rows, while
+  baseline still wins more compile-loop and exact-token rows. Treat
+  quality-normalized token evidence as promising but thin until more rows
+  include accepted baseline follow-up attempts.
 - `FIN001` completed as the first independently duplicated Figma Community
   A/B case. Loupe won the quality/proof score by reducing `compare-design`
   from 44 issues to 3 unexpected-node noise issues, while baseline won the
@@ -225,7 +231,7 @@ Current benchmark status:
 - `FIN001-REPLAY-20260606143203` is an exact-token measured finance replay.
   The first no-Loupe candidate was rejected as screenshot-only custom drawing.
   After one correction round, Loupe still won quality/proof (`matched=39`,
-  `issues=1` versus baseline `matched=38`, `issues=73` default / `issues=50`
+  current `issues=0` versus baseline `matched=38`, `issues=73` default / `issues=50`
   tolerant), loop cost (`2/2/2` build/install/launch versus baseline `3/2/2`
   plus one correction), and token cost (`2,796,971` versus baseline
   `5,471,935`). No mutation suggestions were emitted, so this is not a
@@ -271,6 +277,13 @@ Current benchmark status:
   loop cost (`6` loop ops versus Loupe `19`) after Loupe needed one visual
   correction for bottom safe area/status chrome. This is a post-run compare
   cleanup, not a runtime-saved rebuild.
+- `YQ005` adds a Desktop Figma MCP-derived iOS UIKit sign-up form. Baseline was
+  a strong low-loop first pass, but Loupe won quality/proof after evaluator
+  correction. Post-run compare cleanup now reports `27` Loupe issues versus
+  baseline `48` by removing wrapper aggregate-text noise, matched split-label
+  duplicate noise, native single-line text-box height noise, and icon
+  foreground color noise. The remaining Loupe issues are font, role,
+  hit-area/status, and actual text-color differences, not a saved rebuild.
 - `ADM002A-FRESH-20260608013416` is the first AppKit-only Figma desktop case.
   Baseline won both quality and loop cost (`issues=142` versus Loupe `150`,
   `5` loop ops versus `13`). The run exposed noisy AppKit audit behavior around
@@ -279,12 +292,12 @@ Current benchmark status:
   fix and one Loupe correction round. Visual quality was close enough to count
   as a split result. Baseline still won loop cost (`8` loop ops versus Loupe
   `21`), but post-run tooling cleanup improves the evidence from the same
-  snapshots: current compare-design reports `114` Loupe issues versus `132`
+  snapshots: current compare-design reports `98` Loupe issues versus `132`
   baseline issues, and current audit reports `47` Loupe issues versus `61`
   baseline issues. The compare cleanup ignores non-tight native static text
-  frame width and viewport-clipped root height noise; the audit cleanup ignores
-  accessible passive ShapeView/background surfaces that only expose generated
-  layer labels. This is a post-run tooling improvement, not a saved
+  frame width and center-aligned intrinsic text frames; the audit cleanup
+  ignores accessible passive ShapeView/background surfaces that only expose
+  generated layer labels. This is a post-run tooling improvement, not a saved
   implementation loop.
 - `ADMS001-FRESH-20260608020301` is the first macOS SwiftUI-only Figma desktop
   case. Loupe won quality/proof by making the SwiftUI-hosted dashboard
@@ -294,10 +307,11 @@ Current benchmark status:
   leaner prompt. Both sides produced near-identical screenshots, but baseline
   remained runtime-sparse (`0` matched design nodes, `48` issues). With current
   compare-design cleanup, Loupe keeps all `48` design nodes matched and drops to
-  `2` issues by normalizing macOS window-origin offsets for clipped descendants
-  and treating transparent SwiftUI probe backing leaves as style-unavailable
-  geometry probes. Baseline still won loop cost; this is a post-run tooling
-  improvement, not a saved rebuild.
+  `0` issues by normalizing macOS window-origin offsets for clipped descendants,
+  treating transparent SwiftUI probe backing leaves as style-unavailable
+  geometry probes, and ignoring full-frame transparent probe-backed Group label
+  surfaces used only as root/background evidence. Baseline still won loop cost;
+  this is a post-run tooling improvement, not a saved rebuild.
 - Next independent Community cases should expand beyond the completed food,
   finance, travel, productivity, and banking files, or revisit rejected
   chat/commerce candidates only after MCP/manual evidence shows usable
