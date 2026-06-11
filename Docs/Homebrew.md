@@ -71,4 +71,4 @@ loupe injector-path
 
 ## Current Status
 
-The stable formula currently points at `v0.1.5`.
+The stable formula currently points at `v0.1.6`.
