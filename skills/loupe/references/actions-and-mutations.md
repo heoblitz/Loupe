@@ -45,9 +45,9 @@ next alias action.
 - `act wait`, `act drag`, and `debug scroll` need explicit postconditions:
   selector, key or coordinates, output/trace path, expected state, and fresh
   after-proof.
-- iOS/tvOS simulators use native HID. macOS tap is AppKit control activation.
-  watchOS, visionOS, and custom SwiftUI surfaces may correctly fail unless
-  trace/screenshot/report/probe/state evidence proves otherwise.
+- iOS/tvOS simulators use native HID; physical iOS linked runtimes use runtime
+  touch for tap/swipe/drag. macOS tap is AppKit activation. watchOS, visionOS,
+  and custom SwiftUI surfaces may correctly fail without stronger evidence.
 
 ## Mutations
 

@@ -23,6 +23,9 @@ runtime servers.
 - Dispatch simulator-visible `tap`, `swipe`, `drag`, `type`, and tvOS remote
   `press` through Loupe's native host-side action backend where the simulator
   platform supports it.
+- Dispatch `tap`, `swipe`, and `drag` through the linked runtime's UIKit touch
+  dispatcher on physical iOS devices, selected automatically from the runtime
+  identity.
 - Dispatch `tap --backend runtime` against runtime-backed targets to activate
   selector-addressed UI controls such as AppKit `NSButton` when native HID is
   not the right backend.

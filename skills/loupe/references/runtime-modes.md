@@ -34,8 +34,9 @@ Real-device launch injection is not available. Debug builds link/embed the
 dynamic `LoupeInjector` product; it depends on `LoupeKit` internally and starts
 Loupe automatically when loaded. Do not include it in App Store release builds.
 
-Use `ui` and `debug` with the selected host. Simulator HID commands remain
-simulator-only; runtime tap works only for supported activation targets.
+Use `ui`, `debug`, and `act` with the selected host. On physical iOS devices,
+omit `--udid`; Loupe auto-routes tap, swipe, and drag through the linked
+runtime.
 
 ## macOS Host Runtime
 
