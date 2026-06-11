@@ -100,6 +100,7 @@ AUDIT_PATH="/tmp/loupe-native-audit.json"
 SUBTREE_PATH="/tmp/loupe-native-subtree.json"
 TRACE_DIR="/tmp/loupe-native-trace"
 TRACE_SUMMARY_PATH="/tmp/loupe-native-trace-summary.txt"
+COMPONENTS_LOGS_PATH="/tmp/loupe-native-components-logs.json"
 FRAME_MUTATION_PATH="/tmp/loupe-native-frame-mutation.json"
 LAYOUT_MUTATION_PATH="/tmp/loupe-native-layout-mutation.json"
 STACK_MUTATION_PATH="/tmp/loupe-native-stack-mutation.json"
@@ -248,13 +249,15 @@ launch_app
 .build/debug/loupe act wait visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components.json
 fetch_snapshot
 assert_query example.components /tmp/loupe-native-components-query.json
+.build/debug/loupe debug logs --host "$HOST" --output "$COMPONENTS_LOGS_PATH" >/dev/null
+grep -q "example_components_visible" "$COMPONENTS_LOGS_PATH"
 test -f "$TRACE_DIR/before-logs.json"
 test -f "$TRACE_DIR/after-logs.json"
 test -f "$TRACE_DIR/action-target.json"
 grep -q '"phase" : "target"' "$TRACE_DIR/action-target.json"
 grep -q '"resolvedTarget"' "$TRACE_DIR/action-target.json"
 .build/debug/loupe debug trace summary "$TRACE_DIR" > "$TRACE_SUMMARY_PATH"
-grep -q "example_components_visible" "$TRACE_SUMMARY_PATH"
+grep -q "selector=testID:example.openComponents" "$TRACE_SUMMARY_PATH"
 .build/debug/loupe ui subtree "$SNAPSHOT_PATH" --test-id example.components --depth 4 > "$SUBTREE_PATH"
 grep -q '"root"' "$SUBTREE_PATH"
 grep -q '"example.components.switch"' "$SUBTREE_PATH"
