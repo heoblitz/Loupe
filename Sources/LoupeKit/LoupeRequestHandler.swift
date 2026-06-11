@@ -223,6 +223,19 @@ final class LoupeRequestHandler: Sendable {
             } catch {
                 return ResponsePayload(status: 400, body: errorBody("activation_failed", error: error))
             }
+        case "/action/touch":
+            guard request.method == "POST" else {
+                return ResponsePayload(status: 405, body: #"{"error":"method_not_allowed"}"#)
+            }
+            do {
+                let action = try JSONDecoder().decode(LoupeRuntimeTouchActionRequest.self, from: request.body)
+                let response = try await captureUI(execution) { try LoupeAgent().performTouchAction(action) }
+                return jsonPayload(response, failureCode: "touch_action_encoding_failed")
+            } catch let error as LoupeMutationError {
+                return ResponsePayload(status: error.status, body: errorBody(error.code, message: error.message))
+            } catch {
+                return ResponsePayload(status: 400, body: errorBody("touch_action_failed", error: error))
+            }
         case "/constraint":
             guard request.method == "POST" else {
                 return ResponsePayload(status: 405, body: #"{"error":"method_not_allowed"}"#)

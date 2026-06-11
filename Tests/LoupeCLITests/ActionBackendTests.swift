@@ -5,9 +5,10 @@ import LoupeCore
 import Testing
 
 struct ActionBackendTests {
-    @Test func autoTapUsesRuntimeForNonSimulatorIdentity() {
+    @Test func autoTapUsesRuntimeForPhysicalIOSRuntime() {
         let identity = LoupeRuntimeIdentity(
-            platform: "macOS",
+            platform: "iOS",
+            deviceIdentifier: "DEVICE-1",
             processIdentifier: 1234
         )
 
@@ -20,7 +21,7 @@ struct ActionBackendTests {
         #expect(backend == "runtime")
     }
 
-    @Test func autoTapKeepsNativePathForSimulatorRuntime() {
+    @Test func autoTapUsesSimulationForSimulatorRuntime() {
         let identity = LoupeRuntimeIdentity(
             platform: "iOS",
             processIdentifier: 1234,
@@ -34,7 +35,55 @@ struct ActionBackendTests {
             runtimeIdentity: identity
         )
 
-        #expect(backend == "auto")
+        #expect(backend == "simulation")
+    }
+
+    @Test func autoTapUsesSimulationForMacRuntime() {
+        let identity = LoupeRuntimeIdentity(
+            platform: "macOS",
+            processIdentifier: 1234
+        )
+
+        let backend = LoupeCLI.resolvedActionBackend(
+            requested: "auto",
+            command: "tap",
+            runtimeIdentity: identity
+        )
+
+        #expect(backend == "simulation")
+    }
+
+    @Test func autoTapUsesSimulationForNonIOSDeviceRuntime() {
+        let identity = LoupeRuntimeIdentity(
+            platform: "tvOS",
+            deviceIdentifier: "TV-1",
+            processIdentifier: 1234
+        )
+
+        let backend = LoupeCLI.resolvedActionBackend(
+            requested: "auto",
+            command: "tap",
+            runtimeIdentity: identity
+        )
+
+        #expect(backend == "simulation")
+        #expect(!LoupeCLI.runtimeSupportsTouchActions(identity))
+    }
+
+    @Test func runtimeTouchActionsAreLimitedToPhysicalIOS() {
+        let physicalIOS = LoupeRuntimeIdentity(
+            platform: "iOS",
+            deviceIdentifier: "DEVICE-1",
+            processIdentifier: 1234
+        )
+        let simulatorIOS = LoupeRuntimeIdentity(
+            platform: "iOS",
+            processIdentifier: 1234,
+            simulatorUDID: "SIM-1"
+        )
+
+        #expect(LoupeCLI.runtimeSupportsTouchActions(physicalIOS))
+        #expect(!LoupeCLI.runtimeSupportsTouchActions(simulatorIOS))
     }
 
     @Test func explicitBackendAndNonTapCommandsAreNotRewritten() {
@@ -45,18 +94,36 @@ struct ActionBackendTests {
 
         #expect(
             LoupeCLI.resolvedActionBackend(
-                requested: "native",
+                requested: "simulation",
                 command: "tap",
                 runtimeIdentity: identity
-            ) == "native"
+            ) == "simulation"
         )
         #expect(
             LoupeCLI.resolvedActionBackend(
                 requested: "auto",
-                command: "swipe",
+                command: "type",
                 runtimeIdentity: identity
-            ) == "auto"
+            ) == "simulation"
         )
+    }
+
+    @Test func autoIgnoresHostExplicitnessAndUsesIdentity() {
+        let identity = LoupeRuntimeIdentity(
+            platform: "iOS",
+            deviceIdentifier: "DEVICE-1",
+            processIdentifier: 1234,
+            simulatorUDID: nil,
+            simulatorName: nil
+        )
+
+        let backend = LoupeCLI.resolvedActionBackend(
+            requested: "auto",
+            command: "tap",
+            runtimeIdentity: identity
+        )
+
+        #expect(backend == "runtime")
     }
 
     @Test func actionResolutionPrefersPlatformBackedViewOverSyntheticProbe() {

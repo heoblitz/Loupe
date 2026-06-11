@@ -248,7 +248,16 @@ package struct ActionOptions: ActionDispatchOptions {
         guard let url = URL(string: raw) else {
             throw CLIError("Invalid URL for \(option): \(raw)")
         }
-        return url
+        return normalizedHostURL(url)
+    }
+
+    private static func normalizedHostURL(_ url: URL) -> URL {
+        guard let host = url.host(), host != host.lowercased() else {
+            return url
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = host.lowercased()
+        return components?.url ?? url
     }
 
     private static func expectVisibleSelector(from raw: String) -> LoupeSelector {

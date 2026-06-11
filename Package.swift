@@ -37,7 +37,7 @@ let package = Package(
         ),
         .target(
             name: "LoupeKit",
-            dependencies: ["LoupeCore"]
+            dependencies: ["LoupeCore", "LoupeSyntheticEvents"]
         ),
         .target(
             name: "LoupeInjection",
@@ -52,6 +52,15 @@ let package = Package(
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("AppKit"),
+            ]
+        ),
+        .target(
+            name: "LoupeSyntheticEvents",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("UIKit", .when(platforms: [.iOS])),
+                .linkedFramework("QuartzCore", .when(platforms: [.iOS])),
+                .linkedFramework("IOKit", .when(platforms: [.iOS])),
             ]
         ),
         .target(
