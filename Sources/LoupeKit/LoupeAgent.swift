@@ -622,9 +622,13 @@ public final class LoupeAgent {
         let directElements: [NSObject]
         if let elements = container.accessibilityElements, !elements.isEmpty {
             directElements = elements.compactMap { $0 as? NSObject }
+        } else if let synthesized = synthesizedAccessibilityElements(of: container) {
+            directElements = synthesized
         } else {
             let count = container.accessibilityElementCount()
-            guard count > 0 else {
+            // SwiftUI views such as CGDrawingView return NSNotFound here; (0..<NSNotFound)
+            // would iterate ~2^63 times and hang. Treat NSNotFound/non-positive as no elements.
+            guard count > 0, count != NSNotFound else {
                 return []
             }
             directElements = (0..<count).compactMap { container.accessibilityElement(at: $0) as? NSObject }
@@ -647,6 +651,19 @@ public final class LoupeAgent {
         }
 
         return elements
+    }
+
+    // `accessibilityElement(at:)` re-synthesizes the whole `_accessibilityElements`
+    // array on every call, making per-index enumeration O(N^2) and hanging large
+    // SwiftUI hosting containers. Read the synthesized array once to stay O(N).
+    private func synthesizedAccessibilityElements(of container: NSObject) -> [NSObject]? {
+        let selector = NSSelectorFromString("_accessibilityElements")
+        guard container.responds(to: selector),
+              let elements = container.perform(selector)?.takeUnretainedValue() as? [Any],
+              !elements.isEmpty else {
+            return nil
+        }
+        return elements.compactMap { $0 as? NSObject }
     }
 
     func makeRef() -> String {
