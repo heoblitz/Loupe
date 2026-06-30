@@ -119,11 +119,21 @@ public struct LoupeAccessibilityTree: Codable, Equatable {
         includeHidden: Bool = false,
         visibilityMode: LoupeQueryVisibilityMode = .occlusion
     ) -> LoupeAccessibilityTree {
+        build(
+            from: LoupeSnapshotContext(snapshot: snapshot),
+            includeHidden: includeHidden,
+            visibilityMode: visibilityMode
+        )
+    }
+
+    public static func build(
+        from context: LoupeSnapshotContext,
+        includeHidden: Bool = false,
+        visibilityMode: LoupeQueryVisibilityMode = .occlusion
+    ) -> LoupeAccessibilityTree {
+        let snapshot = context.snapshot
         let surfaceVisibleRefs = !includeHidden && visibilityMode != .raw
-            ? LoupeSurfaceVisibility.visibleNodeRefs(
-                in: snapshot,
-                includesOffscreen: visibilityMode == .occlusion
-            )
+            ? context.visibleRefs(for: visibilityMode)
             : nil
         let sourceNodes = snapshot.nodes.values.filter {
             shouldInclude(

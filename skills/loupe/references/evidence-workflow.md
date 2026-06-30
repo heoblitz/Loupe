@@ -17,7 +17,9 @@ screenshots when supported; macOS host runtimes may need JSON-only proof.
 ## Visibility And Targeting
 
 - Prefer `testID` when available. Use text/role for discovery, then switch to
-  stable `testID` or current-snapshot `ref`.
+  app-owned `testID` or current-snapshot `ref`.
+- Full tree/report commands may inspect hidden, offscreen, or occluded nodes;
+  action, mutation, and wait targets must be current-screen actionable.
 - Raw `isVisible` can include dismissed sheets or reused offscreen cells. For
   current-screen claims, use default `ui query`, `compact`, `screen`, `audit`,
   hit-test evidence, screenshots, or a fresh report.

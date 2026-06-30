@@ -43,10 +43,10 @@ public struct LoupeQueryResult: Codable, Equatable {
     public var isEnabled: Bool
     public var isInteractive: Bool
 
-    public init(node: LoupeNode, isVisible: Bool? = nil) {
+    public init(node: LoupeNode, isVisible: Bool? = nil, text: String? = nil) {
         ref = node.ref
         role = node.role
-        text = LoupeObservationCompactor.displayText(for: node)
+        self.text = text ?? LoupeObservationCompactor.displayText(for: node)
         testID = node.testID
         frame = node.frame
         self.isVisible = isVisible ?? node.isVisible
@@ -61,19 +61,22 @@ public enum LoupeSnapshotQuery {
         in snapshot: LoupeSnapshot,
         options: LoupeQueryOptions = LoupeQueryOptions()
     ) -> [LoupeQueryResult] {
-        let screenRect = LoupeRect(
-            x: 0,
-            y: 0,
-            width: snapshot.screen.size.width,
-            height: snapshot.screen.size.height
-        )
+        find(selector, in: LoupeSnapshotContext(snapshot: snapshot), options: options)
+    }
+
+    public static func find(
+        _ selector: LoupeSelector,
+        in context: LoupeSnapshotContext,
+        options: LoupeQueryOptions = LoupeQueryOptions()
+    ) -> [LoupeQueryResult] {
+        let snapshot = context.snapshot
+        let screenRect = context.screenRect
         let surfaceVisibleRefs = shouldUseSurfaceVisibility(options)
-            ? LoupeSurfaceVisibility.visibleNodeRefs(
-                in: snapshot,
-                includesOffscreen: options.visibilityMode == .occlusion
-            )
+            ? context.visibleRefs(for: options.visibilityMode)
             : nil
-        return snapshot.nodes.values
+        let candidates = context.candidateRefs(for: selector)?
+            .compactMap { context.node(ref: $0) } ?? Array(snapshot.nodes.values)
+        return candidates
             .filter {
                 matchesVisibilityAndState(
                     $0,
@@ -100,7 +103,8 @@ public enum LoupeSnapshotQuery {
                             snapshot: snapshot,
                             screenRect: screenRect
                         )
-                    }
+                    },
+                    text: context.displayText(for: node)
                 )
             }
     }
@@ -111,6 +115,14 @@ public enum LoupeSnapshotQuery {
         options: LoupeQueryOptions = LoupeQueryOptions()
     ) -> LoupeQueryResult? {
         find(selector, in: snapshot, options: options).first
+    }
+
+    public static func first(
+        _ selector: LoupeSelector,
+        in context: LoupeSnapshotContext,
+        options: LoupeQueryOptions = LoupeQueryOptions()
+    ) -> LoupeQueryResult? {
+        find(selector, in: context, options: options).first
     }
 
     package static func preferPlatformBackedMatches(

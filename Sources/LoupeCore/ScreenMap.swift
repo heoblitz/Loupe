@@ -75,15 +75,18 @@ public enum LoupeScreenMapper {
         _ snapshot: LoupeSnapshot,
         options: LoupeScreenMapOptions = LoupeScreenMapOptions()
     ) -> LoupeScreenMap {
-        let screenRect = LoupeRect(
-            x: 0,
-            y: 0,
-            width: snapshot.screen.size.width,
-            height: snapshot.screen.size.height
-        )
-        let hasKnownScreenSize = snapshot.screen.size.width > 0 && snapshot.screen.size.height > 0
+        map(LoupeSnapshotContext(snapshot: snapshot), options: options)
+    }
+
+    public static func map(
+        _ context: LoupeSnapshotContext,
+        options: LoupeScreenMapOptions = LoupeScreenMapOptions()
+    ) -> LoupeScreenMap {
+        let snapshot = context.snapshot
+        let screenRect = context.screenRect
+        let hasKnownScreenSize = context.hasKnownScreenSize
         let depths = nodeDepths(snapshot)
-        let surfaceVisibleRefs = options.includeHidden ? nil : LoupeSurfaceVisibility.visibleNodeRefs(in: snapshot)
+        let surfaceVisibleRefs = options.includeHidden ? nil : context.surfaceVisibleRefs
         let elements = snapshot.nodes.values
             .filter { node in
                 guard options.includeHidden || LoupeSurfaceVisibility.isSurfaceVisible(
@@ -105,7 +108,7 @@ public enum LoupeScreenMapper {
                     className: node.platform?.className,
                     role: node.role,
                     testID: node.testID,
-                    text: LoupeObservationCompactor.displayText(for: node),
+                    text: context.displayText(for: node),
                     frame: node.frame,
                     style: node.style,
                     isEnabled: node.isEnabled,

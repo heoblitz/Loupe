@@ -7,11 +7,12 @@ import UIKit
 public extension LoupeAgent {
     func activate(_ request: LoupeActivationRequest) throws -> LoupeActivationResponse {
         let beforeCapture = captureSnapshotWithViewRefs()
+        let beforeContext = LoupeSnapshotContext(snapshot: beforeCapture.snapshot)
         let selector = loupeSelector(from: request.selector)
         let matches = LoupeSnapshotQuery.preferPlatformBackedMatches(
             LoupeSnapshotQuery.find(
                 selector,
-                in: beforeCapture.snapshot,
+                in: beforeContext,
                 options: LoupeQueryOptions(includeHidden: false, includeDisabled: false, maxResults: 8)
             ),
             in: beforeCapture.snapshot
@@ -64,12 +65,13 @@ public extension LoupeAgent {
 
     func mutate(_ request: LoupeMutationRequest) throws -> LoupeMutationResponse {
         let beforeCapture = captureSnapshotWithViewRefs()
+        let beforeContext = LoupeSnapshotContext(snapshot: beforeCapture.snapshot)
         let selector = loupeSelector(from: request.selector)
         let includeHidden = request.includeHidden || request.selector.kind == .ref
         let matches = LoupeSnapshotQuery.preferPlatformBackedMatches(
             LoupeSnapshotQuery.find(
                 selector,
-                in: beforeCapture.snapshot,
+                in: beforeContext,
                 options: LoupeQueryOptions(
                     includeHidden: includeHidden,
                     includeDisabled: true,
