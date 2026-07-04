@@ -101,7 +101,18 @@ public final class LoupeAgent {
             sceneRefs.append(sceneRef)
         }
 
-        let registeredProbeRefs = runtime.registeredProbes().map { probe in
+        let materializedProbeIDs = Set(nodes.values.compactMap { node -> String? in
+            guard node.isVisible,
+                  let testID = node.testID ?? stringMetadata("id", from: node.custom) else {
+                return nil
+            }
+            return testID
+        })
+
+        let registeredProbeRefs: [String] = runtime.registeredProbes().compactMap { probe in
+            guard !materializedProbeIDs.contains(probe.id) else {
+                return nil
+            }
             let ref = makeRef()
             nodes[ref] = loupeRegisteredProbeNode(
                 probe,
@@ -264,11 +275,14 @@ public final class LoupeAgent {
         let ref = makeRef()
         viewRefs[ObjectIdentifier(view)] = ref
         viewsByRef[ref] = view
-        let visible = inheritedVisible
-            && view.isHidden == false
+        let testID = view.accessibilityIdentifier ?? stringMetadata("id", from: view.loupeMetadata)
+        let customMetadata = mergedMetadata(view.loupeMetadata, with: runtime.metadata(forTestID: testID))
+        let directlyVisible = view.isHidden == false
             && view.alpha > 0.01
             && view.bounds.width > 0
             && view.bounds.height > 0
+        let visible = directlyVisible
+            && (inheritedVisible || isAppAuthoredProbe(customMetadata))
 
         var childRefs: [String] = []
         for subview in view.subviews {
@@ -299,8 +313,6 @@ public final class LoupeAgent {
             )
         )
 
-        let testID = view.accessibilityIdentifier ?? stringMetadata("id", from: view.loupeMetadata)
-        let customMetadata = mergedMetadata(view.loupeMetadata, with: runtime.metadata(forTestID: testID))
         let accessibility = accessibility(for: view)
         let runtimeProperties = runtimeProperties(for: view)
         let uiKitProperties = uiKitProperties(for: view)
@@ -1017,6 +1029,21 @@ private func stringMetadata(
         return nil
     }
     return value
+}
+
+private func boolMetadata(
+    _ key: String,
+    from metadata: [String: LoupeMetadataValue]
+) -> Bool {
+    guard case let .bool(value) = metadata[key] else {
+        return false
+    }
+    return value
+}
+
+private func isAppAuthoredProbe(_ metadata: [String: LoupeMetadataValue]) -> Bool {
+    boolMetadata("loupe.probe", from: metadata)
+        || boolMetadata("loupe.swiftUI", from: metadata)
 }
 
 private func nonEmpty(_ value: String?) -> String? {

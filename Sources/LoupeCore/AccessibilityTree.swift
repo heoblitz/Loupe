@@ -204,7 +204,9 @@ public struct LoupeAccessibilityTree: Codable, Equatable {
         surfaceVisibleRefs: Set<String>?,
         snapshot: LoupeSnapshot
     ) -> Bool {
-        if !includeHidden, !isVisible(node, in: snapshot, visibilityMode: visibilityMode, surfaceVisibleRefs: surfaceVisibleRefs) {
+        if !includeHidden,
+           !isVisible(node, in: snapshot, visibilityMode: visibilityMode, surfaceVisibleRefs: surfaceVisibleRefs),
+           !isVisibleAppAuthoredProbe(node, screen: snapshot.screen) {
             return false
         }
 
@@ -227,6 +229,24 @@ public struct LoupeAccessibilityTree: Codable, Equatable {
             return true
         }
         return accessibility?.traits.isEmpty == false
+    }
+
+    private static func isVisibleAppAuthoredProbe(_ node: LoupeNode, screen: LoupeScreen) -> Bool {
+        guard node.isVisible,
+              node.accessibility?.isElement == true,
+              node.custom["loupe.probe"] == .bool(true) || node.custom["loupe.swiftUI"] == .bool(true),
+              let frame = node.accessibility?.frame ?? node.frame,
+              !frame.isEmpty else {
+            return false
+        }
+
+        let screenRect = LoupeRect(
+            x: 0,
+            y: 0,
+            width: screen.size.width,
+            height: screen.size.height
+        )
+        return screenRect.isEmpty || frame.intersects(screenRect)
     }
 
     private static func isVisible(
