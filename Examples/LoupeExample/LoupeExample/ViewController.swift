@@ -1071,7 +1071,10 @@ private struct SwiftUIFixtureRows: View {
                 }
                 .padding(.vertical, 4)
                 .accessibilityIdentifier("example.fixtures.swiftui.row.\(index)")
-                .localLoupeProbe("example.fixtures.swiftui.row.\(index)", label: "iOS SwiftUI row \(index)")
+                .localLoupeProbe(
+                    "example.fixtures.swiftui.row.\(index)",
+                    label: "iOS SwiftUI row \(index)"
+                )
             }
         }
         .padding(12)
@@ -1083,9 +1086,70 @@ private struct SwiftUIFixtureRows: View {
 
 private extension View {
     func localLoupeProbe(_ id: String, label: String? = nil) -> some View {
-        background {
-            LoupeFallbackProbeView(id: id, label: label)
+        modifier(LoupeLocalProbeModifier(id: id, label: label))
+    }
+}
+
+private struct LoupeLocalProbeModifier: ViewModifier {
+    let id: String
+    let label: String?
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                LoupeFallbackProbeView(id: id, label: label)
+            }
+            .background {
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            loupeRegisterRegionProbe(id, label: label, frame: proxy.frame(in: .global))
+                        }
+                        .onChange(of: proxy.frame(in: .global)) { frame in
+                            loupeRegisterRegionProbe(id, label: label, frame: frame)
+                        }
+                }
+            }
+            .onDisappear {
+                loupeRemoveProbe(id)
+            }
+    }
+
+    private func loupeRegisterRegionProbe(_ id: String, label: String?, frame: CGRect) {
+        guard frame.isFinite, !frame.isEmpty else {
+            return
         }
+
+        var userInfo: [String: Any] = [
+            "id": id,
+            "metadata": [
+                "source": "local-region-probe",
+                "loupe.swiftUI": true,
+            ],
+            "frame": [
+                "x": Double(frame.origin.x),
+                "y": Double(frame.origin.y),
+                "width": Double(frame.width),
+                "height": Double(frame.height),
+            ],
+        ]
+        if let label {
+            userInfo["label"] = label
+        }
+
+        NotificationCenter.default.post(
+            name: Notification.Name("dev.loupe.probe"),
+            object: nil,
+            userInfo: userInfo
+        )
+    }
+
+    private func loupeRemoveProbe(_ id: String) {
+        NotificationCenter.default.post(
+            name: Notification.Name("dev.loupe.removeProbe"),
+            object: nil,
+            userInfo: ["id": id]
+        )
     }
 }
 
@@ -1117,10 +1181,17 @@ private struct LoupeFallbackProbeView: UIViewRepresentable {
             object: view,
             userInfo: [
                 "metadata": [
+                    "loupe.probe": true,
                     "loupe.swiftUI": true,
                 ],
             ]
         )
+    }
+}
+
+private extension CGRect {
+    var isFinite: Bool {
+        origin.x.isFinite && origin.y.isFinite && width.isFinite && height.isFinite
     }
 }
 

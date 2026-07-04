@@ -156,6 +156,72 @@ struct AccessibilityTreeTests {
         #expect(tree.nodes["ax-button"]?.activationPoint == nil)
     }
 
+    @Test func accessibilityTreeKeepsVisibleAppAuthoredProbeWhenSurfaceOccluded() throws {
+        let probeFrame = LoupeRect(x: 0, y: 143, width: 390, height: 600)
+        let snapshot = LoupeSnapshot(
+            id: "s1",
+            capturedAt: Date(timeIntervalSince1970: 0),
+            screen: LoupeScreen(size: LoupeSize(width: 390, height: 844), scale: 3),
+            rootRefs: ["root"],
+            nodes: [
+                "root": LoupeNode(
+                    ref: "root",
+                    parentRef: nil,
+                    kind: .view,
+                    typeName: "UIView",
+                    frame: LoupeRect(x: 0, y: 0, width: 390, height: 844),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    children: ["probe", "cover"]
+                ),
+                "probe": LoupeNode(
+                    ref: "probe",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIView",
+                    testID: "example.fixtures.swiftui.probe",
+                    label: "iOS SwiftUI probe",
+                    frame: probeFrame,
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    accessibility: LoupeAccessibility(
+                        identifier: "example.fixtures.swiftui.probe",
+                        label: "iOS SwiftUI probe",
+                        frame: probeFrame,
+                        isElement: true
+                    ),
+                    custom: [
+                        "loupe.probe": .bool(true),
+                        "loupe.swiftUI": .bool(true),
+                    ]
+                ),
+                "cover": LoupeNode(
+                    ref: "cover",
+                    parentRef: "root",
+                    kind: .view,
+                    typeName: "UIView",
+                    frame: probeFrame,
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: false,
+                    style: LoupeStyle(
+                        backgroundColor: LoupeColor(red: 1, green: 1, blue: 1, alpha: 1)
+                    )
+                ),
+            ]
+        )
+
+        #expect(!LoupeSurfaceVisibility.visibleNodeRefs(in: snapshot, includesOffscreen: true).contains("probe"))
+
+        let tree = LoupeAccessibilityTree.build(from: snapshot)
+        let probeNode = try #require(tree.nodes["ax-probe"])
+        #expect(probeNode.sourceRef == "probe")
+        #expect(probeNode.testID == "example.fixtures.swiftui.probe")
+        #expect(probeNode.label == "iOS SwiftUI probe")
+    }
+
     @Test func accessibilityTreeKeepsAccessibilityValueAndHintOnlyNodes() throws {
         let snapshot = LoupeSnapshot(
             id: "s1",
