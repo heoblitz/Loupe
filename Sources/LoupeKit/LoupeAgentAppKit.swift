@@ -141,9 +141,10 @@ public final class LoupeAgent {
 
     public func responderChain(selector: LoupeSelector) -> LoupeHitTestReport? {
         let capture = captureSnapshotWithViewRefs()
+        let context = LoupeSnapshotContext(snapshot: capture.snapshot)
         guard let match = LoupeSnapshotQuery.find(
             selector,
-            in: capture.snapshot,
+            in: context,
             options: LoupeQueryOptions(includeHidden: true, includeDisabled: true, maxResults: 1)
         ).first else {
             return nil
@@ -176,11 +177,12 @@ public final class LoupeAgent {
 
     public func activate(_ request: LoupeActivationRequest) throws -> LoupeActivationResponse {
         let beforeCapture = captureSnapshotWithViewRefs()
+        let beforeContext = LoupeSnapshotContext(snapshot: beforeCapture.snapshot)
         let selector = loupeSelector(from: request.selector)
         let matches = LoupeSnapshotQuery.preferPlatformBackedMatches(
             LoupeSnapshotQuery.find(
                 selector,
-                in: beforeCapture.snapshot,
+                in: beforeContext,
                 options: LoupeQueryOptions(includeHidden: false, includeDisabled: false, maxResults: 8)
             ),
             in: beforeCapture.snapshot
@@ -234,12 +236,13 @@ public final class LoupeAgent {
 
     public func mutate(_ request: LoupeMutationRequest) throws -> LoupeMutationResponse {
         let beforeCapture = captureSnapshotWithViewRefs()
+        let beforeContext = LoupeSnapshotContext(snapshot: beforeCapture.snapshot)
         let selector = loupeSelector(from: request.selector)
         let includeHidden = request.includeHidden || request.selector.kind == .ref
         let matches = LoupeSnapshotQuery.preferPlatformBackedMatches(
             LoupeSnapshotQuery.find(
                 selector,
-                in: beforeCapture.snapshot,
+                in: beforeContext,
                 options: LoupeQueryOptions(
                     includeHidden: includeHidden,
                     includeDisabled: true,
@@ -416,7 +419,7 @@ public final class LoupeAgent {
     ) -> LoupeAccessibilityTree {
         nextNativeAccessibilityRef = 0
 
-        var tree = LoupeAccessibilityTree.build(from: snapshot)
+        var tree = LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: snapshot))
         var signatures = Set(tree.nodes.values.map(nativeAccessibilitySignature(for:)))
 
         for window in NSApp.windows {

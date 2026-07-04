@@ -81,7 +81,7 @@ struct LoupeCLI {
         decoder.dateDecodingStrategy = .iso8601
 
         let snapshot = try decoder.decode(LoupeSnapshot.self, from: data)
-        let observation = LoupeObservationCompactor.compact(snapshot)
+        let observation = LoupeObservationCompactor.compact(LoupeSnapshotContext(snapshot: snapshot))
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -107,8 +107,9 @@ struct LoupeCLI {
             snapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
         }
 
+        let context = LoupeSnapshotContext(snapshot: snapshot)
         let map = LoupeScreenMapper.map(
-            snapshot,
+            context,
             options: LoupeScreenMapOptions(
                 includeHidden: options.includeHidden,
                 includeContainers: options.includeContainers,
@@ -146,9 +147,10 @@ struct LoupeCLI {
             fallbackSnapshot: snapshot,
             timeout: options.timeout
         )
-        let compact = LoupeObservationCompactor.compact(snapshot)
+        let context = LoupeSnapshotContext(snapshot: snapshot)
+        let compact = LoupeObservationCompactor.compact(context)
         let screenMap = LoupeScreenMapper.map(
-            snapshot,
+            context,
             options: LoupeScreenMapOptions(maxElements: options.screenMapLimit)
         )
         let audit = LoupeLayoutAuditor.audit(snapshot)
@@ -342,11 +344,12 @@ struct LoupeCLI {
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let context = LoupeSnapshotContext(snapshot: snapshot)
         switch options.tree {
         case .view:
             let results = LoupeSnapshotQuery.find(
                 options.selector,
-                in: snapshot,
+                in: context,
                 options: LoupeQueryOptions(
                     includeHidden: options.includeHidden,
                     includeDisabled: true,
@@ -355,7 +358,7 @@ struct LoupeCLI {
             )
             FileHandle.standardOutput.write(try encoder.encode(results))
         case .accessibility:
-            let tree = LoupeAccessibilityTree.build(from: snapshot, includeHidden: options.includeHidden)
+            let tree = LoupeAccessibilityTree.build(from: context, includeHidden: options.includeHidden)
             let results = LoupeAccessibilityTreeQuery.find(
                 options.selector,
                 in: tree,
@@ -376,7 +379,8 @@ struct LoupeCLI {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let snapshot = try decoder.decode(LoupeSnapshot.self, from: data)
-        let tree = LoupeAccessibilityTree.build(from: snapshot, includeHidden: options.includeHidden)
+        let context = LoupeSnapshotContext(snapshot: snapshot)
+        let tree = LoupeAccessibilityTree.build(from: context, includeHidden: options.includeHidden)
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -444,8 +448,9 @@ struct LoupeCLI {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             snapshot = try decoder.decode(LoupeSnapshot.self, from: data)
+            let context = LoupeSnapshotContext(snapshot: snapshot)
             accessibilityTree = options.tree == .accessibility
-                ? LoupeAccessibilityTree.build(from: snapshot, includeHidden: options.includeHidden, visibilityMode: .occlusion)
+                ? LoupeAccessibilityTree.build(from: context, includeHidden: options.includeHidden, visibilityMode: .occlusion)
                 : nil
         } else {
             let host = try await resolvedRuntimeHost(
@@ -475,7 +480,10 @@ struct LoupeCLI {
             )
         case .accessibility:
             output = renderAccessibilityTree(
-                accessibilityTree ?? LoupeAccessibilityTree.build(from: snapshot, includeHidden: options.includeHidden),
+                accessibilityTree ?? LoupeAccessibilityTree.build(
+                    from: LoupeSnapshotContext(snapshot: snapshot),
+                    includeHidden: options.includeHidden
+                ),
                 selector: options.selector,
                 depth: options.depth,
                 includeHidden: options.includeHidden,

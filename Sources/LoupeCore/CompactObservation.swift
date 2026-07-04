@@ -143,14 +143,17 @@ public enum LoupeObservationCompactor {
         _ snapshot: LoupeSnapshot,
         options: LoupeObservationOptions = LoupeObservationOptions()
     ) -> LoupeCompactObservation {
-        let screenRect = LoupeRect(
-            x: 0,
-            y: 0,
-            width: snapshot.screen.size.width,
-            height: snapshot.screen.size.height
-        )
-        let hasKnownScreenSize = snapshot.screen.size.width > 0 && snapshot.screen.size.height > 0
-        let surfaceVisibleRefs = LoupeSurfaceVisibility.visibleNodeRefs(in: snapshot)
+        compact(LoupeSnapshotContext(snapshot: snapshot), options: options)
+    }
+
+    public static func compact(
+        _ context: LoupeSnapshotContext,
+        options: LoupeObservationOptions = LoupeObservationOptions()
+    ) -> LoupeCompactObservation {
+        let snapshot = context.snapshot
+        let screenRect = context.screenRect
+        let hasKnownScreenSize = context.hasKnownScreenSize
+        let surfaceVisibleRefs = context.surfaceVisibleRefs
 
         let visibleNodes = snapshot.nodes.values
             .filter { node in
@@ -161,7 +164,7 @@ public enum LoupeObservationCompactor {
 
         let visibleTexts = visibleNodes
             .compactMap { node -> (node: LoupeNode, text: LoupeVisibleText)? in
-                guard let text = displayText(for: node), !text.isEmpty else { return nil }
+                guard let text = context.displayText(for: node), !text.isEmpty else { return nil }
                 if suppressesSystemChromeSemanticDuplicateText(node, text: text, in: snapshot, screenRect: screenRect) {
                     return nil
                 }

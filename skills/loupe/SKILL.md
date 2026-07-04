@@ -8,7 +8,9 @@ description: Use this skill when implementing, inspecting, or verifying native a
 Use Loupe to observe, query, act on, mutate, and diagnose Apple-platform app
 runtimes through the in-process server.
 
-## Core Rules
+## Workflow Configuration
+
+### Command Route
 
 - Use grouped commands from current help: `app`, `ui`, `act`, and `debug`.
   Old top-level verbs are compatibility aliases only.
@@ -18,6 +20,9 @@ runtimes through the in-process server.
 - Keep the attachment mode explicit: simulator injection, debug-only
   physical-device LoupeInjector dependency, macOS host runtime, watchOS, or
   visionOS.
+
+### Evidence And Context
+
 - Keep full reports, snapshots, and traces on disk; use compact observations
   in chat, then query or inspect refs as needed.
 - Keep verbose build logs and large JSON on disk. Print a short path/status,
@@ -25,16 +30,27 @@ runtimes through the in-process server.
   next decision.
 - Prefer accessibility for discovery/action intent; prefer the view tree for
   layout, style, mutations, and visual diagnostics.
-- Prefer `testID`, current-snapshot `ref`, or coordinates. Do not use
-  tap-by-text as a public contract.
 - Command success alone is not proof. Verify with fresh reports, traces,
   screenshots, hit-tests, logs, defaults, or effective state.
+
+### Targeting
+
+- Discover with accessibility, role, or text; act with app-owned `testID`,
+  current `ref`, or coordinates. Do not use tap-by-text as a public contract.
+- For action, mutation, and wait, fresh-resolve the current screen: zero
+  matches means not found; multiple actionable matches means ambiguous.
+- Treat `ref` as a snapshot/session handle, not a durable selector.
+- Suggest missing `testID`s only as hints. Prefer the nearest route/root prefix;
+  avoid index, coordinate, or deep hierarchy names.
+
+### Runtime Boundaries
+
 - Simulator injection uses the Loupe CLI/injector outside the app. It should
   not require changing the app source or adding `import LoupeKit`.
 - Physical devices are different: the debug app must link and embed the
   dynamic LoupeInjector runtime. Do not include it in App Store release builds.
 
-## References
+## Reference Map
 
 - `references/runtime-modes.md`: attaching, launching, platform boundaries.
 - `references/evidence-workflow.md`: reports, visibility, design
@@ -42,13 +58,13 @@ runtimes through the in-process server.
 - `references/actions-and-mutations.md`: actions, waits, scrolls, mutations,
   self-sizing, `reflect`.
 
-## Default Loop
+## Workflow
 
 1. Identify the runtime mode and host. Prefer the host printed by `app launch`;
    `app current` can be stale.
 2. Capture `ui report` and keep `snapshot.json`.
-3. Discover with text/role/accessibility, then switch to `testID` or a ref from
-   the same snapshot. Inspect with `ui node` before acting.
+3. Discover with text/role/accessibility, then switch to `testID` or a current
+   ref. Inspect with `ui node` before acting.
 4. For design checks, capture one report, review the screenshot and audit
    summary, then run `ui compare-design` when a design fixture exists.
 5. Keep each design iteration bounded: report, screenshot/audit judgment,

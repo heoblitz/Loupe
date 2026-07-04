@@ -21,6 +21,9 @@ Use one fresh trace directory per attempt.
 
 - Refs are snapshot-scoped. Recapture before acting when the screen may have
   changed, or pass `--snapshot` when acting on a saved ref.
+- For commands that must choose one target, do not silently pick the first
+  role/text match. If multiple current-screen actionable targets match, inspect
+  candidates and rerun with `testID`, current `ref`, node, or hit-test evidence.
 - Prove action results with trace summary/diff plus fresh report, screenshot,
   query, node, content offset, log, default, focus, or state evidence.
 - System permission alerts are outside the app runtime tree. Use screenshot or
@@ -53,7 +56,7 @@ $LOUPE ui reflect <set.json> --source <source-root> --output <reflect.json>
 ```
 
 - `ui mutations` lists live capabilities; it does not take a selector.
-- Prefer stable `testID`; use `ref` only from the current screen or with the
+- Prefer app-owned `testID`; use `ref` only from the current screen or with the
   source snapshot for saved-ref mapping.
 - Dynamic table/collection cells can reuse refs. Mutate a current ref
   immediately, save the mutation response, inspect requested/effective state,

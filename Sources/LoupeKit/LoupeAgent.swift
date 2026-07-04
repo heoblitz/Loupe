@@ -30,7 +30,7 @@ public final class LoupeAgent {
     public func captureAccessibilityTree() -> LoupeAccessibilityTree {
         let capture = captureSnapshotWithViewRefs()
         guard ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" else {
-            return LoupeAccessibilityTree.build(from: capture.snapshot)
+            return LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: capture.snapshot))
         }
         return captureNativeAccessibilityTree(snapshot: capture.snapshot, viewRefs: capture.viewRefs)
     }
@@ -186,9 +186,10 @@ public final class LoupeAgent {
 
     public func responderChain(selector: LoupeSelector) -> LoupeHitTestReport? {
         let capture = captureSnapshotWithViewRefs()
+        let context = LoupeSnapshotContext(snapshot: capture.snapshot)
         guard let match = LoupeSnapshotQuery.find(
             selector,
-            in: capture.snapshot,
+            in: context,
             options: LoupeQueryOptions(includeHidden: true, includeDisabled: true, maxResults: 1)
         ).first else {
             return nil
@@ -474,9 +475,10 @@ public final class LoupeAgent {
     ) -> LoupeAccessibilityTree {
         nextNativeAccessibilityRef = 0
 
-        var tree = LoupeAccessibilityTree.build(from: snapshot)
+        let context = LoupeSnapshotContext(snapshot: snapshot)
+        var tree = LoupeAccessibilityTree.build(from: context)
         var signatures = Set(tree.nodes.values.map(nativeAccessibilitySignature(for:)))
-        let accessibilityVisibleRefs = LoupeSurfaceVisibility.visibleNodeRefs(in: snapshot, includesOffscreen: true)
+        let accessibilityVisibleRefs = context.occlusionVisibleRefs
 
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows {

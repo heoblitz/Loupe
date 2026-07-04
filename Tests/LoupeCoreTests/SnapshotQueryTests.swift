@@ -38,6 +38,29 @@ struct SnapshotQueryTests {
         #expect(results.map { $0.ref } == ["n2", "n1"])
     }
 
+    @Test func snapshotContextIndexesMetadataIDAndCanBeReused() {
+        let snapshot = makeSnapshot(nodes: [
+            LoupeNode(
+                ref: "n1",
+                parentRef: nil,
+                kind: .view,
+                typeName: "UIView",
+                role: "button",
+                text: "Continue",
+                frame: LoupeRect(x: 24, y: 100, width: 120, height: 44),
+                isVisible: true,
+                isEnabled: true,
+                isInteractive: true,
+                custom: ["id": .string("checkout.continueButton")]
+            ),
+        ])
+        let context = LoupeSnapshotContext(snapshot: snapshot)
+
+        #expect(LoupeSnapshotQuery.find(.testID("checkout.continueButton"), in: context).map(\.ref) == ["n1"])
+        #expect(LoupeSnapshotQuery.find(.roleAndText(role: "button", text: "Continue"), in: context).map(\.ref) == ["n1"])
+        #expect(LoupeSnapshotQuery.first(.ref("n1"), in: context)?.text == "Continue")
+    }
+
     @Test func findByTestIDPrefersPlatformBackedProbeOverSyntheticProbe() {
         let snapshot = makeSnapshot(nodes: [
             LoupeNode(
