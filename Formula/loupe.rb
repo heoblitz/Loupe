@@ -1,8 +1,8 @@
 class Loupe < Formula
   desc "CLI giving LLM agents runtime UI context from running iOS Simulator apps"
   homepage "https://github.com/heoblitz/Loupe"
-  url "https://github.com/heoblitz/Loupe/archive/refs/tags/v0.1.7.tar.gz"
-  sha256 "595ef6973b0d9e9e9e31dd2f6f705c2c74a80f6faa71ca57ffd8d28c59c7f187"
+  url "https://github.com/heoblitz/Loupe/archive/refs/tags/v0.1.8.tar.gz"
+  sha256 "3161fba54faf5704c4b4b18afc60666d33780d87f36ef6ae857d16474f8c991f"
   license "MIT"
   head "https://github.com/heoblitz/Loupe.git", branch: "main"
 
