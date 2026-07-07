@@ -1,4 +1,5 @@
 @testable import LoupeCLI
+import Foundation
 import Testing
 
 @Suite struct CaptureReportOptionsTests {
@@ -18,12 +19,13 @@ import Testing
         #expect(options.timeout == 3)
     }
 
-    @Test func defaultsToCurrentRuntimeAndReportDirectory() throws {
+    @Test func defaultsToCurrentRuntimeAndTemporaryReportDirectory() throws {
         let options = try CaptureReportOptions([])
 
         #expect(options.bundleID == nil)
         #expect(options.udid == nil)
-        #expect(options.outputDirectory.path.hasSuffix("loupe-report"))
+        #expect(options.outputDirectory.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+        #expect(options.outputDirectory.lastPathComponent.hasPrefix("loupe-report-"))
         #expect(options.screenMapLimit == 120)
     }
 

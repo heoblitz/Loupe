@@ -15,7 +15,7 @@ struct CaptureReportOptions {
         hostWasExplicit = false
         udid = nil
         bundleID = nil
-        outputDirectory = URL(fileURLWithPath: "loupe-report")
+        outputDirectory = Self.defaultOutputDirectory()
         screenMapLimit = 120
         timeout = 5
 
@@ -69,5 +69,15 @@ struct CaptureReportOptions {
             throw CLIError("\(option) expects a number")
         }
         return value
+    }
+
+    private static func defaultOutputDirectory() -> URL {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let stamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("loupe-report-\(stamp)", isDirectory: true)
     }
 }

@@ -32,7 +32,11 @@ extension LoupeCLI {
             try await runtimeFetch(
                 rest,
                 path: "/logs",
-                usage: "loupe debug logs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+                usage: """
+                loupe debug logs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]
+
+                Apps without a LoupeKit import can post NotificationCenter name "dev.loupe.log" with userInfo keys level, message, and metadata.
+                """
             )
         case "network":
             try await runtimeFetch(

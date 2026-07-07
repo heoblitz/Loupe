@@ -89,7 +89,7 @@ extension LoupeCLI {
         case "app cleanup":
             return "Usage: loupe app cleanup [--dry-run] [--timeout <seconds>]"
         case "ui report":
-            return "Usage: loupe ui report [--host <url>] [--udid <sim>] [--bundle-id <id>] --output <dir> [--screen-map-limit <n>] [--timeout <seconds>]"
+            return "Usage: loupe ui report [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <dir>] [--screen-map-limit <n>] [--timeout <seconds>]"
         case "ui snapshot":
             return "Usage: loupe ui snapshot [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]"
         case "ui compact":
@@ -144,7 +144,11 @@ extension LoupeCLI {
         case "ui apply-design-suggestions":
             return ApplyDesignSuggestionsOptions.usage
         case "act tap":
-            return "Usage: loupe act tap (--test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]"
+            return """
+            Usage: loupe act tap (--test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]
+
+            Coordinates are screen points, not screenshot pixels. Trace files include coordinateUnit, resolvedScreen, and resolvedScreenScale.
+            """
         case "act swipe":
             return "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]"
         case "act drag":
@@ -159,7 +163,11 @@ extension LoupeCLI {
                    loupe act wait value (--test-id <id> | --ref <ref> | --text <text> | --role <role>) --key <path> --equals <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--timeout <seconds>] [--interval <seconds>] [--output <path>]
             """
         case "debug logs":
-            return "Usage: loupe debug logs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+            return """
+            Usage: loupe debug logs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]
+
+            Apps without a LoupeKit import can post NotificationCenter name "dev.loupe.log" with userInfo keys level, message, and metadata.
+            """
         case "debug network":
             return "Usage: loupe debug network [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
         case "debug refs":

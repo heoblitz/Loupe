@@ -64,6 +64,8 @@ package struct LoupeCLIActionTrace: Codable, Equatable {
     package var press: String?
     package var resolvedPoint: LoupePoint?
     package var resolvedScreen: LoupeSize?
+    package var coordinateUnit: String?
+    package var resolvedScreenScale: Double?
     package var resolvedSource: String?
     package var resolvedTarget: ActionTargetTrace?
     package var recordedAt: Date
@@ -82,6 +84,8 @@ package struct LoupeCLIActionTrace: Codable, Equatable {
         press: String? = nil,
         resolvedPoint: LoupePoint?,
         resolvedScreen: LoupeSize?,
+        coordinateUnit: String? = nil,
+        resolvedScreenScale: Double? = nil,
         resolvedSource: String?,
         resolvedTarget: ActionTargetTrace?,
         recordedAt: Date
@@ -99,6 +103,8 @@ package struct LoupeCLIActionTrace: Codable, Equatable {
         self.press = press
         self.resolvedPoint = resolvedPoint
         self.resolvedScreen = resolvedScreen
+        self.coordinateUnit = coordinateUnit
+        self.resolvedScreenScale = resolvedScreenScale
         self.resolvedSource = resolvedSource
         self.resolvedTarget = resolvedTarget
         self.recordedAt = recordedAt
