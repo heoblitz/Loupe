@@ -12,6 +12,7 @@ struct QueryOptions {
     var includeHidden: Bool
     var maxResults: Int
     var tree: QueryTree
+    var waitForMatch: Bool
     var timeout: TimeInterval
 
     init(_ arguments: [String]) throws {
@@ -27,6 +28,7 @@ struct QueryOptions {
         includeHidden = false
         maxResults = 50
         tree = .view
+        waitForMatch = false
         timeout = 5
 
         var selector: LoupeSelector?
@@ -73,6 +75,8 @@ struct QueryOptions {
                     throw CLIError("--tree expects view or accessibility")
                 }
                 tree = value
+            case "--wait":
+                waitForMatch = true
             case "--timeout":
                 timeout = try Self.double(after: "--timeout", in: arguments, index: &index)
             default:
@@ -85,6 +89,9 @@ struct QueryOptions {
         guard let selector else {
             throw CLIError("query requires one selector option")
         }
+        if waitForMatch, snapshotURL != nil {
+            throw CLIError("--wait requires a live runtime query; omit snapshot.json")
+        }
 
         self.selector = selector
         guard timeout > 0 else {
@@ -92,7 +99,7 @@ struct QueryOptions {
         }
     }
 
-    static let usage = "Usage: loupe ui query [snapshot.json] (--test-id <id> | --text <text> | --exact-text <text> | --role <role> | --ref <ref>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--tree view|accessibility] [--include-hidden] [--max-results <n>] [--timeout <seconds>]"
+    static let usage = "Usage: loupe ui query [snapshot.json] (--test-id <id> | --text <text> | --exact-text <text> | --role <role> | --ref <ref>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--tree view|accessibility] [--include-hidden] [--max-results <n>] [--wait] [--timeout <seconds>]"
 
     private static func value(
         after option: String,

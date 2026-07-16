@@ -323,25 +323,46 @@ struct LoupeCLI {
 
     static func query(_ arguments: [String]) async throws {
         let options = try QueryOptions(arguments)
-        let snapshot: LoupeSnapshot
         if let snapshotURL = options.snapshotURL {
             let data = try Data(contentsOf: snapshotURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            snapshot = try decoder.decode(LoupeSnapshot.self, from: data)
-        } else {
-            let host = try await resolvedRuntimeHost(
-                requestedHost: options.host,
-                hostWasExplicit: options.hostWasExplicit,
-                udid: options.udid,
-                bundleID: options.bundleID
-            )
-            if let udid = options.udid {
-                try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
-            }
-            snapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
+            let snapshot = try decoder.decode(LoupeSnapshot.self, from: data)
+            let result = try queryResultData(snapshot: snapshot, options: options)
+            FileHandle.standardOutput.write(result.data)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            return
         }
 
+        let host = try await resolvedRuntimeHost(
+            requestedHost: options.host,
+            hostWasExplicit: options.hostWasExplicit,
+            udid: options.udid,
+            bundleID: options.bundleID
+        )
+        if let udid = options.udid {
+            try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
+        }
+        let deadline = Date().addingTimeInterval(options.timeout)
+        while true {
+            let fetchTimeout = options.waitForMatch
+                ? min(3, max(0.1, deadline.timeIntervalSinceNow))
+                : options.timeout
+            let snapshot = try await fetchSnapshot(host: host, timeout: fetchTimeout)
+            let result = try queryResultData(snapshot: snapshot, options: options)
+            if !options.waitForMatch || result.count > 0 || Date() >= deadline {
+                FileHandle.standardOutput.write(result.data)
+                FileHandle.standardOutput.write(Data("\n".utf8))
+                return
+            }
+            try await sleep(seconds: min(0.25, max(0.01, deadline.timeIntervalSinceNow)))
+        }
+    }
+
+    private static func queryResultData(
+        snapshot: LoupeSnapshot,
+        options: QueryOptions
+    ) throws -> (data: Data, count: Int) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let context = LoupeSnapshotContext(snapshot: snapshot)
@@ -356,7 +377,7 @@ struct LoupeCLI {
                     maxResults: options.maxResults
                 )
             )
-            FileHandle.standardOutput.write(try encoder.encode(results))
+            return (try encoder.encode(results), results.count)
         case .accessibility:
             let tree = LoupeAccessibilityTree.build(from: context, includeHidden: options.includeHidden)
             let results = LoupeAccessibilityTreeQuery.find(
@@ -368,9 +389,8 @@ struct LoupeCLI {
                     maxResults: options.maxResults
                 )
             )
-            FileHandle.standardOutput.write(try encoder.encode(results))
+            return (try encoder.encode(results), results.count)
         }
-        FileHandle.standardOutput.write(Data("\n".utf8))
     }
 
     static func accessibility(_ arguments: [String]) throws {
@@ -3149,6 +3169,8 @@ struct LoupeCLI {
             press: options.press,
             resolvedPoint: target?.point,
             resolvedScreen: target?.screen,
+            coordinateUnit: target == nil ? nil : "points",
+            resolvedScreenScale: target?.screenScale,
             resolvedSource: target?.source.description,
             resolvedTarget: target?.match?.trace,
             recordedAt: Date()

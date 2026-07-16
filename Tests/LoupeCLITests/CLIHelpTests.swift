@@ -53,11 +53,11 @@ import Testing
             "app current": "Usage: loupe app current [--json] [--timeout <seconds>]",
             "app info": "Usage: loupe app info [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
             "ui": "Usage: loupe ui <subcommand>",
-            "ui report": "Usage: loupe ui report [--host <url>] [--udid <sim>] [--bundle-id <id>] --output <dir> [--screen-map-limit <n>] [--timeout <seconds>]",
+            "ui report": "Usage: loupe ui report [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <dir>] [--screen-map-limit <n>] [--timeout <seconds>]",
             "ui snapshot": "Usage: loupe ui snapshot [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]",
             "ui tree": "Usage: loupe ui tree [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--view|--accessibility] [--depth <n>]",
             "ui node": "Usage: loupe ui node <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--include-hidden] [--fields node,parent,children,siblings]",
-            "ui query": "Usage: loupe ui query [snapshot.json] (--test-id <id> | --text <text> | --exact-text <text> | --role <role> | --ref <ref>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--tree view|accessibility] [--include-hidden] [--max-results <n>] [--timeout <seconds>]",
+            "ui query": "Usage: loupe ui query [snapshot.json] (--test-id <id> | --text <text> | --exact-text <text> | --role <role> | --ref <ref>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--tree view|accessibility] [--include-hidden] [--max-results <n>] [--wait] [--timeout <seconds>]",
             "ui compare-design": "Usage: loupe ui compare-design <snapshot.json> <design.json> [--json] [--suggest-mutations] [--host <url>] [--limit <n>] [--frame-tolerance <n>] [--color-tolerance <n>] [--corner-radius-tolerance <n>] [--font-size-tolerance <n>] [--max-match-distance <n>] [--no-unexpected]",
             "ui apply-design-suggestions": "Usage: loupe ui apply-design-suggestions <compare-design.json> [--host <url>] [--snapshot <snapshot.json>] [--output-dir <dir>] [--max <n>] [--properties <list>] [--dry-run]",
             "ui set": "Usage: loupe ui set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--snapshot <snapshot.json>] [--include-hidden] [--output <path>]",
@@ -176,6 +176,13 @@ import Testing
         for command in publicCommands {
             #expect(LoupeCLI.commandUsage(command) != nil)
         }
+    }
+
+    @Test func debugLogsHelpMentionsNoImportNotificationBridge() throws {
+        let help = try #require(LoupeCLI.commandUsage("debug logs"))
+
+        #expect(help.contains("dev.loupe.log"))
+        #expect(help.contains("NotificationCenter"))
     }
 
     @Test func ambiguousCompatibilityCommandsAreNotPublic() {

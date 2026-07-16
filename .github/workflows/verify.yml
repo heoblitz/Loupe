@@ -12,7 +12,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LOUPE_SIMCTL_LIST_TIMEOUT: "90"
+  LOUPE_SIMCTL_LIST_TIMEOUT: "120"
+  LOUPE_CI_SIMCTL_LIST_ATTEMPTS: "3"
+  LOUPE_CI_ATTEMPTS: "2"
+  LOUPE_CI_RETRY_SLEEP: "10"
   LOUPE_SIMCTL_TERMINATE_TIMEOUT: "20"
 
 jobs:
@@ -26,9 +29,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
+        run: scripts/ci-print-toolchain.sh
 
       - name: Run SwiftPM tests
         run: swift test
@@ -43,10 +44,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Release CLI build
         run: swift build --configuration release --disable-sandbox --product loupe
@@ -73,9 +71,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
+        run: scripts/ci-print-toolchain.sh
 
       - name: Run macOS example E2E
         run: scripts/ci-run-with-diagnostics.sh "macOS E2E" Examples/MacLoupeExample/run-macos-e2e.sh
@@ -88,6 +84,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-macos-*
+            /tmp/loupe-ci-*
 
   tvos-e2e:
     name: tvOS E2E
@@ -99,10 +96,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Run tvOS example E2E
         run: scripts/ci-run-with-diagnostics.sh "tvOS E2E" Examples/LoupeTVExample/run-tvos-runtime-e2e.sh
@@ -115,6 +109,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-tvos-*
+            /tmp/loupe-ci-*
 
   watchos-e2e:
     name: watchOS E2E
@@ -126,10 +121,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Run watchOS example E2E
         run: scripts/ci-run-with-diagnostics.sh "watchOS E2E" Examples/LoupeWatchExample/run-watchos-runtime-e2e.sh
@@ -142,6 +134,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-watchos-*
+            /tmp/loupe-ci-*
 
   ios-injected-e2e:
     name: iOS Injected E2E
@@ -155,10 +148,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Run injected log E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Injected E2E" Examples/LoupeExample/run-injected.sh
@@ -171,6 +161,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-example-*
+            /tmp/loupe-ci-*
             /tmp/loupe-injector-build.log
 
   ios-runtime-e2e:
@@ -185,10 +176,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Run runtime E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Runtime E2E" Examples/LoupeExample/run-runtime-e2e.sh
@@ -201,6 +189,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-runtime-*
+            /tmp/loupe-ci-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
 
@@ -216,10 +205,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Run native scenario E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Native Scenario E2E" Examples/LoupeExample/run-native-scenarios.sh
@@ -232,6 +218,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-native-*
+            /tmp/loupe-ci-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
 
@@ -247,10 +234,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: |
-          swift --version
-          xcodebuild -version
-          perl -e 'alarm 90; exec @ARGV' xcrun simctl list devices available
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Run bookmark E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Bookmark E2E" Examples/LoupeExample/run-bookmark-e2e.sh
@@ -263,5 +247,6 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-bookmark-*
+            /tmp/loupe-ci-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log

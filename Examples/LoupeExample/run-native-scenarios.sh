@@ -244,7 +244,7 @@ assert_query example.customerList /tmp/loupe-native-list-query.json
 
 echo "case: navigation push by testID tap, then pop by ref tap"
 launch_app
-.build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --test-id example.openComponents --trace-dir "$TRACE_DIR"
+.build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --test-id example.openComponents --trace-dir "$TRACE_DIR" --expect-visible example.components
 .build/debug/loupe act wait visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components.json
 fetch_snapshot
 assert_query example.components /tmp/loupe-native-components-query.json

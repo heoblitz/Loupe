@@ -154,6 +154,8 @@ struct RuntimeActionModelsTests {
             press: nil,
             resolvedPoint: LoupePoint(x: 201, y: 735),
             resolvedScreen: LoupeSize(width: 402, height: 874),
+            coordinateUnit: "points",
+            resolvedScreenScale: 3,
             resolvedSource: ActionTargetSource.coordinates.description,
             resolvedTarget: nil,
             recordedAt: Date(timeIntervalSince1970: 0)
@@ -164,6 +166,8 @@ struct RuntimeActionModelsTests {
 
         #expect(decoded.command == "swipe")
         #expect(decoded.resolvedScreen == LoupeSize(width: 402, height: 874))
+        #expect(decoded.coordinateUnit == "points")
+        #expect(decoded.resolvedScreenScale == 3)
         #expect(decoded.resolvedSource == "coordinates")
         #expect(decoded.endPoint == LoupePoint(x: 201, y: 300))
     }
