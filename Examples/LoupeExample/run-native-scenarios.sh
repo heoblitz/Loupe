@@ -271,7 +271,7 @@ echo "case: accessibility action targets are copyable and one-shot"
 TARGETS_PATH="/tmp/loupe-native-action-targets.txt"
 TARGETS_RETRY_OUT="/tmp/loupe-native-action-targets-retry.out"
 TARGETS_RETRY_ERR="/tmp/loupe-native-action-targets-retry.err"
-.build/debug/loupe act targets --host "$HOST" --udid "$DEVICE" > "$TARGETS_PATH"
+.build/debug/loupe act targets --udid "$DEVICE" > "$TARGETS_PATH"
 grep -Eq '^App: .+$' "$TARGETS_PATH"
 if grep -Eq 'testID=|frame=|point=' "$TARGETS_PATH"; then
   echo "error: default action targets leaked internal fields" >&2

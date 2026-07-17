@@ -106,6 +106,21 @@ extension LoupeCLI {
     }
 
     static func resolvedRuntimeHost(
+        requestedHost: URL?,
+        udid: String?
+    ) async throws -> URL {
+        if let requestedHost {
+            return requestedHost
+        }
+
+        return try await resolvedRuntimeHost(
+            requestedHost: URL(string: "http://127.0.0.1:8765")!,
+            hostWasExplicit: false,
+            udid: udid
+        )
+    }
+
+    static func resolvedRuntimeHost(
         requestedHost: URL,
         hostWasExplicit: Bool,
         udid: String?,
