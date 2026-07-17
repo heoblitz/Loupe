@@ -6,6 +6,8 @@ source reflection.
 ## Action Shapes
 
 ```bash
+$LOUPE act targets --host <host>
+$LOUPE act tap '#2' --host <host>
 $LOUPE act tap --host <host> --snapshot <snapshot.json> --ref n21 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act tap --host <host> --x 201 --y 274 --width 438 --height 954 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act swipe --host <host> --from 219,760 --to 219,190 --udid <sim-udid> --trace-dir <trace-dir>
@@ -16,6 +18,11 @@ $LOUPE debug trace summary <trace-dir>
 ```
 
 Use one fresh trace directory per attempt.
+
+Use `act targets` for movement and `ui report` for view analysis. `#N` aliases
+come from visible, enabled, interactive accessibility nodes. Quote the alias;
+it is consumed after a successful dispatch, so list targets again before the
+next alias action.
 
 ## Proof Rules
 

@@ -2148,6 +2148,7 @@ struct LoupeCLI {
         var options = try ActionOptions(command: command, arguments: arguments)
         try validateActionBackend(options.backend)
         var target: ActionTarget?
+        var aliasCache: ActionTargetAliasCache?
         do {
             if command == "tap",
                let point = options.point,
@@ -2168,6 +2169,17 @@ struct LoupeCLI {
                 udid: options.udid
             )
             let runtimeState = try await fetchRuntimeState(host: options.host, timeout: options.timeout)
+            if let alias = options.targetAlias {
+                let cache = try ActionTargetAliasCacheStore().load()
+                try cache.validate(host: options.host, runtimeIdentity: runtimeState.identity)
+                _ = try cache.target(at: alias)
+                aliasCache = cache
+                if !options.udidWasExplicit,
+                   let deviceIdentifier = cache.deviceIdentifier,
+                   !deviceIdentifier.isEmpty {
+                    options.udid = deviceIdentifier
+                }
+            }
             options.backend = resolvedActionBackend(
                 requested: options.backend,
                 command: command,
@@ -2185,7 +2197,12 @@ struct LoupeCLI {
                 try prepareTraceDirectory(traceDirectory)
                 try await writePreActionTrace(command: command, options: options, traceDirectory: traceDirectory)
             }
-            let resolvedTarget = try await resolveActionTarget(options)
+            let resolvedTarget: ActionTarget
+            if let alias = options.targetAlias, let aliasCache {
+                resolvedTarget = try actionTarget(alias: alias, cache: aliasCache)
+            } else {
+                resolvedTarget = try await resolveActionTarget(options)
+            }
             target = resolvedTarget
             let scrollBaseline = try await scrollVerificationBaseline(
                 command: command,
@@ -2205,6 +2222,9 @@ struct LoupeCLI {
                 try await dispatchRuntimeActivation(options: options, target: resolvedTarget)
             } else {
                 try dispatchAction(command: command, options: options, target: resolvedTarget)
+            }
+            if let aliasCache {
+                try ActionTargetAliasCacheStore().consume(cacheID: aliasCache.cacheID)
             }
             try await verifyRuntimeAlive(host: options.host, timeout: options.timeout)
             if let scrollBaseline {
@@ -2232,6 +2252,17 @@ struct LoupeCLI {
             }
             throw error
         }
+    }
+
+    static func actionTarget(alias: Int, cache: ActionTargetAliasCache) throws -> ActionTarget {
+        let entry = try cache.target(at: alias)
+        return ActionTarget(
+            point: entry.point,
+            screen: cache.screen.size,
+            screenScale: cache.screen.scale,
+            source: .accessibility(ref: entry.ref, sourceRef: entry.sourceRef),
+            match: .accessibility(entry.queryResult)
+        )
     }
 
     private static func scrollVerificationBaseline(
@@ -2631,7 +2662,7 @@ struct LoupeCLI {
             .joined(separator: ", ")
     }
 
-    private static func fetchSnapshot(host: URL, timeout: TimeInterval = 5) async throws -> LoupeSnapshot {
+    static func fetchSnapshot(host: URL, timeout: TimeInterval = 5) async throws -> LoupeSnapshot {
         let url = host.appendingPathComponent("snapshot")
         let (data, response) = try await httpData(from: url, timeout: timeout, label: "snapshot fetch")
         guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
@@ -2786,7 +2817,7 @@ struct LoupeCLI {
             .filter { $0.isLetter || $0.isNumber }
     }
 
-    private static func fetchAccessibilityTree(
+    static func fetchAccessibilityTree(
         host: URL,
         fallbackSnapshot: LoupeSnapshot,
         timeout: TimeInterval = 5
@@ -3161,7 +3192,7 @@ struct LoupeCLI {
             host: options.host.absoluteString,
             backend: options.backend,
             udid: options.udid,
-            selector: options.selector.map(selectorDescription),
+            selector: options.targetAlias.map { "#\($0)" } ?? options.selector.map(selectorDescription),
             point: options.point,
             endPoint: options.endPoint,
             duration: options.duration,
@@ -3403,9 +3434,14 @@ struct LoupeCLI {
         }
     }
 
-    private static func dispatchRuntimeActivation(options: ActionOptions, target _: ActionTarget) async throws {
-        guard let selector = options.selector else {
-            throw CLIError("runtime tap requires --test-id or --ref")
+    private static func dispatchRuntimeActivation(options: ActionOptions, target: ActionTarget) async throws {
+        let selector: LoupeSelector
+        if let explicitSelector = options.selector {
+            selector = explicitSelector
+        } else if case let .accessibility(_, sourceRef) = target.source {
+            selector = .ref(sourceRef)
+        } else {
+            throw CLIError("runtime tap requires '#N', --test-id, or --ref")
         }
         let request = LoupeActivationRequest(selector: try activationSelector(from: selector))
         _ = try await postActivation(request, host: options.host, timeout: options.timeout)

@@ -267,6 +267,43 @@ launch_app components
 .build/debug/loupe act wait visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components-routed.json
 fetch_snapshot
 
+echo "case: accessibility action targets are copyable and one-shot"
+TARGETS_PATH="/tmp/loupe-native-action-targets.txt"
+TARGETS_RETRY_OUT="/tmp/loupe-native-action-targets-retry.out"
+TARGETS_RETRY_ERR="/tmp/loupe-native-action-targets-retry.err"
+.build/debug/loupe act targets --host "$HOST" --udid "$DEVICE" > "$TARGETS_PATH"
+grep -Eq '^App: .+$' "$TARGETS_PATH"
+if grep -Eq 'testID=|frame=|point=' "$TARGETS_PATH"; then
+  echo "error: default action targets leaked internal fields" >&2
+  exit 1
+fi
+DONE_ALIAS="$(ruby -e '
+  matches = File.readlines(ARGV.fetch(0), chomp: true).select { |line| line.match?(/\A#\d+ button "Done"\z/) }
+  abort "expected exactly one Done action target, got #{matches.inspect}" unless matches.length == 1
+  puts matches.fetch(0)[/\A#\d+/]
+' "$TARGETS_PATH")"
+.build/debug/loupe act tap "$DONE_ALIAS" --host "$HOST" --udid "$DEVICE"
+TARGET_DONE_NODE_PATH="/tmp/loupe-native-target-done-node.json"
+TARGET_DONE=false
+for _ in {1..20}; do
+  fetch_snapshot
+  if .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.button >"$TARGET_DONE_NODE_PATH" &&
+      grep -q '"renderedText" : "Done"' "$TARGET_DONE_NODE_PATH"; then
+    TARGET_DONE=true
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$TARGET_DONE" != "true" ]]; then
+  echo "error: Done action target did not update the primary button within 5 seconds" >&2
+  exit 1
+fi
+if .build/debug/loupe act tap "$DONE_ALIAS" --host "$HOST" --udid "$DEVICE" >"$TARGETS_RETRY_OUT" 2>"$TARGETS_RETRY_ERR"; then
+  echo "error: consumed action target unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -q 'loupe act targets' "$TARGETS_RETRY_ERR"
+
 echo "case: UIKit component compact and inspect coverage"
 .build/debug/loupe ui compact --host "$HOST" --timeout 5 --output "$OBSERVATION_PATH"
 .build/debug/loupe ui accessibility --host "$HOST" --timeout 5 --output "$ACCESSIBILITY_PATH"
