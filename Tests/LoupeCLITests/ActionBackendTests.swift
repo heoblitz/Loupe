@@ -1,4 +1,5 @@
 @testable import LoupeCLI
+@testable import LoupeCLIModel
 import Foundation
 import LoupeCore
 import Testing
@@ -110,6 +111,39 @@ struct ActionBackendTests {
         let filtered = LoupeCLI.preferPlatformBackedActionMatches(matches, snapshot: snapshot)
 
         #expect(filtered.map(\.sourceRef) == ["backing"])
+    }
+
+    @Test func cachedAliasTargetKeepsAccessibilityTraceProvenance() throws {
+        let entry = ActionTargetAliasEntry(
+            index: 2,
+            ref: "ax-n42",
+            sourceRef: "n42",
+            role: "button",
+            text: "Pay",
+            testID: "checkout.pay",
+            frame: LoupeRect(x: 20, y: 100, width: 80, height: 44),
+            activationPoint: LoupePoint(x: 60, y: 122),
+            point: LoupePoint(x: 60, y: 122),
+            isVisible: true,
+            isEnabled: true,
+            isInteractive: true
+        )
+        let cache = ActionTargetAliasCache(
+            launchID: "launch-1",
+            deviceIdentifier: "SIM-1",
+            bundleIdentifier: "com.example.checkout",
+            host: "http://127.0.0.1:8765",
+            snapshotID: "snapshot-1",
+            screen: LoupeScreen(size: LoupeSize(width: 400, height: 800), scale: 3),
+            targets: [entry]
+        )
+
+        let target = try LoupeCLI.actionTarget(alias: 2, cache: cache)
+
+        #expect(target.source.description == "accessibility:ax-n42:source:n42")
+        #expect(target.match?.trace.tree == "accessibility")
+        #expect(target.match?.trace.testID == "checkout.pay")
+        #expect(target.point == LoupePoint(x: 60, y: 122))
     }
 
     private func openImmersiveDuplicateProbeSnapshot() -> LoupeSnapshot {

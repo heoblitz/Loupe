@@ -7,8 +7,10 @@ package struct ActionOptions: ActionDispatchOptions {
     package var hostWasExplicit: Bool
     package var backend: String
     package var udid: String
+    package var udidWasExplicit: Bool
     package var timeout: TimeInterval
     package var selector: LoupeSelector?
+    package var targetAlias: Int?
     package var snapshotURL: URL?
     package var point: LoupePoint?
     package var endPoint: LoupePoint?
@@ -29,10 +31,12 @@ package struct ActionOptions: ActionDispatchOptions {
         hostWasExplicit = false
         backend = "auto"
         udid = "booted"
+        udidWasExplicit = false
         timeout = 8
         screen = LoupeSize(width: 0, height: 0)
 
         var selector: LoupeSelector?
+        var targetAlias: Int?
         var snapshotURL: URL?
         var point: LoupePoint?
         var endPoint: LoupePoint?
@@ -51,6 +55,10 @@ package struct ActionOptions: ActionDispatchOptions {
         var hasY = false
         var index = 0
 
+        if command == "tap", let first = arguments.first, !first.hasPrefix("--") {
+            targetAlias = try Self.targetAlias(first)
+            index = 1
+        }
         if command == "type", let first = arguments.first, !first.hasPrefix("--") {
             text = first
             index = 1
@@ -70,6 +78,7 @@ package struct ActionOptions: ActionDispatchOptions {
                 backend = try Self.value(after: argument, in: arguments, index: &index)
             case "--udid", "--device":
                 udid = try Self.value(after: argument, in: arguments, index: &index)
+                udidWasExplicit = true
             case "--test-id":
                 selector = .testID(try Self.value(after: argument, in: arguments, index: &index))
             case "--ref":
@@ -158,11 +167,15 @@ package struct ActionOptions: ActionDispatchOptions {
         }
 
         if command == "tap" {
-            if selector != nil, point != nil {
-                throw CLIError("tap accepts exactly one target: --test-id, --ref, or --x <n> --y <n>")
+            let targetCount = [selector != nil, point != nil, targetAlias != nil].filter { $0 }.count
+            if targetCount > 1 {
+                throw CLIError("tap accepts exactly one target: '#N', --test-id, --ref, or --x <n> --y <n>")
             }
-            if selector == nil, point == nil {
-                throw CLIError("tap requires --test-id, --ref, or --x <n> --y <n>")
+            if targetCount == 0 {
+                throw CLIError("tap requires '#N', --test-id, --ref, or --x <n> --y <n>")
+            }
+            if targetAlias != nil, snapshotURL != nil {
+                throw CLIError("tap '#N' does not accept --snapshot; rerun `loupe act targets`")
             }
         }
         if command == "press" {
@@ -172,6 +185,7 @@ package struct ActionOptions: ActionDispatchOptions {
         }
 
         self.selector = selector
+        self.targetAlias = targetAlias
         self.snapshotURL = snapshotURL
         self.point = point
         self.endPoint = endPoint
@@ -184,6 +198,20 @@ package struct ActionOptions: ActionDispatchOptions {
         self.expectVisibleTestID = expectVisibleTestID
         self.expectVisibleSelector = expectVisibleSelector
         self.verifyScroll = verifyScroll
+    }
+
+    private static func targetAlias(_ raw: String) throws -> Int {
+        guard raw.first == "#" else {
+            throw CLIError("Unknown tap target: \(raw). Use a quoted alias such as '#1', --test-id, --ref, or coordinates")
+        }
+        let digits = raw.dropFirst()
+        guard !digits.isEmpty,
+              digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+              digits.first != "0",
+              let value = Int(digits) else {
+            throw CLIError("Invalid action target alias: \(raw). Run `loupe act targets` and use a quoted alias such as '#1'")
+        }
+        return value
     }
 
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {

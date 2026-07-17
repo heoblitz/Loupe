@@ -30,6 +30,8 @@ runtimes through the in-process server.
   next decision.
 - Prefer accessibility for discovery/action intent; prefer the view tree for
   layout, style, mutations, and visual diagnostics.
+- For screen movement, use `act targets` then `act tap '#N'`. For view
+  analysis, use `ui report`.
 - Command success alone is not proof. Verify with fresh reports, traces,
   screenshots, hit-tests, logs, defaults, or effective state.
 
@@ -62,9 +64,10 @@ runtimes through the in-process server.
 
 1. Identify the runtime mode and host. Prefer the host printed by `app launch`;
    `app current` can be stale.
-2. Capture `ui report` and keep `snapshot.json`.
-3. Discover with text/role/accessibility, then switch to `testID` or a current
-   ref. Inspect with `ui node` before acting.
+2. Use `act targets` then `act tap '#N'` for lightweight screen movement. The
+   quoted alias is one-shot; list targets again before the next alias action.
+3. Use `ui report` for view analysis. Keep `snapshot.json`, then query or
+   inspect only the relevant nodes.
 4. For design checks, capture one report, review the screenshot and audit
    summary, then run `ui compare-design` when a design fixture exists.
 5. Keep each design iteration bounded: report, screenshot/audit judgment,

@@ -45,6 +45,7 @@ extension LoupeCLI {
     Usage: loupe act <subcommand>
 
     SUBCOMMANDS:
+      targets                 List lightweight accessibility action targets.
       tap                     Tap a selector, ref, or coordinate.
       swipe                   Dispatch a one-finger swipe.
       drag                    Dispatch a one-finger drag.
@@ -143,11 +144,14 @@ extension LoupeCLI {
             return CompareDesignOptions.usage
         case "ui apply-design-suggestions":
             return ApplyDesignSuggestionsOptions.usage
+        case "act targets":
+            return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]\n\nExample: loupe act targets"
         case "act tap":
             return """
-            Usage: loupe act tap (--test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]
+            Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]
 
             Coordinates are screen points, not screenshot pixels. Trace files include coordinateUnit, resolvedScreen, and resolvedScreenScale.
+            Example: loupe act tap '#2'
             """
         case "act swipe":
             return "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]"

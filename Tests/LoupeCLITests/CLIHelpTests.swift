@@ -62,7 +62,8 @@ import Testing
             "ui apply-design-suggestions": "Usage: loupe ui apply-design-suggestions <compare-design.json> [--host <url>] [--snapshot <snapshot.json>] [--output-dir <dir>] [--max <n>] [--properties <list>] [--dry-run]",
             "ui set": "Usage: loupe ui set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--snapshot <snapshot.json>] [--include-hidden] [--output <path>]",
             "act": "Usage: loupe act <subcommand>",
-            "act tap": "Usage: loupe act tap (--test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
+            "act targets": "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]",
+            "act tap": "Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
             "act swipe": "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]",
             "act drag": "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]",
             "act type": "Usage: loupe act type <text> [--udid <sim>] [--host <url>] [--trace-dir <path>] [--timeout <seconds>]",
@@ -144,6 +145,7 @@ import Testing
             "ui compare-design",
             "ui apply-design-suggestions",
             "act",
+            "act targets",
             "act tap",
             "act swipe",
             "act drag",
@@ -183,6 +185,17 @@ import Testing
 
         #expect(help.contains("dev.loupe.log"))
         #expect(help.contains("NotificationCenter"))
+    }
+
+    @Test func actionTargetHelpQuotesHashAlias() throws {
+        let act = try #require(LoupeCLI.commandUsage("act"))
+        let targets = try #require(LoupeCLI.commandUsage("act targets"))
+        let tap = try #require(LoupeCLI.commandUsage("act tap"))
+
+        #expect(act.contains("targets"))
+        #expect(targets.contains("loupe act targets"))
+        #expect(tap.contains("loupe act tap '#2'"))
+        #expect(tap.contains("'#N'"))
     }
 
     @Test func ambiguousCompatibilityCommandsAreNotPublic() {
