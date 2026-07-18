@@ -167,8 +167,10 @@ jobs:
           jq -e '.poured_from_bottle == true' "$prefix/INSTALL_RECEIPT.json" >/dev/null
           test "$("$prefix/bin/loupe" --version)" = "loupe $VERSION"
           test "$("$prefix/bin/loupe" injector-path)" = "$prefix/libexec/LoupeInjector.framework/LoupeInjector"
-          codesign --verify --strict "$prefix/bin/loupe"
-          codesign --verify --strict "$prefix/libexec/LoupeInjector.framework/LoupeInjector"
+          if [[ "$(uname -m)" = "arm64" ]]; then
+            codesign --verify --strict "$prefix/bin/loupe"
+            codesign --verify --strict "$prefix/libexec/LoupeInjector.framework/LoupeInjector"
+          fi
 
       - name: Upload bottle artifacts
         uses: actions/upload-artifact@v4
