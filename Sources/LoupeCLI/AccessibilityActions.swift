@@ -80,12 +80,12 @@ extension LoupeCLI {
             command: "tap",
             arguments: options.targetArguments + options.commonArguments
         )
-        if try await waitForInputFocus(focusSelector, host: tapOptions.host, timeout: 1) == false {
+        if await waitForInputFocus(focusSelector, host: tapOptions.host, timeout: 1) == false {
             try await action(
                 command: "tap",
                 arguments: inputRetryTargetArguments(focusSelector) + options.commonArguments
             )
-            guard try await waitForInputFocus(
+            guard await waitForInputFocus(
                 focusSelector,
                 host: tapOptions.host,
                 timeout: min(tapOptions.timeout, 3)
@@ -104,10 +104,23 @@ extension LoupeCLI {
         _ selector: LoupeSelector,
         host: URL,
         timeout: TimeInterval
-    ) async throws -> Bool {
+    ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while true {
-            let snapshot = try await fetchSnapshot(host: host, timeout: timeout)
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                return false
+            }
+            let snapshot: LoupeSnapshot
+            do {
+                snapshot = try await fetchSnapshot(host: host, timeout: remaining)
+            } catch {
+                guard Date() < deadline else {
+                    return false
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                continue
+            }
             let matches = LoupeSnapshotQuery.find(
                 selector,
                 in: LoupeSnapshotContext(snapshot: snapshot),
@@ -119,7 +132,7 @@ extension LoupeCLI {
             guard Date() < deadline else {
                 return false
             }
-            try await Task.sleep(nanoseconds: 100_000_000)
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }
 
