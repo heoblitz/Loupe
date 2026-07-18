@@ -16,25 +16,26 @@ class Loupe < Formula
     bin.install ".build/release/loupe"
     (pkgshare/"skills").install "skills/loupe" => "loupe"
 
-    simulator_arch = Hardware::CPU.arm? ? "arm64" : "x86_64"
+    simulator_triple = Hardware::CPU.arm? ? "arm64-apple-ios15.0-simulator" : "x86_64-apple-ios15.0-simulator"
+    simulator_sdk = Utils.safe_popen_read("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path").strip
+    swift = Utils.safe_popen_read("xcrun", "--find", "swift").strip
     injector_scratch = buildpath/".build/homebrew-loupe-injector"
-    injector_products = injector_scratch/"products"
-    # Homebrew already sandboxes the install, so Xcode's nested manifest sandbox cannot start.
-    ENV["CFFIXED_USER_HOME"] = injector_scratch/"xcode-home"
-    system "defaults", "write", "com.apple.dt.Xcode",
-      "IDEPackageSupportDisableManifestSandbox", "-bool", "YES"
-    xcodebuild \
-      "-scheme", "LoupeInjector",
-      "-destination", "generic/platform=iOS Simulator",
-      "-configuration", "Release",
-      "-derivedDataPath", injector_scratch/"DerivedData",
-      "ARCHS=#{simulator_arch}",
-      "ONLY_ACTIVE_ARCH=NO",
-      "CONFIGURATION_BUILD_DIR=#{injector_products}",
-      "build"
+    compiler_environment = ENV.remove_cc_etc
+    begin
+      system swift, "build",
+        "--configuration", "release",
+        "--disable-sandbox",
+        "--scratch-path", injector_scratch,
+        "--product", "LoupeInjector",
+        "--sdk", simulator_sdk,
+        "--triple", simulator_triple
+    ensure
+      ENV.update(compiler_environment)
+    end
 
-    injector_framework = injector_products/"PackageFrameworks/LoupeInjector.framework"
-    libexec.install injector_framework
+    simulator_build_dir = simulator_triple.sub(/ios[0-9.]+-simulator/, "ios-simulator")
+    injector_binary = injector_scratch/simulator_build_dir/"release/libLoupeInjector.dylib"
+    (libexec/"LoupeInjector.framework").install injector_binary => "LoupeInjector"
   end
 
   test do
