@@ -1,0 +1,267 @@
+name: Homebrew Bottles
+
+run-name: >-
+  Homebrew bottles${{ github.event_name == 'workflow_dispatch' && format(' for {0}', inputs.version) || '' }}
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/homebrew-bottles.yml
+      - Formula/loupe.rb
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version already referenced by Formula/loupe.rb (for example, 0.2.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-bottles-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Validate release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      root_url: ${{ steps.metadata.outputs.root_url }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate Formula version
+        id: metadata
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          formula_tag="$({
+            sed -nE 's#^[[:space:]]*url ".*refs/tags/(v[^\"]+)\.tar\.gz"$#\1#p' Formula/loupe.rb
+          })"
+          if [[ -z "$formula_tag" || "$(printf '%s\n' "$formula_tag" | wc -l | tr -d ' ')" != "1" ]]; then
+            echo "::error::Formula/loupe.rb must contain exactly one tagged source URL."
+            exit 1
+          fi
+
+          version="${formula_tag#v}"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            requested_version="${INPUT_VERSION#v}"
+            if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+              echo "::error::Run bottle publication from the $DEFAULT_BRANCH branch."
+              exit 1
+            fi
+            if [[ "$requested_version" != "$version" ]]; then
+              echo "::error::Requested version $requested_version does not match Formula version $version."
+              exit 1
+            fi
+            if grep -Eq '^[[:space:]]*bottle do' Formula/loupe.rb; then
+              echo "::error::Formula/loupe.rb already contains a bottle block. Remove the previous release block before publishing new bottles."
+              exit 1
+            fi
+
+            release_json="$(gh release view "$formula_tag" --json isDraft,tagName,url)"
+            if [[ "$(jq -r .isDraft <<<"$release_json")" != "true" ]]; then
+              echo "::error::$formula_tag must exist as a draft GitHub Release before bottles are published."
+              exit 1
+            fi
+          fi
+
+          git rev-parse --verify "refs/tags/$formula_tag^{commit}" >/dev/null
+
+          root_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/$formula_tag"
+          echo "tag=$formula_tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "root_url=$root_url" >> "$GITHUB_OUTPUT"
+
+  bottle:
+    name: Build and pour (${{ matrix.label }})
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple Silicon
+            runner: macos-15
+            artifact: arm64
+          - label: Intel
+            runner: macos-15-intel
+            artifact: intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      FORMULA: heoblitz/loupe/loupe
+      ROOT_URL: ${{ needs.metadata.outputs.root_url }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Register the repository as a tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          tap_dir="$(brew --repository)/Library/Taps/heoblitz/homebrew-loupe"
+          rm -rf "$tap_dir"
+          mkdir -p "$(dirname "$tap_dir")"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir"
+          brew trust heoblitz/loupe
+          brew tap-info heoblitz/loupe
+
+      - name: Build and test the Formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew uninstall --force "$FORMULA" >/dev/null 2>&1 || true
+          brew install --build-bottle "$FORMULA"
+          brew test "$FORMULA"
+
+      - name: Create the bottle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bottle-output
+          cd bottle-output
+          brew bottle --json --root-url="$ROOT_URL" "$FORMULA"
+          test "$(find . -maxdepth 1 -name '*.bottle.tar.gz' | wc -l | tr -d ' ')" = "1"
+          test "$(find . -maxdepth 1 -name '*.bottle.json' | wc -l | tr -d ' ')" = "1"
+
+      - name: Pour and verify the generated bottle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bottle_path="$(find "$GITHUB_WORKSPACE/bottle-output" -maxdepth 1 -name '*.bottle.tar.gz' -print -quit)"
+
+          brew uninstall --force "$FORMULA"
+          brew install --force-bottle "$bottle_path"
+          brew test "$FORMULA"
+
+          prefix="$(brew --prefix "$FORMULA")"
+          jq -e '.poured_from_bottle == true' "$prefix/INSTALL_RECEIPT.json" >/dev/null
+          test "$("$prefix/bin/loupe" --version)" = "loupe $VERSION"
+          test "$("$prefix/bin/loupe" injector-path)" = "$prefix/libexec/LoupeInjector.framework/LoupeInjector"
+          codesign --verify --strict "$prefix/bin/loupe"
+          codesign --verify --strict "$prefix/libexec/LoupeInjector.framework/LoupeInjector"
+
+      - name: Upload bottle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-bottles-${{ matrix.artifact }}
+          if-no-files-found: error
+          path: bottle-output/*
+
+  publish:
+    name: Publish bottles
+    if: github.event_name == 'workflow_dispatch'
+    needs:
+      - metadata
+      - bottle
+    runs-on: macos-15
+    permissions:
+      actions: read
+      contents: write
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      FORMULA: heoblitz/loupe/loupe
+      TAG: ${{ needs.metadata.outputs.tag }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout the default branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Download bottles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: loupe-bottles-*
+          path: bottle-output
+          merge-multiple: true
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@1f8e202ffddf94def7f42f6fa3a482e821489f9c # 2026.07.10.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Register the repository as a tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          tap_dir="$(brew --repository)/Library/Taps/heoblitz/homebrew-loupe"
+          rm -rf "$tap_dir"
+          mkdir -p "$(dirname "$tap_dir")"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir"
+          brew trust heoblitz/loupe
+
+      - name: Write the bottle block
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bottle_json=(bottle-output/*.bottle.json)
+          if [[ "${#bottle_json[@]}" != "2" ]]; then
+            echo "::error::Expected two bottle metadata files, found ${#bottle_json[@]}."
+            exit 1
+          fi
+          brew bottle --merge --write --no-commit "${bottle_json[@]}"
+          git diff --check
+          git diff --exit-code --quiet -- Formula/loupe.rb && {
+            echo "::error::Homebrew did not add a bottle block to Formula/loupe.rb."
+            exit 1
+          }
+          grep -F "releases/download/$TAG" Formula/loupe.rb >/dev/null
+
+      - name: Upload bottles to the draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bottles=(bottle-output/*.bottle.tar.gz)
+          if [[ "${#bottles[@]}" != "2" ]]; then
+            echo "::error::Expected two bottles, found ${#bottles[@]}."
+            exit 1
+          fi
+          gh release upload "$TAG" "${bottles[@]}" --clobber
+
+      - name: Commit the Formula bottle block
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Formula/loupe.rb
+          git commit -m "Add Homebrew bottles for $TAG"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+
+      - name: Summarize publication
+        shell: bash
+        run: |
+          {
+            echo "## Homebrew bottles published"
+            echo
+            echo "- Release: $TAG (still draft)"
+            echo "- Formula bottle block committed to $DEFAULT_BRANCH"
+            echo "- Publish the GitHub Release after the main Verify workflow passes"
+          } >> "$GITHUB_STEP_SUMMARY"
