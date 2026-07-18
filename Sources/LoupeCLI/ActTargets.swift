@@ -3,14 +3,12 @@ import LoupeCLIModel
 import LoupeCore
 
 struct ActTargetsOptions {
-    var host: URL
-    var hostWasExplicit: Bool
+    var host: URL?
     var udid: String?
     var timeout: TimeInterval
 
     init(_ arguments: [String]) throws {
-        host = URL(string: "http://127.0.0.1:8765")!
-        hostWasExplicit = false
+        host = nil
         var udid: String?
         var timeout: TimeInterval = 5
         var index = 0
@@ -24,7 +22,6 @@ struct ActTargetsOptions {
                     throw CLIError("Invalid --host URL: \(raw)")
                 }
                 host = url
-                hostWasExplicit = true
             case "--udid", "--device":
                 udid = try Self.value(after: argument, in: arguments, index: &index)
             case "--timeout":
@@ -58,7 +55,6 @@ extension LoupeCLI {
         let options = try ActTargetsOptions(arguments)
         let host = try await resolvedRuntimeHost(
             requestedHost: options.host,
-            hostWasExplicit: options.hostWasExplicit,
             udid: options.udid
         )
         let runtimeState = try await fetchRuntimeState(host: host, timeout: options.timeout)
