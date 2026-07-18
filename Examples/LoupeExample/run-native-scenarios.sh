@@ -278,7 +278,7 @@ if grep -Eq 'testID=|frame=|point=' "$TARGETS_PATH"; then
   exit 1
 fi
 DONE_ALIAS="$(ruby -e '
-  matches = File.readlines(ARGV.fetch(0), chomp: true).select { |line| line.match?(/\A#\d+ button "Done"\z/) }
+  matches = File.readlines(ARGV.fetch(0), chomp: true).select { |line| line.match?(/\A#\d+ button "Done" \[/) }
   abort "expected exactly one Done action target, got #{matches.inspect}" unless matches.length == 1
   puts matches.fetch(0)[/\A#\d+/]
 ' "$TARGETS_PATH")"
@@ -303,6 +303,28 @@ if .build/debug/loupe act tap "$DONE_ALIAS" --host "$HOST" --udid "$DEVICE" >"$T
   exit 1
 fi
 grep -q 'loupe act targets' "$TARGETS_RETRY_ERR"
+
+echo "case: accessibility action discovery and semantic execution"
+TARGETS_ACTIONS_PATH="/tmp/loupe-native-action-capabilities.txt"
+.build/debug/loupe act targets --host "$HOST" --udid "$DEVICE" > "$TARGETS_ACTIONS_PATH"
+grep -E -q 'slider .*\[.*increment.*decrement' "$TARGETS_ACTIONS_PATH"
+grep -q '"custom:Reset switch"' "$TARGETS_ACTIONS_PATH"
+.build/debug/loupe act perform --host "$HOST" --udid "$DEVICE" --test-id example.components.slider --action increment >/tmp/loupe-native-perform-increment.json
+grep -q '"action":"increment"' /tmp/loupe-native-perform-increment.json
+fetch_snapshot
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.slider > "$INSPECT_PATH"
+ruby -rjson -e '
+  node = JSON.parse(File.read(ARGV.fetch(0))).fetch("node")
+  value = node.fetch("uikit").fetch("slider").fetch("value")
+  abort "slider accessibility increment did not change value" unless value > 42
+' "$INSPECT_PATH"
+.build/debug/loupe act perform --host "$HOST" --udid "$DEVICE" --test-id example.components.switch --action 'custom:Reset switch' >/tmp/loupe-native-perform-custom.json
+grep -q '"action":"custom:Reset switch"' /tmp/loupe-native-perform-custom.json
+fetch_snapshot
+.build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.components.switch > "$INSPECT_PATH"
+grep -q '"isOn" : false' "$INSPECT_PATH"
+.build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --test-id example.components.switch
+.build/debug/loupe act wait value --host "$HOST" --test-id example.components.switch --key uikit.switch.isOn --equals true --timeout 5 >/tmp/loupe-native-wait-switch-restored.json
 
 echo "case: UIKit component compact and inspect coverage"
 .build/debug/loupe ui compact --host "$HOST" --timeout 5 --output "$OBSERVATION_PATH"
@@ -590,7 +612,7 @@ grep -q '"url" : "https:\\/\\/loupe.local\\/fixture"' "$INSPECT_PATH"
 
 launch_app fixtures.keyboard
 .build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures.keyboard.firstName --timeout 5 >/tmp/loupe-native-wait-keyboard.json
-.build/debug/loupe act type "1" --udid "$DEVICE"
+.build/debug/loupe act input --host "$HOST" --udid "$DEVICE" --test-id example.fixtures.keyboard.firstName --text "1"
 fetch_snapshot
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id example.fixtures.keyboard.firstName > "$INSPECT_PATH"
 grep -q '"className" : "UITextField"' "$INSPECT_PATH"

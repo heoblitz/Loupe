@@ -54,7 +54,7 @@ Run the native HID scenario harness:
 ```
 
 This repeats routed navigation fixtures, gesture pop, synthetic `UIBarButtonItem`
-selector node inspection, `wait-for-visible`, bounded `subtree`, accessibility
+selector node inspection, `act wait visible`, bounded `subtree`, accessibility
 tree export/query, compact UIKit class identity, full component-specific
 properties, mixed fixture tabs, text input, WebKit inspection, nested scroll
 inspection, and the layout audit output path.

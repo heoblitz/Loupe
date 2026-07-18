@@ -8,11 +8,12 @@ source reflection.
 ```bash
 $LOUPE act targets --host <host>
 $LOUPE act tap '#2' --host <host>
+$LOUPE act perform '#4' increment --host <host>
 $LOUPE act tap --host <host> --snapshot <snapshot.json> --ref n21 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act tap --host <host> --x 201 --y 274 --width 438 --height 954 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act swipe --host <host> --from 219,760 --to 219,190 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act drag --host <host> --from 350,240 --to 80,240 --udid <sim-udid> --trace-dir <trace-dir>
-$LOUPE act type "hello" --host <host> --udid <sim-udid> --trace-dir <trace-dir>
+$LOUPE act input '#3' "hello" --host <host> --udid <sim-udid>
 $LOUPE act wait value --host <host> --test-id feed.list --key uikit.scrollView.contentOffset.y --equals 80 --output <wait.json>
 $LOUPE debug trace summary <trace-dir>
 ```
@@ -35,7 +36,7 @@ next alias action.
   query, node, content offset, log, default, focus, or state evidence.
 - System permission alerts are outside the app runtime tree. Use screenshot or
   host/simulator evidence; do not claim an app query tapped the alert.
-- `act type` writes into the current selection; focusing can select existing
+- `act input` focuses the saved target before writing; focusing can select existing
   text, so typing may replace instead of append. Traces redact requested input,
   so prove the final value with a fresh report/query/node and never raw
   secrets.

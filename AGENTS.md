@@ -110,7 +110,8 @@ Examples/LoupeExample/run-loupe-driven-ui-test.sh
 
 ## Known Boundary
 
-`loupe tap`, `loupe swipe`, `loupe drag`, and `loupe type` exist as runtime
-commands. They use Loupe's native HID dispatch for tap, drag, swipe, and type.
-`loupe pinch` keeps the intended API shape but is not implemented yet. The
-current UI test remains a legacy proof only.
+`loupe act tap`, `loupe act swipe`, `loupe act drag`, `loupe act input`, and
+`loupe act press` are runtime commands. They use Loupe's native HID dispatch.
+`loupe act perform` invokes a target's declared Apple accessibility action in
+the app runtime. Pinch is not implemented. The current UI test remains a legacy
+proof only.

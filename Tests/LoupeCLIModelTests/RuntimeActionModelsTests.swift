@@ -64,6 +64,24 @@ struct RuntimeActionModelsTests {
                 "ax-disabled": axNode(ref: "ax-disabled", sourceRef: "disabled", text: "Disabled", frame: LoupeRect(x: 20, y: 20, width: 80, height: 44), enabled: false),
                 "ax-static": axNode(ref: "ax-static", sourceRef: "static", text: "Static", frame: LoupeRect(x: 20, y: 30, width: 80, height: 44), interactive: false),
                 "ax-offscreen": axNode(ref: "ax-offscreen", sourceRef: "offscreen", text: "Offscreen", frame: LoupeRect(x: 450, y: 40, width: 80, height: 44)),
+                "ax-window": LoupeAccessibilityNode(
+                    ref: "ax-window",
+                    sourceRef: "window",
+                    role: "window",
+                    frame: LoupeRect(x: 0, y: 0, width: 400, height: 800),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: true
+                ),
+                "ax-empty": LoupeAccessibilityNode(
+                    ref: "ax-empty",
+                    sourceRef: "empty",
+                    role: "element",
+                    frame: LoupeRect(x: 0, y: 50, width: 40, height: 40),
+                    isVisible: true,
+                    isEnabled: true,
+                    isInteractive: true
+                ),
                 "ax-synthetic": axNode(ref: "ax-synthetic", sourceRef: "synthetic", text: "Open", testID: "open", frame: LoupeRect(x: 20, y: 300, width: 80, height: 44)),
                 "ax-backing": axNode(ref: "ax-backing", sourceRef: "backing", text: "Open", testID: "open", frame: LoupeRect(x: 220, y: 300, width: 80, height: 44)),
             ]
@@ -107,17 +125,44 @@ struct RuntimeActionModelsTests {
                     point: LoupePoint(x: 32, y: 42),
                     isVisible: true,
                     isEnabled: true,
-                    isInteractive: true
+                    isInteractive: true,
+                    actions: [.activate, .custom("Copy link")]
                 ),
             ]
         )
 
         #expect(
             ActionTargetAliasText.render(cache)
-                == "App: com.example.checkout\n\n#1 button \"Pay \\\"now\\\"\\nplease\""
+                == "App: com.example.checkout\n\n#1 button \"Pay \\\"now\\\"\\nplease\" [tap,activate,\"custom:Copy link\"]"
         )
         #expect(!ActionTargetAliasText.render(cache).contains("checkout.pay"))
         #expect(!ActionTargetAliasText.render(cache).contains("frame"))
+    }
+
+    @Test func performParsesAliasAndCustomAccessibilityAction() throws {
+        let increment = try AccessibilityActionOptions(arguments: ["#4", "increment"])
+        #expect(increment.targetAlias == 4)
+        #expect(increment.action == .increment)
+
+        let custom = try AccessibilityActionOptions(arguments: [
+            "--test-id", "photo.item", "--action", "custom:Copy link",
+        ])
+        #expect(custom.selector == .testID("photo.item"))
+        #expect(custom.action == .custom("Copy link"))
+    }
+
+    @Test func targetedInputParsesAliasAndStableSelectorForms() throws {
+        let alias = try TargetedInputOptions(arguments: ["#3", "hello", "--udid", "SIM-1"])
+        #expect(alias.targetArguments == ["#3"])
+        #expect(alias.text == "hello")
+        #expect(alias.commonArguments == ["--udid", "SIM-1"])
+
+        let selector = try TargetedInputOptions(arguments: [
+            "--test-id", "checkout.card", "--text", "4242", "--host", "http://127.0.0.1:9000",
+        ])
+        #expect(selector.targetArguments == ["--test-id", "checkout.card"])
+        #expect(selector.text == "4242")
+        #expect(selector.commonArguments == ["--host", "http://127.0.0.1:9000"])
     }
 
     @Test func actionTargetCacheRejectsNonActionableCachedEntry() {

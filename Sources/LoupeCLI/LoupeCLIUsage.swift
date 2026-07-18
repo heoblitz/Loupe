@@ -46,10 +46,11 @@ extension LoupeCLI {
 
     SUBCOMMANDS:
       targets                 List lightweight accessibility action targets.
+      perform                 Perform an Apple accessibility action on a target.
       tap                     Tap a selector, ref, or coordinate.
       swipe                   Dispatch a one-finger swipe.
       drag                    Dispatch a one-finger drag.
-      type                    Type text into the focused field.
+      input                   Focus a saved text target and enter text.
       press                   Press a simulator remote or keyboard button.
       wait                    Wait for visible, gone, or value state.
     """
@@ -146,6 +147,8 @@ extension LoupeCLI {
             return ApplyDesignSuggestionsOptions.usage
         case "act targets":
             return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]\n\nExample: loupe act targets"
+        case "act perform":
+            return "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--udid <sim>] [--timeout <seconds>]\n\nExample: loupe act perform '#4' increment"
         case "act tap":
             return """
             Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]
@@ -157,8 +160,8 @@ extension LoupeCLI {
             return "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]"
         case "act drag":
             return "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]"
-        case "act type":
-            return "Usage: loupe act type <text> [--udid <sim>] [--host <url>] [--trace-dir <path>] [--timeout <seconds>]"
+        case "act input":
+            return "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--timeout <seconds>]\n\nExample: loupe act input '#3' \"4242 4242 4242 4242\""
         case "act press":
             return "Usage: loupe act press up|down|left|right|select|menu|playPause [--udid <sim>] [--host <url>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]"
         case "act wait":

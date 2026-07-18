@@ -63,10 +63,11 @@ import Testing
             "ui set": "Usage: loupe ui set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--snapshot <snapshot.json>] [--include-hidden] [--output <path>]",
             "act": "Usage: loupe act <subcommand>",
             "act targets": "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]",
+            "act perform": "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--udid <sim>] [--timeout <seconds>]",
             "act tap": "Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
             "act swipe": "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]",
             "act drag": "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]",
-            "act type": "Usage: loupe act type <text> [--udid <sim>] [--host <url>] [--trace-dir <path>] [--timeout <seconds>]",
+            "act input": "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--timeout <seconds>]",
             "act press": "Usage: loupe act press up|down|left|right|select|menu|playPause [--udid <sim>] [--host <url>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
             "act wait": "Usage: loupe act wait visible|gone (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--timeout <seconds>] [--output <path>]",
             "debug": "Usage: loupe debug <subcommand>",
@@ -146,10 +147,11 @@ import Testing
             "ui apply-design-suggestions",
             "act",
             "act targets",
+            "act perform",
             "act tap",
             "act swipe",
             "act drag",
-            "act type",
+            "act input",
             "act press",
             "act wait",
             "debug",
@@ -206,31 +208,6 @@ import Testing
         ]
 
         for command in removedCommands {
-            #expect(LoupeCLI.commandUsage(command) == nil)
-        }
-    }
-
-    @Test func deprecatedMainBranchCommandsHaveHiddenReplacements() {
-        let expected: [String: [String]] = [
-            "start": ["app", "launch"],
-            "launch": ["app", "launch"],
-            "fetch": ["ui", "snapshot"],
-            "capture-report": ["ui", "report"],
-            "compact": ["ui", "compact"],
-            "screen-map": ["ui", "screen"],
-            "tree": ["ui", "tree"],
-            "inspect": ["ui", "node"],
-            "query": ["ui", "query"],
-            "logs": ["debug", "logs"],
-            "trace-summary": ["debug", "trace", "summary"],
-            "tap": ["act", "tap"],
-            "set": ["ui", "set"],
-            "set-many": ["ui", "set-many"],
-            "wait-for-visible": ["act", "wait"],
-        ]
-
-        for (command, replacement) in expected {
-            #expect(LoupeCLI.deprecatedCommandReplacement(command) == replacement)
             #expect(LoupeCLI.commandUsage(command) == nil)
         }
     }

@@ -3,6 +3,7 @@ import LoupeCore
 
 #if canImport(UIKit) && !os(watchOS)
 import UIKit
+import ObjectiveC.runtime
 #if canImport(WebKit)
 import WebKit
 #endif
@@ -32,7 +33,20 @@ public final class LoupeAgent {
         guard ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" else {
             return LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: capture.snapshot))
         }
-        return captureNativeAccessibilityTree(snapshot: capture.snapshot, viewRefs: capture.viewRefs)
+        return captureNativeAccessibilityTree(
+            snapshot: capture.snapshot,
+            viewRefs: capture.viewRefs,
+            viewsByRef: capture.viewsByRef
+        ).tree
+    }
+
+    func captureAccessibilityActionTree() -> CapturedAccessibilityTree {
+        let capture = captureSnapshotWithViewRefs()
+        return captureNativeAccessibilityTree(
+            snapshot: capture.snapshot,
+            viewRefs: capture.viewRefs,
+            viewsByRef: capture.viewsByRef
+        )
     }
 
     func captureSnapshotWithViewRefs() -> CapturedSnapshot {
@@ -412,6 +426,7 @@ public final class LoupeAgent {
         let hint = nonEmpty(element.accessibilityHint)
         let traits = accessibilityTraits(element.accessibilityTraits)
         let role = accessibilityRole(forTraits: traits)
+        let actions = accessibilityActions(for: element, role: role, traits: traits)
         let frame = loupeRect(from: element.accessibilityFrame)
         let activationPoint = validActivationPoint(
             LoupePoint(
@@ -453,7 +468,8 @@ public final class LoupeAgent {
                 traits: traits,
                 frame: frame,
                 activationPoint: activationPoint,
-                isElement: true
+                isElement: true,
+                actions: actions
             ),
             runtime: LoupeNodeRuntimeProperties(frameworkBundleIdentifier: "com.apple.SwiftUI"),
             swiftui: loupeSwiftUISemanticProperties(
@@ -471,14 +487,18 @@ public final class LoupeAgent {
 
     private func captureNativeAccessibilityTree(
         snapshot: LoupeSnapshot,
-        viewRefs: [ObjectIdentifier: String]
-    ) -> LoupeAccessibilityTree {
+        viewRefs: [ObjectIdentifier: String],
+        viewsByRef: [String: UIView]
+    ) -> CapturedAccessibilityTree {
         nextNativeAccessibilityRef = 0
 
         let context = LoupeSnapshotContext(snapshot: snapshot)
         var tree = LoupeAccessibilityTree.build(from: context)
         var signatures = Set(tree.nodes.values.map(nativeAccessibilitySignature(for:)))
         let accessibilityVisibleRefs = context.occlusionVisibleRefs
+        var objectsByRef = Dictionary(uniqueKeysWithValues: viewsByRef.map { sourceRef, view in
+            ("ax-\(sourceRef)", view as NSObject)
+        })
 
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows {
@@ -488,12 +508,17 @@ public final class LoupeAgent {
                     viewRefs: viewRefs,
                     accessibilityVisibleRefs: accessibilityVisibleRefs,
                     tree: &tree,
-                    signatures: &signatures
+                    signatures: &signatures,
+                    objectsByRef: &objectsByRef
                 )
             }
         }
 
-        return tree
+        return CapturedAccessibilityTree(
+            snapshot: snapshot,
+            tree: tree,
+            objectsByRef: objectsByRef
+        )
     }
 
     private func appendNativeAccessibilityElements(
@@ -502,7 +527,8 @@ public final class LoupeAgent {
         viewRefs: [ObjectIdentifier: String],
         accessibilityVisibleRefs: Set<String>,
         tree: inout LoupeAccessibilityTree,
-        signatures: inout Set<String>
+        signatures: inout Set<String>,
+        objectsByRef: inout [String: NSObject]
     ) {
         guard let sourceRef = viewRefs[ObjectIdentifier(view)] else {
             view.subviews.forEach {
@@ -512,7 +538,8 @@ public final class LoupeAgent {
                     viewRefs: viewRefs,
                     accessibilityVisibleRefs: accessibilityVisibleRefs,
                     tree: &tree,
-                    signatures: &signatures
+                    signatures: &signatures,
+                    objectsByRef: &objectsByRef
                 )
             }
             return
@@ -541,6 +568,7 @@ public final class LoupeAgent {
 
             signatures.insert(signature)
             tree.nodes[node.ref] = node
+            objectsByRef[node.ref] = element
             if let parentRef = node.parentRef, var parent = tree.nodes[parentRef] {
                 parent.children.append(node.ref)
                 parent.children.sort { lhs, rhs in
@@ -562,7 +590,8 @@ public final class LoupeAgent {
                 viewRefs: viewRefs,
                 accessibilityVisibleRefs: accessibilityVisibleRefs,
                 tree: &tree,
-                signatures: &signatures
+                signatures: &signatures,
+                objectsByRef: &objectsByRef
             )
         }
     }
@@ -579,6 +608,8 @@ public final class LoupeAgent {
         let value = nonEmpty(element.accessibilityValue)
         let hint = nonEmpty(element.accessibilityHint)
         let traits = accessibilityTraits(element.accessibilityTraits)
+        let role = accessibilityRole(forTraits: traits)
+        let actions = accessibilityActions(for: element, role: role, traits: traits)
         let frame = loupeRect(from: element.accessibilityFrame)
         let activationPoint = validActivationPoint(
             LoupePoint(
@@ -603,7 +634,7 @@ public final class LoupeAgent {
             ref: makeNativeAccessibilityRef(sourceRef: sourceRef),
             sourceRef: sourceRef,
             parentRef: treeParentRef(for: sourceRef, tree: tree),
-            role: accessibilityRole(forTraits: traits),
+            role: role,
             label: label,
             value: value,
             hint: hint,
@@ -613,7 +644,8 @@ public final class LoupeAgent {
             activationPoint: activationPoint,
             isVisible: isVisible,
             isEnabled: !traits.contains("notEnabled"),
-            isInteractive: isInteractiveAccessibilityTraits(traits),
+            isInteractive: isInteractiveAccessibilityTraits(traits) || !actions.isEmpty,
+            actions: actions,
             children: []
         )
     }
@@ -695,6 +727,12 @@ struct CapturedSnapshot {
     var snapshot: LoupeSnapshot
     var viewRefs: [ObjectIdentifier: String]
     var viewsByRef: [String: UIView]
+}
+
+struct CapturedAccessibilityTree {
+    var snapshot: LoupeSnapshot
+    var tree: LoupeAccessibilityTree
+    var objectsByRef: [String: NSObject]
 }
 
 @MainActor
@@ -1121,6 +1159,91 @@ private func isInteractiveAccessibilityTraits(_ traits: [String]) -> Bool {
         || traits.contains("allowsDirectInteraction")
 }
 
+@MainActor
+private func accessibilityActions(
+    for element: NSObject,
+    role: String?,
+    traits: [String]
+) -> [LoupeAccessibilityAction] {
+    var actions: [LoupeAccessibilityAction] = []
+    let activatingRoles: Set<String> = [
+        "button", "link", "keyboardKey", "switch", "segmentedControl",
+        "textField", "textView", "searchField", "cell",
+    ]
+    let blockActions: (
+        activate: Bool,
+        increment: Bool,
+        decrement: Bool,
+        escape: Bool,
+        magicTap: Bool
+    )
+    if #available(iOS 17.0, tvOS 17.0, visionOS 2.0, *) {
+        let activateSelector = NSSelectorFromString("accessibilityActivateBlock")
+        let incrementSelector = NSSelectorFromString("accessibilityIncrementBlock")
+        let decrementSelector = NSSelectorFromString("accessibilityDecrementBlock")
+        let escapeSelector = NSSelectorFromString("accessibilityPerformEscapeBlock")
+        let magicTapSelector = NSSelectorFromString("accessibilityMagicTapBlock")
+        blockActions = (
+            element.responds(to: activateSelector) && element.accessibilityActivateBlock != nil,
+            element.responds(to: incrementSelector) && element.accessibilityIncrementBlock != nil,
+            element.responds(to: decrementSelector) && element.accessibilityDecrementBlock != nil,
+            element.responds(to: escapeSelector) && element.accessibilityPerformEscapeBlock != nil,
+            element.responds(to: magicTapSelector) && element.accessibilityMagicTapBlock != nil
+        )
+    } else {
+        blockActions = (false, false, false, false, false)
+    }
+
+    if element is UIControl
+        || role.map(activatingRoles.contains) == true
+        || blockActions.activate
+        || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityActivate)) {
+        actions.append(.activate)
+    }
+    if traits.contains("adjustable") || ["slider", "stepper"].contains(role) || blockActions.increment {
+        actions.append(.increment)
+    }
+    if traits.contains("adjustable") || ["slider", "stepper"].contains(role) || blockActions.decrement {
+        actions.append(.decrement)
+    }
+    var supportsZoom = traits.contains("supportsZoom")
+    if #available(iOS 17.0, tvOS 17.0, visionOS 1.0, *) {
+        supportsZoom = supportsZoom
+            || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityZoomIn(at:)))
+            || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityZoomOut(at:)))
+    }
+    if supportsZoom {
+        actions.append(contentsOf: [.zoomIn, .zoomOut])
+    }
+    if element is UIScrollView
+        || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityScroll(_:))) {
+        actions.append(contentsOf: [
+            .scrollRight, .scrollLeft, .scrollUp, .scrollDown, .scrollNext, .scrollPrevious,
+        ])
+    }
+    if blockActions.escape || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityPerformEscape)) {
+        actions.append(.escape)
+    }
+    if blockActions.magicTap || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityPerformMagicTap)) {
+        actions.append(.magicTap)
+    }
+    actions.append(contentsOf: (element.accessibilityCustomActions ?? []).compactMap { action in
+        let name = action.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : .custom(name)
+    })
+
+    var seen = Set<LoupeAccessibilityAction>()
+    return actions.filter { seen.insert($0).inserted }
+}
+
+private func overridesAccessibilityMethod(_ element: NSObject, _ selector: Selector) -> Bool {
+    guard let concrete = class_getInstanceMethod(type(of: element), selector),
+          let base = class_getInstanceMethod(NSObject.self, selector) else {
+        return false
+    }
+    return method_getImplementation(concrete) != method_getImplementation(base)
+}
+
 private func nativeAccessibilitySignature(for node: LoupeAccessibilityNode) -> String {
     let frame = node.frame.map {
         "\(Int($0.x.rounded())):\(Int($0.y.rounded())):\(Int($0.width.rounded())):\(Int($0.height.rounded()))"
@@ -1174,15 +1297,17 @@ private func accessibility(for view: UIView) -> LoupeAccessibility {
         value = view.accessibilityValue
     }
 
+    let traits = accessibilityTraits(view.accessibilityTraits)
     return LoupeAccessibility(
         identifier: view.accessibilityIdentifier,
         label: view.accessibilityLabel,
         value: value,
         hint: view.accessibilityHint,
-        traits: accessibilityTraits(view.accessibilityTraits),
+        traits: traits,
         frame: frameInScreen(for: view),
         activationPoint: activationPoint(for: view),
-        isElement: view.isAccessibilityElement
+        isElement: view.isAccessibilityElement,
+        actions: accessibilityActions(for: view, role: role(for: view), traits: traits)
     )
 }
 

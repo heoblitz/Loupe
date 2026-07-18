@@ -138,7 +138,11 @@ extension LoupeCLI {
         switch subcommand {
         case "targets":
             try await actionTargets(rest)
-        case "tap", "swipe", "drag", "type", "press":
+        case "perform":
+            try await performAccessibilityAction(rest)
+        case "input":
+            try await targetedInput(rest)
+        case "tap", "swipe", "drag", "press":
             try await action(command: subcommand, arguments: rest)
         case "wait":
             try await wait(rest)

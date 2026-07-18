@@ -87,6 +87,7 @@ public struct LoupeAccessibility: Codable, Equatable {
     public var frame: LoupeRect?
     public var activationPoint: LoupePoint?
     public var isElement: Bool
+    public var actions: [LoupeAccessibilityAction]?
 
     public init(
         identifier: String? = nil,
@@ -96,7 +97,8 @@ public struct LoupeAccessibility: Codable, Equatable {
         traits: [String] = [],
         frame: LoupeRect? = nil,
         activationPoint: LoupePoint? = nil,
-        isElement: Bool = false
+        isElement: Bool = false,
+        actions: [LoupeAccessibilityAction]? = nil
     ) {
         self.identifier = identifier
         self.label = label
@@ -106,6 +108,7 @@ public struct LoupeAccessibility: Codable, Equatable {
         self.frame = frame
         self.activationPoint = activationPoint
         self.isElement = isElement
+        self.actions = actions
     }
 }
 

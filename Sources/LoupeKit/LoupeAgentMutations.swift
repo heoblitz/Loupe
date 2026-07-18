@@ -6,6 +6,9 @@ import UIKit
 
 public extension LoupeAgent {
     func activate(_ request: LoupeActivationRequest) throws -> LoupeActivationResponse {
+        if request.action != nil {
+            return try performAccessibilityAction(request)
+        }
         let beforeCapture = captureSnapshotWithViewRefs()
         let beforeContext = LoupeSnapshotContext(snapshot: beforeCapture.snapshot)
         let selector = loupeSelector(from: request.selector)
@@ -211,6 +214,243 @@ public extension LoupeAgent {
             .sorted { $0.property < $1.property }
     }
 
+}
+
+@MainActor
+private extension LoupeAgent {
+    func performAccessibilityAction(_ request: LoupeActivationRequest) throws -> LoupeActivationResponse {
+        guard let action = request.action else {
+            throw LoupeMutationError(code: "missing_accessibility_action", message: "Accessibility action is required.")
+        }
+        let capture = captureAccessibilityActionTree()
+        let matches = accessibilityActionMatches(request: request, capture: capture)
+        guard matches.count == 1, let target = matches.first else {
+            if matches.isEmpty {
+                throw LoupeMutationError(status: 404, code: "accessibility_target_not_found", message: "No current accessibility node matched the saved target.")
+            }
+            throw LoupeMutationError(
+                code: "ambiguous_accessibility_target",
+                message: "Saved target matched multiple accessibility nodes: \(matches.map(\.ref).joined(separator: ", "))"
+            )
+        }
+        guard target.isVisible, target.isEnabled else {
+            throw LoupeMutationError(code: "unavailable_accessibility_target", message: "Accessibility target is hidden or disabled.")
+        }
+        guard target.actions?.contains(action) == true else {
+            throw LoupeMutationError(
+                code: "unsupported_accessibility_action",
+                message: "Target \(target.ref) does not currently expose action '\(action.commandName)'."
+            )
+        }
+        guard let element = capture.objectsByRef[target.ref] else {
+            throw LoupeMutationError(
+                code: "unsupported_accessibility_target",
+                message: "Accessibility target \(target.ref) is not backed by a live UIKit accessibility element."
+            )
+        }
+        guard let beforeNode = capture.snapshot.nodes[target.sourceRef] else {
+            throw LoupeMutationError(status: 404, code: "node_not_found", message: "Accessibility source node disappeared before action.")
+        }
+
+        let startedAt = Date()
+        let handled = try performUIKitAccessibilityAction(action, on: element, node: target)
+        guard handled else {
+            throw LoupeMutationError(
+                code: "accessibility_action_not_handled",
+                message: "Target \(target.ref) declined action '\(action.commandName)'."
+            )
+        }
+        layoutRuntimeWindows()
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let afterCapture = captureSnapshotWithViewRefs()
+
+        LoupeRuntime.shared.log(
+            level: "info",
+            "accessibility_action_applied",
+            metadata: [
+                "ref": .string(target.ref),
+                "action": .string(action.commandName),
+            ]
+        )
+
+        return LoupeActivationResponse(
+            selector: request.selector,
+            target: LoupeQueryResult(node: beforeNode),
+            before: beforeNode,
+            after: afterCapture.snapshot.nodes[target.sourceRef],
+            actionElapsed: elapsed,
+            snapshotID: afterCapture.snapshot.id,
+            action: action,
+            accessibilityTarget: target
+        )
+    }
+
+    func accessibilityActionMatches(
+        request: LoupeActivationRequest,
+        capture: CapturedAccessibilityTree
+    ) -> [LoupeAccessibilityNode] {
+        if let expected = request.accessibilityTarget {
+            if let exact = capture.tree.nodes[expected.ref],
+               accessibilityFingerprintMatches(exact, expected: expected),
+               capture.objectsByRef[exact.ref] != nil {
+                return [exact]
+            }
+
+            let candidates = capture.tree.nodes.values.filter {
+                accessibilityFingerprintMatches($0, expected: expected)
+                    && capture.objectsByRef[$0.ref] != nil
+            }
+            if let testID = expected.testID, !testID.isEmpty {
+                let identified = candidates.filter { $0.testID == testID }
+                if !identified.isEmpty { return identified }
+            }
+            return candidates
+        }
+
+        return LoupeAccessibilityTreeQuery.find(loupeSelector(from: request.selector), in: capture.tree)
+            .compactMap { capture.tree.nodes[$0.ref] }
+            .filter { capture.objectsByRef[$0.ref] != nil }
+    }
+}
+
+private func accessibilityFingerprintMatches(
+    _ node: LoupeAccessibilityNode,
+    expected: LoupeAccessibilityTargetIdentity
+) -> Bool {
+    if let testID = expected.testID, !testID.isEmpty, node.testID != testID { return false }
+    if let role = expected.role, !role.isEmpty, node.role != role { return false }
+    if let label = expected.label, !label.isEmpty, node.label != label { return false }
+    if let frame = expected.frame, let current = node.frame {
+        let tolerance = 2.0
+        if abs(frame.x - current.x) > tolerance
+            || abs(frame.y - current.y) > tolerance
+            || abs(frame.width - current.width) > tolerance
+            || abs(frame.height - current.height) > tolerance {
+            return false
+        }
+    }
+    return true
+}
+
+@MainActor
+private func performUIKitAccessibilityAction(
+    _ action: LoupeAccessibilityAction,
+    on element: NSObject,
+    node: LoupeAccessibilityNode
+) throws -> Bool {
+    switch action.name {
+    case "activate":
+        if element.accessibilityActivate() { return true }
+        if let control = element as? UIControl {
+            try activateView(control)
+            return true
+        }
+        return false
+    case "increment":
+        return performUIKitAdjustment(increment: true, on: element)
+    case "decrement":
+        return performUIKitAdjustment(increment: false, on: element)
+    case "zoom-in":
+        if #available(iOS 17.0, tvOS 17.0, visionOS 1.0, *) {
+            return element.accessibilityZoomIn(at: cgPoint(for: node))
+        }
+        return false
+    case "zoom-out":
+        if #available(iOS 17.0, tvOS 17.0, visionOS 1.0, *) {
+            return element.accessibilityZoomOut(at: cgPoint(for: node))
+        }
+        return false
+    case "scroll-right":
+        return element.accessibilityScroll(.right)
+    case "scroll-left":
+        return element.accessibilityScroll(.left)
+    case "scroll-up":
+        return element.accessibilityScroll(.up)
+    case "scroll-down":
+        return element.accessibilityScroll(.down)
+    case "scroll-next":
+        return element.accessibilityScroll(.next)
+    case "scroll-previous":
+        return element.accessibilityScroll(.previous)
+    case "escape":
+        return element.accessibilityPerformEscape()
+    case "magic-tap":
+        return element.accessibilityPerformMagicTap()
+    case "custom":
+        guard let customName = action.customName,
+              let customAction = element.accessibilityCustomActions?.first(where: { $0.name == customName }) else {
+            return false
+        }
+        return performUIKitCustomAction(customAction)
+    default:
+        throw LoupeMutationError(code: "unknown_accessibility_action", message: "Unknown UIKit accessibility action '\(action.commandName)'.")
+    }
+}
+
+@MainActor
+private func performUIKitAdjustment(increment: Bool, on element: NSObject) -> Bool {
+    #if !os(tvOS)
+    if let slider = element as? UISlider {
+        let before = slider.value
+        if increment { slider.accessibilityIncrement() } else { slider.accessibilityDecrement() }
+        if slider.value == before {
+            let delta = max((slider.maximumValue - slider.minimumValue) / 10, 0.01)
+            slider.value = increment
+                ? min(slider.maximumValue, before + delta)
+                : max(slider.minimumValue, before - delta)
+            if slider.value != before { slider.sendActions(for: .valueChanged) }
+        }
+        return true
+    }
+    if let stepper = element as? UIStepper {
+        let before = stepper.value
+        if increment { stepper.accessibilityIncrement() } else { stepper.accessibilityDecrement() }
+        if stepper.value == before {
+            stepper.value = increment
+                ? min(stepper.maximumValue, before + stepper.stepValue)
+                : max(stepper.minimumValue, before - stepper.stepValue)
+            if stepper.value != before { stepper.sendActions(for: .valueChanged) }
+        }
+        return true
+    }
+    #endif
+    if let pageControl = element as? UIPageControl {
+        let before = pageControl.currentPage
+        if increment { pageControl.accessibilityIncrement() } else { pageControl.accessibilityDecrement() }
+        if pageControl.currentPage == before {
+            pageControl.currentPage = increment
+                ? min(max(0, pageControl.numberOfPages - 1), before + 1)
+                : max(0, before - 1)
+            if pageControl.currentPage != before { pageControl.sendActions(for: .valueChanged) }
+        }
+        return true
+    }
+
+    if increment { element.accessibilityIncrement() } else { element.accessibilityDecrement() }
+    return true
+}
+
+private func cgPoint(for node: LoupeAccessibilityNode) -> CGPoint {
+    let point = node.activationPoint ?? node.frame?.center ?? LoupePoint(x: 0, y: 0)
+    return CGPoint(x: point.x, y: point.y)
+}
+
+@MainActor
+private func performUIKitCustomAction(_ action: UIAccessibilityCustomAction) -> Bool {
+    if #available(iOS 13.0, tvOS 13.0, visionOS 1.0, *), let handler = action.actionHandler {
+        return handler(action)
+    }
+    guard let target = action.target,
+          let method = class_getInstanceMethod(type(of: target), action.selector) else {
+        return false
+    }
+    let implementation = method_getImplementation(method)
+    if method_getNumberOfArguments(method) == 2 {
+        typealias Function = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Function.self)(target as AnyObject, action.selector)
+    }
+    typealias Function = @convention(c) (AnyObject, Selector, UIAccessibilityCustomAction) -> Bool
+    return unsafeBitCast(implementation, to: Function.self)(target as AnyObject, action.selector, action)
 }
 
 @MainActor
