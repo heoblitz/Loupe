@@ -160,7 +160,7 @@ jobs:
           bottle_path="$(find "$GITHUB_WORKSPACE/bottle-output" -maxdepth 1 -name '*.bottle.tar.gz' -print -quit)"
 
           brew uninstall --force "$FORMULA"
-          brew install --force-bottle "$bottle_path"
+          HOMEBREW_DEVELOPER=1 brew install --force-bottle "$bottle_path"
           brew test "$FORMULA"
 
           prefix="$(brew --prefix "$FORMULA")"
