@@ -19,6 +19,8 @@ class Loupe < Formula
     simulator_arch = Hardware::CPU.arm? ? "arm64" : "x86_64"
     injector_scratch = buildpath/".build/homebrew-loupe-injector"
     injector_products = injector_scratch/"products"
+    # Homebrew already sandboxes the install, so Xcode's nested manifest sandbox cannot start.
+    ENV["IDEPackageSupportDisableManifestSandbox"] = "YES"
     xcodebuild \
       "-scheme", "LoupeInjector",
       "-destination", "generic/platform=iOS Simulator",
