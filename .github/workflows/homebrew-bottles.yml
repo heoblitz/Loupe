@@ -135,6 +135,14 @@ jobs:
           brew install --build-bottle "$FORMULA"
           brew test "$FORMULA"
 
+      - name: Upload Homebrew build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-homebrew-logs-${{ matrix.artifact }}
+          if-no-files-found: ignore
+          path: ~/Library/Logs/Homebrew/loupe
+
       - name: Create the bottle
         shell: bash
         run: |

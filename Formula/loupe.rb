@@ -16,20 +16,21 @@ class Loupe < Formula
     bin.install ".build/release/loupe"
     (pkgshare/"skills").install "skills/loupe" => "loupe"
 
-    simulator_triple = Hardware::CPU.arm? ? "arm64-apple-ios15.0-simulator" : "x86_64-apple-ios15.0-simulator"
-    simulator_sdk = Utils.safe_popen_read("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path").strip
+    simulator_arch = Hardware::CPU.arm? ? "arm64" : "x86_64"
     injector_scratch = buildpath/".build/homebrew-loupe-injector"
-    system "swift", "build",
-      "--configuration", "release",
-      "--disable-sandbox",
-      "--scratch-path", injector_scratch,
-      "--product", "LoupeInjector",
-      "--sdk", simulator_sdk,
-      "--triple", simulator_triple
+    injector_products = injector_scratch/"products"
+    xcodebuild \
+      "-scheme", "LoupeInjector",
+      "-destination", "generic/platform=iOS Simulator",
+      "-configuration", "Release",
+      "-derivedDataPath", injector_scratch/"DerivedData",
+      "ARCHS=#{simulator_arch}",
+      "ONLY_ACTIVE_ARCH=NO",
+      "CONFIGURATION_BUILD_DIR=#{injector_products}",
+      "build"
 
-    simulator_build_dir = simulator_triple.sub(/ios[0-9.]+-simulator/, "ios-simulator")
-    injector_binary = injector_scratch/simulator_build_dir/"release/libLoupeInjector.dylib"
-    (libexec/"LoupeInjector.framework").install injector_binary => "LoupeInjector"
+    injector_framework = injector_products/"PackageFrameworks/LoupeInjector.framework"
+    libexec.install injector_framework
   end
 
   test do
