@@ -13,7 +13,7 @@ runtimes through the in-process server.
 ### Command Route
 
 - Use grouped commands from current help: `app`, `ui`, `act`, and `debug`.
-  Old top-level verbs are compatibility aliases only.
+  These are the only public routes for runtime commands.
 - Check subcommand help before adding unfamiliar flags; options are not shared
   globally. Do not re-open help for exact command recipes already provided by
   the task or this skill.

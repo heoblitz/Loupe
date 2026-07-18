@@ -423,6 +423,16 @@ import SwiftUI
         #expect(activation.actionElapsed >= 0)
         #expect(fixture.activationCount == 1)
 
+        let accessibilityActivation = try agent.activate(
+            LoupeActivationRequest(
+                selector: LoupeMutationSelector(kind: .testID, value: fixture.buttonTestID),
+                action: .press
+            )
+        )
+        #expect(accessibilityActivation.action == .press)
+        #expect(accessibilityActivation.accessibilityTarget?.actions?.contains(.press) == true)
+        #expect(fixture.activationCount == 2)
+
         let enabledMutation = try agent.mutate(
             LoupeMutationRequest(
                 selector: LoupeMutationSelector(kind: .testID, value: fixture.buttonTestID),

@@ -17,6 +17,7 @@ public struct LoupeAccessibilityNode: Codable, Equatable {
     public var isInteractive: Bool
     public var isFocused: Bool?
     public var canBecomeFocused: Bool?
+    public var actions: [LoupeAccessibilityAction]?
     public var children: [String]
 
     public init(
@@ -34,6 +35,7 @@ public struct LoupeAccessibilityNode: Codable, Equatable {
         isVisible: Bool,
         isEnabled: Bool,
         isInteractive: Bool,
+        actions: [LoupeAccessibilityAction]? = nil,
         children: [String] = []
     ) {
         self.init(
@@ -53,6 +55,7 @@ public struct LoupeAccessibilityNode: Codable, Equatable {
             isInteractive: isInteractive,
             isFocused: nil,
             canBecomeFocused: nil,
+            actions: actions,
             children: children
         )
     }
@@ -74,6 +77,7 @@ public struct LoupeAccessibilityNode: Codable, Equatable {
         isInteractive: Bool,
         isFocused: Bool?,
         canBecomeFocused: Bool?,
+        actions: [LoupeAccessibilityAction]? = nil,
         children: [String] = []
     ) {
         self.ref = ref
@@ -92,6 +96,7 @@ public struct LoupeAccessibilityNode: Codable, Equatable {
         self.isInteractive = isInteractive
         self.isFocused = isFocused
         self.canBecomeFocused = canBecomeFocused
+        self.actions = actions
         self.children = children
     }
 }
@@ -172,9 +177,12 @@ public struct LoupeAccessibilityTree: Codable, Equatable {
                 activationPoint: validActivationPoint(accessibility?.activationPoint, frame: frame),
                 isVisible: isVisible(source, in: snapshot, visibilityMode: visibilityMode, surfaceVisibleRefs: surfaceVisibleRefs),
                 isEnabled: source.isEnabled,
-                isInteractive: source.isInteractive || (accessibility?.traits.contains("button") ?? false),
+                isInteractive: source.isInteractive
+                    || (accessibility?.traits.contains("button") ?? false)
+                    || !(accessibility?.actions?.isEmpty ?? true),
                 isFocused: source.platform?.isFocused,
                 canBecomeFocused: source.platform?.canBecomeFocused,
+                actions: accessibility?.actions,
                 children: []
             )
 

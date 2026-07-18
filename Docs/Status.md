@@ -106,7 +106,8 @@ clipping, and UIKit metadata.
   `--host`; launch-time injection remains simulator-only.
 - Native `UIAccessibility` container traversal is opt-in with
   `LOUPE_NATIVE_ACCESSIBILITY=1`; the default runtime path uses Loupe's
-  view-derived accessibility tree.
+  view-derived accessibility tree. `act perform` does a bounded live traversal
+  to revalidate and execute the selected accessibility action.
 - SwiftUI movement/input selectors depend on elements exposed through the
   accessibility tree. Loupe does not synthesize private SwiftUI view selectors.
   Snapshots may include a bounded `swiftui` summary, but not raw private

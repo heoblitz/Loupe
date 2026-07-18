@@ -70,7 +70,10 @@ loupe ui node loupe-report/snapshot.json --test-id checkout.payButton
 Act on the app and keep a trace:
 
 ```bash
+loupe act targets
 loupe act tap --udid <simulator-udid> --test-id checkout.payButton --trace-dir /tmp/loupe-tap
+loupe act input '#3' "4242 4242 4242 4242"
+loupe act perform '#4' increment
 loupe debug trace summary /tmp/loupe-tap
 loupe debug trace diff /tmp/loupe-tap/before-snapshot.json /tmp/loupe-tap/after-snapshot.json --changed-only
 ```
@@ -93,7 +96,9 @@ loupe ui tree loupe-report/snapshot.json --view --depth 3
 loupe ui node loupe-report/snapshot.json --test-id checkout.payButton
 
 # Actions and traces
+loupe act targets
 loupe act tap --udid <simulator-udid> --test-id checkout.payButton --trace-dir /tmp/loupe-tap
+loupe act perform '#4' increment
 loupe act swipe --udid <simulator-udid> --from 220,760 --to 220,190 --trace-dir /tmp/loupe-swipe
 loupe debug trace explore --bundle-id <bundle-id> --limit 5 --trace-dir /tmp/loupe-routes --output /tmp/loupe-routes.json --json
 

@@ -27,23 +27,12 @@ struct LoupeCLI {
         let command = arguments.removeFirst()
 
         if command == "help" {
-            if let deprecatedCommand = arguments.first,
-               let replacement = deprecatedCommandReplacement(deprecatedCommand) {
-                printDeprecatedCommandWarning(command: deprecatedCommand, replacement: replacement)
-                printCommandHelp(replacement)
-                return
-            }
-            printCommandHelp(arguments)
+            try printCommandHelp(arguments)
             return
         }
 
         if command != "--help", command != "-h", arguments.contains("--help") || arguments.contains("-h") {
-            if let replacement = deprecatedCommandReplacement(command) {
-                printDeprecatedCommandWarning(command: command, replacement: replacement)
-                printCommandHelp(replacement)
-                return
-            }
-            printCommandHelp(helpPath(command: command, arguments: arguments))
+            try printCommandHelp(helpPath(command: command, arguments: arguments))
             return
         }
 
@@ -67,9 +56,6 @@ struct LoupeCLI {
         case "--help", "-h":
             printHelp()
         default:
-            if try await runDeprecatedTopLevelCommand(command, arguments: arguments) {
-                return
-            }
             throw CLIError("Unknown command: \(command)")
         }
     }
@@ -1335,21 +1321,17 @@ struct LoupeCLI {
         printSummaryHelp()
     }
 
-    private static func printCommandHelp(_ path: [String]) {
+    private static func printCommandHelp(_ path: [String]) throws {
         guard !path.isEmpty else {
             printHelp()
             return
         }
 
-        let usageKeys = (1...path.count)
-            .reversed()
-            .map { path.prefix($0).joined(separator: " ") }
-
-        if let usage = usageKeys.lazy.compactMap({ commandUsage($0) }).first {
-            print(usage)
-        } else {
-            printHelp()
+        let key = path.joined(separator: " ")
+        guard let usage = commandUsage(key) else {
+            throw CLIError("Unknown help topic: \(key)")
         }
+        print(usage)
     }
 
     private static func printPaintStack(_ stack: LoupePaintStack) {
@@ -2696,7 +2678,7 @@ struct LoupeCLI {
         return try JSONDecoder().decode(LoupeMutationResponse.self, from: data)
     }
 
-    private static func postActivation(
+    static func postActivation(
         _ activation: LoupeActivationRequest,
         host: URL,
         timeout: TimeInterval
@@ -3447,7 +3429,7 @@ struct LoupeCLI {
         _ = try await postActivation(request, host: options.host, timeout: options.timeout)
     }
 
-    private static func activationSelector(from selector: LoupeSelector) throws -> LoupeMutationSelector {
+    static func activationSelector(from selector: LoupeSelector) throws -> LoupeMutationSelector {
         switch selector {
         case let .testID(value):
             return LoupeMutationSelector(kind: .testID, value: value)

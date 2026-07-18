@@ -374,9 +374,17 @@ public struct LoupeMutationSourceCandidate: Codable, Equatable {
 
 public struct LoupeActivationRequest: Codable, Equatable {
     public var selector: LoupeMutationSelector
+    public var action: LoupeAccessibilityAction?
+    public var accessibilityTarget: LoupeAccessibilityTargetIdentity?
 
-    public init(selector: LoupeMutationSelector) {
+    public init(
+        selector: LoupeMutationSelector,
+        action: LoupeAccessibilityAction? = nil,
+        accessibilityTarget: LoupeAccessibilityTargetIdentity? = nil
+    ) {
         self.selector = selector
+        self.action = action
+        self.accessibilityTarget = accessibilityTarget
     }
 }
 
@@ -387,6 +395,8 @@ public struct LoupeActivationResponse: Codable, Equatable {
     public var after: LoupeNode?
     public var actionElapsed: Double
     public var snapshotID: String
+    public var action: LoupeAccessibilityAction?
+    public var accessibilityTarget: LoupeAccessibilityNode?
 
     public init(
         selector: LoupeMutationSelector,
@@ -394,7 +404,9 @@ public struct LoupeActivationResponse: Codable, Equatable {
         before: LoupeNode,
         after: LoupeNode?,
         actionElapsed: Double,
-        snapshotID: String
+        snapshotID: String,
+        action: LoupeAccessibilityAction? = nil,
+        accessibilityTarget: LoupeAccessibilityNode? = nil
     ) {
         self.selector = selector
         self.target = target
@@ -402,6 +414,8 @@ public struct LoupeActivationResponse: Codable, Equatable {
         self.after = after
         self.actionElapsed = actionElapsed
         self.snapshotID = snapshotID
+        self.action = action
+        self.accessibilityTarget = accessibilityTarget
     }
 }
 

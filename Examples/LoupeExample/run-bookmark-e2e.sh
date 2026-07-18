@@ -217,12 +217,8 @@ echo "case: bookmark creation form by selector tap and type"
 .build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --test-id bookmark.add --expect-visible bookmark.editor
 .build/debug/loupe act wait visible --host "$HOST" --test-id bookmark.editor --timeout 5 >/tmp/loupe-bookmark-wait-editor.json
 .build/debug/loupe act wait visible --host "$HOST" --test-id bookmark.editor.title --timeout 5 >/tmp/loupe-bookmark-wait-editor-title.json
-fetch_snapshot
-sleep 1
-.build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --snapshot "$SNAPSHOT_PATH" --ref "$(query_ref bookmark.editor.title)"
-sleep 1
 CREATED_TITLE="20260519"
-.build/debug/loupe act type "$CREATED_TITLE" --udid "$DEVICE"
+.build/debug/loupe act input --host "$HOST" --udid "$DEVICE" --test-id bookmark.editor.title --text "$CREATED_TITLE"
 fetch_snapshot
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id bookmark.editor.title > "$INSPECT_PATH"
 grep -q "\"text\" : \"$CREATED_TITLE\"" "$INSPECT_PATH"
@@ -251,8 +247,7 @@ echo "case: bookmark search tab"
 .build/debug/loupe act wait visible --host "$HOST" --test-id bookmark.tab.search --timeout 5 >/tmp/loupe-bookmark-wait-search-tab.json
 .build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --test-id bookmark.tab.search
 .build/debug/loupe act wait visible --host "$HOST" --test-id bookmark.search --timeout 5 >/tmp/loupe-bookmark-wait-search.json
-.build/debug/loupe act tap --host "$HOST" --udid "$DEVICE" --test-id bookmark.search.field
-.build/debug/loupe act type "$CREATED_TITLE" --udid "$DEVICE"
+.build/debug/loupe act input --host "$HOST" --udid "$DEVICE" --test-id bookmark.search.field --text "$CREATED_TITLE"
 .build/debug/loupe act wait visible --host "$HOST" --test-id bookmark.item.created --timeout 5 >/tmp/loupe-bookmark-wait-search-result.json
 fetch_snapshot
 assert_query bookmark.search /tmp/loupe-bookmark-search-query.json

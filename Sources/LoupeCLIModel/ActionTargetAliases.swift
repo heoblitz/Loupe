@@ -14,6 +14,7 @@ package struct ActionTargetAliasEntry: Codable, Equatable {
     package var isVisible: Bool
     package var isEnabled: Bool
     package var isInteractive: Bool
+    package var actions: [LoupeAccessibilityAction] = []
 
     package var queryResult: LoupeAccessibilityQueryResult {
         LoupeAccessibilityQueryResult(
@@ -27,14 +28,15 @@ package struct ActionTargetAliasEntry: Codable, Equatable {
                 activationPoint: activationPoint,
                 isVisible: isVisible,
                 isEnabled: isEnabled,
-                isInteractive: isInteractive
+                isInteractive: isInteractive,
+                actions: actions
             )
         )
     }
 }
 
 package struct ActionTargetAliasCache: Codable, Equatable {
-    package static let currentSchemaVersion = 1
+    package static let currentSchemaVersion = 2
 
     package var schemaVersion: Int
     package var cacheID: String
@@ -80,7 +82,7 @@ package struct ActionTargetAliasCache: Codable, Equatable {
         }
         guard target.isVisible,
               target.isEnabled,
-              target.isInteractive,
+              (target.isInteractive || !target.actions.isEmpty),
               target.point.x.isFinite,
               target.point.y.isFinite,
               target.point.x >= 0,
@@ -133,7 +135,7 @@ package enum ActionTargetAliasPlanner {
         capturedAt: Date = Date()
     ) -> ActionTargetAliasCache {
         var results = accessibilityTree.nodes.values
-            .filter { $0.isVisible && $0.isEnabled && $0.isInteractive }
+            .filter(isActionTarget)
             .map(LoupeAccessibilityQueryResult.init)
             .filter { actionPoint(for: $0, screen: accessibilityTree.screen) != nil }
             .sorted(by: visualOrder)
@@ -155,7 +157,8 @@ package enum ActionTargetAliasPlanner {
                 point: actionPoint(for: result, screen: accessibilityTree.screen)!,
                 isVisible: result.isVisible,
                 isEnabled: result.isEnabled,
-                isInteractive: result.isInteractive
+                isInteractive: result.isInteractive,
+                actions: accessibilityTree.nodes[result.ref]?.actions ?? []
             )
         }
 
@@ -193,6 +196,28 @@ package enum ActionTargetAliasPlanner {
             return nil
         }
         return point
+    }
+
+    private static func isActionTarget(_ node: LoupeAccessibilityNode) -> Bool {
+        guard node.isVisible, node.isEnabled else { return false }
+        if !(node.actions?.isEmpty ?? true) { return true }
+        guard node.isInteractive else { return false }
+
+        switch node.role {
+        case "application", "scene", "window":
+            return false
+        case nil, "element":
+            return nonEmpty(node.label) != nil || nonEmpty(node.testID) != nil
+        default:
+            return true
+        }
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private static func visualOrder(
@@ -261,7 +286,17 @@ package enum ActionTargetAliasText {
         lines.append(contentsOf: cache.targets.map { target in
             let role = nonEmpty(target.role) ?? "element"
             let text = escaped(nonEmpty(target.text) ?? "")
-            return "#\(target.index) \(role) \"\(text)\""
+            var actions = ["tap"]
+            if ["textField", "textView", "searchField"].contains(role) {
+                actions.append("input")
+            }
+            actions.append(contentsOf: target.actions.map(\.commandName))
+            var seen = Set<String>()
+            let actionList = actions
+                .filter { seen.insert($0).inserted }
+                .map(displayAction)
+                .joined(separator: ",")
+            return "#\(target.index) \(role) \"\(text)\" [\(actionList)]"
         })
         return lines.joined(separator: "\n")
     }
@@ -280,6 +315,13 @@ package enum ActionTargetAliasText {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\t", with: "\\t")
+    }
+
+    private static func displayAction(_ value: String) -> String {
+        guard value.contains(where: { $0.isWhitespace || $0 == "," || $0 == "[" || $0 == "]" }) else {
+            return value
+        }
+        return "\"\(escaped(value))\""
     }
 }
 

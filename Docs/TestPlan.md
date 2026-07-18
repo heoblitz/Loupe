@@ -358,6 +358,10 @@ Current benchmark status:
 - Accessibility tree export and query:
   `loupe ui accessibility <snapshot.json>`, `loupe ui query --tree accessibility`,
   and `/accessibility`.
+- Accessibility action discovery and execution:
+  `loupe act targets` lists native action capabilities, `loupe act perform`
+  executes UIKit/AppKit semantic and custom actions, and `loupe act input`
+  focuses a saved or stable text target before entering text.
 - Runtime `/accessibility` returns Loupe's view-derived accessibility tree by
   default, with native `UIAccessibility` container traversal kept behind
   `LOUPE_NATIVE_ACCESSIBILITY=1` while its simulator blocking behavior is

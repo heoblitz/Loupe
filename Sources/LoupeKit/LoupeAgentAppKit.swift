@@ -65,7 +65,20 @@ public final class LoupeAgent {
 
     public func captureAccessibilityTree() -> LoupeAccessibilityTree {
         let capture = captureSnapshotWithViewRefs()
-        return captureNativeAccessibilityTree(snapshot: capture.snapshot, viewRefs: capture.viewRefs)
+        return captureNativeAccessibilityTree(
+            snapshot: capture.snapshot,
+            viewRefs: capture.viewRefs,
+            viewsByRef: capture.viewsByRef
+        ).tree
+    }
+
+    private func captureAccessibilityActionTree() -> CapturedAccessibilityTree {
+        let capture = captureSnapshotWithViewRefs()
+        return captureNativeAccessibilityTree(
+            snapshot: capture.snapshot,
+            viewRefs: capture.viewRefs,
+            viewsByRef: capture.viewsByRef
+        )
     }
 
     public func captureCompactObservation(
@@ -176,6 +189,9 @@ public final class LoupeAgent {
     }
 
     public func activate(_ request: LoupeActivationRequest) throws -> LoupeActivationResponse {
+        if request.action != nil {
+            return try performAccessibilityAction(request)
+        }
         let beforeCapture = captureSnapshotWithViewRefs()
         let beforeContext = LoupeSnapshotContext(snapshot: beforeCapture.snapshot)
         let selector = loupeSelector(from: request.selector)
@@ -232,6 +248,98 @@ public final class LoupeAgent {
             actionElapsed: elapsed,
             snapshotID: afterCapture.snapshot.id
         )
+    }
+
+    private func performAccessibilityAction(_ request: LoupeActivationRequest) throws -> LoupeActivationResponse {
+        guard let action = request.action else {
+            throw LoupeMutationError(code: "missing_accessibility_action", message: "Accessibility action is required.")
+        }
+        let capture = captureAccessibilityActionTree()
+        let matches = accessibilityActionMatches(request: request, capture: capture)
+        guard matches.count == 1, let target = matches.first else {
+            if matches.isEmpty {
+                throw LoupeMutationError(status: 404, code: "accessibility_target_not_found", message: "No current accessibility node matched the saved target.")
+            }
+            throw LoupeMutationError(
+                code: "ambiguous_accessibility_target",
+                message: "Saved target matched multiple accessibility nodes: \(matches.map(\.ref).joined(separator: ", "))"
+            )
+        }
+        guard target.isVisible, target.isEnabled else {
+            throw LoupeMutationError(code: "unavailable_accessibility_target", message: "Accessibility target is hidden or disabled.")
+        }
+        guard target.actions?.contains(action) == true else {
+            throw LoupeMutationError(
+                code: "unsupported_accessibility_action",
+                message: "Target \(target.ref) does not currently expose action '\(action.commandName)'."
+            )
+        }
+        guard let element = capture.objectsByRef[target.ref] else {
+            throw LoupeMutationError(
+                code: "unsupported_accessibility_target",
+                message: "Accessibility target \(target.ref) is not backed by a live AppKit accessibility element."
+            )
+        }
+        guard let beforeNode = capture.snapshot.nodes[target.sourceRef] else {
+            throw LoupeMutationError(status: 404, code: "node_not_found", message: "Accessibility source node disappeared before action.")
+        }
+
+        let startedAt = Date()
+        guard performAppKitAccessibilityAction(action, on: element) else {
+            throw LoupeMutationError(
+                code: "accessibility_action_not_handled",
+                message: "Target \(target.ref) declined action '\(action.commandName)'."
+            )
+        }
+        layoutRuntimeWindows()
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let afterCapture = captureSnapshotWithViewRefs()
+
+        runtime.log(
+            level: "info",
+            "accessibility_action_applied",
+            metadata: [
+                "ref": .string(target.ref),
+                "action": .string(action.commandName),
+            ]
+        )
+
+        return LoupeActivationResponse(
+            selector: request.selector,
+            target: LoupeQueryResult(node: beforeNode),
+            before: beforeNode,
+            after: afterCapture.snapshot.nodes[target.sourceRef],
+            actionElapsed: elapsed,
+            snapshotID: afterCapture.snapshot.id,
+            action: action,
+            accessibilityTarget: target
+        )
+    }
+
+    private func accessibilityActionMatches(
+        request: LoupeActivationRequest,
+        capture: CapturedAccessibilityTree
+    ) -> [LoupeAccessibilityNode] {
+        if let expected = request.accessibilityTarget {
+            if let exact = capture.tree.nodes[expected.ref],
+               accessibilityFingerprintMatches(exact, expected: expected),
+               capture.objectsByRef[exact.ref] != nil {
+                return [exact]
+            }
+            let candidates = capture.tree.nodes.values.filter {
+                accessibilityFingerprintMatches($0, expected: expected)
+                    && capture.objectsByRef[$0.ref] != nil
+            }
+            if let testID = expected.testID, !testID.isEmpty {
+                let identified = candidates.filter { $0.testID == testID }
+                if !identified.isEmpty { return identified }
+            }
+            return candidates
+        }
+
+        return LoupeAccessibilityTreeQuery.find(loupeSelector(from: request.selector), in: capture.tree)
+            .compactMap { capture.tree.nodes[$0.ref] }
+            .filter { capture.objectsByRef[$0.ref] != nil }
     }
 
     public func mutate(_ request: LoupeMutationRequest) throws -> LoupeMutationResponse {
@@ -415,12 +523,16 @@ public final class LoupeAgent {
 
     private func captureNativeAccessibilityTree(
         snapshot: LoupeSnapshot,
-        viewRefs: [ObjectIdentifier: String]
-    ) -> LoupeAccessibilityTree {
+        viewRefs: [ObjectIdentifier: String],
+        viewsByRef: [String: NSView]
+    ) -> CapturedAccessibilityTree {
         nextNativeAccessibilityRef = 0
 
         var tree = LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: snapshot))
         var signatures = Set(tree.nodes.values.map(nativeAccessibilitySignature(for:)))
+        var objectsByRef = Dictionary(uniqueKeysWithValues: viewsByRef.map { sourceRef, view in
+            ("ax-\(sourceRef)", view as NSObject)
+        })
 
         for window in NSApp.windows {
             guard let contentView = window.contentView else { continue }
@@ -429,11 +541,16 @@ public final class LoupeAgent {
                 snapshot: snapshot,
                 viewRefs: viewRefs,
                 tree: &tree,
-                signatures: &signatures
+                signatures: &signatures,
+                objectsByRef: &objectsByRef
             )
         }
 
-        return tree
+        return CapturedAccessibilityTree(
+            snapshot: snapshot,
+            tree: tree,
+            objectsByRef: objectsByRef
+        )
     }
 
     private func appendNativeAccessibilityElements(
@@ -441,7 +558,8 @@ public final class LoupeAgent {
         snapshot: LoupeSnapshot,
         viewRefs: [ObjectIdentifier: String],
         tree: inout LoupeAccessibilityTree,
-        signatures: inout Set<String>
+        signatures: inout Set<String>,
+        objectsByRef: inout [String: NSObject]
     ) {
         guard let sourceRef = viewRefs[ObjectIdentifier(view)] else {
             view.subviews.forEach {
@@ -450,7 +568,8 @@ public final class LoupeAgent {
                     snapshot: snapshot,
                     viewRefs: viewRefs,
                     tree: &tree,
-                    signatures: &signatures
+                    signatures: &signatures,
+                    objectsByRef: &objectsByRef
                 )
             }
             return
@@ -486,6 +605,7 @@ public final class LoupeAgent {
 
             signatures.insert(signature)
             tree.nodes[node.ref] = node
+            objectsByRef[node.ref] = accessibilityElement
             if let parentRef = node.parentRef, var parent = tree.nodes[parentRef] {
                 parent.children.append(node.ref)
                 parent.children.sort { lhs, rhs in
@@ -506,7 +626,8 @@ public final class LoupeAgent {
                 snapshot: snapshot,
                 viewRefs: viewRefs,
                 tree: &tree,
-                signatures: &signatures
+                signatures: &signatures,
+                objectsByRef: &objectsByRef
             )
         }
     }
@@ -523,6 +644,7 @@ public final class LoupeAgent {
         let hint = nonEmpty(element.accessibilityHelp())
         let role = accessibilityRoleName(for: element)
         let traits = role.map { [$0] } ?? []
+        let actions = accessibilityActions(for: element, role: role)
         let frame = loupeRect(fromScreenRect: element.accessibilityFrame())
         let activationPoint = validActivationPoint(
             loupePoint(fromScreenPoint: element.accessibilityActivationPoint()),
@@ -549,7 +671,8 @@ public final class LoupeAgent {
             activationPoint: activationPoint,
             isVisible: isVisible,
             isEnabled: element.isAccessibilityEnabled(),
-            isInteractive: isInteractiveAccessibilityRole(role),
+            isInteractive: isInteractiveAccessibilityRole(role) || !actions.isEmpty,
+            actions: actions,
             children: []
         )
     }
@@ -752,6 +875,7 @@ public final class LoupeAgent {
         let hint = nonEmpty(element.accessibilityHelp())
         let role = accessibilityRoleName(for: element)
         let traits = role.map { [$0] } ?? []
+        let actions = accessibilityActions(for: element, role: role)
         let frame = loupeRect(fromScreenRect: element.accessibilityFrame())
         let activationPoint = validActivationPoint(
             loupePoint(fromScreenPoint: element.accessibilityActivationPoint()),
@@ -785,7 +909,8 @@ public final class LoupeAgent {
                 traits: traits,
                 frame: frame,
                 activationPoint: activationPoint,
-                isElement: true
+                isElement: true,
+                actions: actions
             ),
             runtime: LoupeNodeRuntimeProperties(frameworkBundleIdentifier: "com.apple.SwiftUI"),
             swiftui: loupeSwiftUISemanticProperties(
@@ -1103,6 +1228,150 @@ private func activateView(_ view: NSView) throws {
         )
     }
     control.performClick(nil)
+}
+
+private func accessibilityFingerprintMatches(
+    _ node: LoupeAccessibilityNode,
+    expected: LoupeAccessibilityTargetIdentity
+) -> Bool {
+    if let testID = expected.testID, !testID.isEmpty, node.testID != testID { return false }
+    if let role = expected.role, !role.isEmpty, node.role != role { return false }
+    if let label = expected.label, !label.isEmpty, node.label != label { return false }
+    if let frame = expected.frame, let current = node.frame {
+        let tolerance = 2.0
+        if abs(frame.x - current.x) > tolerance
+            || abs(frame.y - current.y) > tolerance
+            || abs(frame.width - current.width) > tolerance
+            || abs(frame.height - current.height) > tolerance {
+            return false
+        }
+    }
+    return true
+}
+
+@MainActor
+private func performAppKitAccessibilityAction(
+    _ action: LoupeAccessibilityAction,
+    on element: NSObject
+) -> Bool {
+    if action.name == "custom" {
+        let customActions: [NSAccessibilityCustomAction]
+        if let view = element as? NSView {
+            customActions = view.accessibilityCustomActions() ?? []
+        } else if let accessibilityElement = element as? NSAccessibilityElement {
+            customActions = accessibilityElement.accessibilityCustomActions() ?? []
+        } else {
+            customActions = []
+        }
+        guard let name = action.customName,
+              let custom = customActions.first(where: { $0.name == name }) else {
+            return false
+        }
+        return performAppKitCustomAction(custom)
+    }
+
+    guard let platformAction = appKitAccessibilityAction(action) else { return false }
+    if let view = element as? NSView {
+        if performModernAppKitAccessibilityAction(action, on: view) {
+            return true
+        }
+        if action.name == "press", let control = view as? NSControl {
+            control.performClick(nil)
+            return true
+        }
+        if view.responds(to: NSSelectorFromString("accessibilityPerformAction:")) {
+            view.accessibilityPerformAction(platformAction)
+            return true
+        }
+        return false
+    }
+    if let accessibilityElement = element as? NSAccessibilityElement {
+        if performModernAppKitAccessibilityAction(action, on: accessibilityElement) {
+            return true
+        }
+        if accessibilityElement.responds(to: NSSelectorFromString("accessibilityPerformAction:")) {
+            accessibilityElement.accessibilityPerformAction(platformAction)
+            return true
+        }
+        return false
+    }
+    return false
+}
+
+private func performModernAppKitAccessibilityAction(
+    _ action: LoupeAccessibilityAction,
+    on view: NSView
+) -> Bool {
+    switch action.name {
+    case "press": return view.accessibilityPerformPress()
+    case "increment": return view.accessibilityPerformIncrement()
+    case "decrement": return view.accessibilityPerformDecrement()
+    case "confirm": return view.accessibilityPerformConfirm()
+    case "pick": return view.accessibilityPerformPick()
+    case "cancel": return view.accessibilityPerformCancel()
+    case "raise": return view.accessibilityPerformRaise()
+    case "show-menu": return view.accessibilityPerformShowMenu()
+    case "delete": return view.accessibilityPerformDelete()
+    case "show-alternate-ui": return view.accessibilityPerformShowAlternateUI()
+    case "show-default-ui": return view.accessibilityPerformShowDefaultUI()
+    default: return false
+    }
+}
+
+private func performModernAppKitAccessibilityAction(
+    _ action: LoupeAccessibilityAction,
+    on element: NSAccessibilityElement
+) -> Bool {
+    switch action.name {
+    case "press": return element.accessibilityPerformPress()
+    case "increment": return element.accessibilityPerformIncrement()
+    case "decrement": return element.accessibilityPerformDecrement()
+    case "confirm": return element.accessibilityPerformConfirm()
+    case "pick": return element.accessibilityPerformPick()
+    case "cancel": return element.accessibilityPerformCancel()
+    case "raise": return element.accessibilityPerformRaise()
+    case "show-menu": return element.accessibilityPerformShowMenu()
+    case "delete": return element.accessibilityPerformDelete()
+    case "show-alternate-ui": return element.accessibilityPerformShowAlternateUI()
+    case "show-default-ui": return element.accessibilityPerformShowDefaultUI()
+    default: return false
+    }
+}
+
+private func appKitAccessibilityAction(_ action: LoupeAccessibilityAction) -> NSAccessibility.Action? {
+    switch action.name {
+    case "press": return .press
+    case "increment": return .increment
+    case "decrement": return .decrement
+    case "confirm": return .confirm
+    case "pick": return .pick
+    case "cancel": return .cancel
+    case "raise": return .raise
+    case "show-menu": return .showMenu
+    case "delete": return .delete
+    case "show-alternate-ui": return .showAlternateUI
+    case "show-default-ui": return .showDefaultUI
+    case "scroll-to-visible": return NSAccessibility.Action(rawValue: "AXScrollToVisible")
+    default: return nil
+    }
+}
+
+private func performAppKitCustomAction(_ action: NSAccessibilityCustomAction) -> Bool {
+    if let handler = action.handler {
+        return handler()
+    }
+    guard let target = action.target,
+          let selector = action.selector,
+          let method = class_getInstanceMethod(type(of: target), selector) else {
+        return false
+    }
+    let implementation = method_getImplementation(method)
+    if method_getNumberOfArguments(method) == 2 {
+        typealias Function = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Function.self)(target, selector)
+    }
+    typealias Function = @convention(c) (AnyObject, Selector, NSAccessibilityCustomAction) -> Bool
+    return unsafeBitCast(implementation, to: Function.self)(target, selector, action)
 }
 
 @MainActor
@@ -1836,6 +2105,12 @@ private struct CapturedSnapshot {
     var viewsByRef: [String: NSView]
 }
 
+private struct CapturedAccessibilityTree {
+    var snapshot: LoupeSnapshot
+    var tree: LoupeAccessibilityTree
+    var objectsByRef: [String: NSObject]
+}
+
 @MainActor
 private func currentAppearance() -> String {
     let name = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
@@ -1921,15 +2196,17 @@ private func accessibility(for view: NSView) -> LoupeAccessibility? {
     guard identifier != nil || label != nil || value != nil || hint != nil || isInteractive(view) else {
         return nil
     }
+    let role = role(for: view)
     return LoupeAccessibility(
         identifier: identifier,
         label: label,
         value: value,
         hint: hint,
-        traits: role(for: view).map { [$0] } ?? [],
+        traits: role.map { [$0] } ?? [],
         frame: view.window.flatMap { frameInScreen(for: view, window: $0) },
         activationPoint: view.window.flatMap { frameInScreen(for: view, window: $0) }?.center,
-        isElement: isInteractive(view) || label != nil
+        isElement: isInteractive(view) || label != nil,
+        actions: accessibilityActions(for: view, role: role)
     )
 }
 
@@ -2095,6 +2372,61 @@ private func isInteractiveAccessibilityRole(_ role: String?) -> Bool {
         return true
     default:
         return false
+    }
+}
+
+@MainActor
+private func accessibilityActions(
+    for element: NSObject,
+    role: String?
+) -> [LoupeAccessibilityAction] {
+    let actionNamesSelector = NSSelectorFromString("accessibilityActionNames")
+    var actions = element.responds(to: actionNamesSelector)
+        ? element.accessibilityActionNames().compactMap(loupeAccessibilityAction)
+        : []
+
+    if element is NSButton
+        || element is NSSegmentedControl
+        || ["button", "link", "checkBox", "radioButton", "popUpButton"].contains(role) {
+        actions.append(.press)
+    }
+    if ["slider", "stepper"].contains(role) {
+        actions.append(contentsOf: [.increment, .decrement])
+    }
+    let customActions: [NSAccessibilityCustomAction]
+    let customActionsSelector = NSSelectorFromString("accessibilityCustomActions")
+    if let view = element as? NSView, view.responds(to: customActionsSelector) {
+        customActions = view.accessibilityCustomActions() ?? []
+    } else if let accessibilityElement = element as? NSAccessibilityElement,
+              accessibilityElement.responds(to: customActionsSelector) {
+        customActions = accessibilityElement.accessibilityCustomActions() ?? []
+    } else {
+        customActions = []
+    }
+    actions.append(contentsOf: customActions.compactMap { action in
+        let name = action.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : .custom(name)
+    })
+
+    var seen = Set<LoupeAccessibilityAction>()
+    return actions.filter { seen.insert($0).inserted }
+}
+
+private func loupeAccessibilityAction(_ action: NSAccessibility.Action) -> LoupeAccessibilityAction? {
+    switch action {
+    case .press: return .press
+    case .increment: return .increment
+    case .decrement: return .decrement
+    case .confirm: return .confirm
+    case .pick: return .pick
+    case .cancel: return .cancel
+    case .raise: return .raise
+    case .showMenu: return .showMenu
+    case .delete: return .delete
+    case .showAlternateUI: return .showAlternateUI
+    case .showDefaultUI: return .showDefaultUI
+    default:
+        return action.rawValue == "AXScrollToVisible" ? .scrollToVisible : nil
     }
 }
 

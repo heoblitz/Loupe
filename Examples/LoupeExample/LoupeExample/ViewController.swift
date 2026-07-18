@@ -643,6 +643,13 @@ final class ComponentsViewController: UIViewController {
 
         stateSwitch.isOn = true
         stateSwitch.accessibilityIdentifier = "example.components.switch"
+        stateSwitch.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: "Reset switch") { [weak self] _ in
+                guard let self else { return false }
+                self.stateSwitch.setOn(false, animated: false)
+                return true
+            }
+        ]
 
         volumeSlider.minimumValue = 0
         volumeSlider.maximumValue = 100
