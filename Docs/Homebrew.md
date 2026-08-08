@@ -12,7 +12,8 @@ brew install loupe
 The formula builds and installs:
 
 - `bin/loupe`
-- `libexec/LoupeInjector.framework/LoupeInjector`
+- `libexec/LoupeInjector.framework/LoupeInjector` (iOS Simulator)
+- `libexec/LoupeInjector.framework/macos/LoupeInjector` (macOS)
 - `share/loupe/skills/loupe`
 
 The formula packages the Loupe skill so `loupe skills install` can install it
@@ -20,6 +21,18 @@ into supported local agent clients.
 
 Loupe does not require a separate simulator action CLI; runtime actions use the
 native HID backend packaged with `loupe`.
+
+For a local macOS debug app, launch and attach in one command:
+
+```bash
+loupe app launch \
+  --bundle-id com.example.App \
+  --macos-app /path/to/App.app
+```
+
+This uses the macOS injector returned by `loupe injector-path --macos`. A
+Hardened Runtime production app can reject dynamic-library injection; link the
+injector into development builds when that is required.
 
 ## Formula Source
 
@@ -67,6 +80,7 @@ brew reinstall --build-from-source heoblitz/loupe/loupe
 brew test heoblitz/loupe/loupe
 loupe doctor
 loupe injector-path
+loupe injector-path --macos
 ```
 
 ## Current Status

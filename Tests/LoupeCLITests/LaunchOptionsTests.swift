@@ -40,6 +40,28 @@ import Testing
         }
     }
 
+    @Test func macOSLaunchParsesAppBundle() throws {
+        let options = try LaunchOptions([
+            "--bundle-id", "dev.loupe.macos-example",
+            "--macos-app", "/Applications/LoupeExample.app",
+            "--port", "28746",
+        ])
+
+        #expect(options.macOSAppPath == "/Applications/LoupeExample.app")
+        #expect(options.shouldInject == false)
+        #expect(options.port == 28746)
+    }
+
+    @Test func macOSLaunchRejectsSimulatorDeviceSelection() {
+        #expect(throws: Error.self) {
+            _ = try LaunchOptions([
+                "--bundle-id", "dev.loupe.macos-example",
+                "--macos-app", "/Applications/LoupeExample.app",
+                "--device", "SIM-UDID",
+            ])
+        }
+    }
+
     @Test func linkedRuntimeRecordUsesDeviceIdentifierWhenSimulatorUDIDIsAbsent() {
         let state = LoupeRuntimeState(
             identity: LoupeRuntimeIdentity(

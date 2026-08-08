@@ -39,15 +39,14 @@ simulator-only; runtime tap works only for supported activation targets.
 
 ## macOS Host Runtime
 
-Inject at process launch, then address the runtime by host:
+Launch a local macOS debug app:
 
 ```bash
-open -n -F --env LOUPE_PORT=28749 --env LOUPE_BIND_HOST=127.0.0.1 \
-  --env DYLD_INSERT_LIBRARIES=/path/to/libLoupeInjector.dylib /path/to/App.app
-$LOUPE app info --host http://127.0.0.1:28749
+$LOUPE app launch --bundle-id com.example.App --macos-app /path/to/App.app
 ```
 
-- Prefer `app info --host`; `app current` may point at a previous runtime.
+- It resolves the macOS injector; set `LOUPE_MACOS_INJECTOR_PATH` for a local build.
+- Hardened Runtime can reject injection; link `LoupeInjector` in that debug app instead.
 - `/health` alone is not proof. Some apps exit before `/snapshot` or block the
   main thread while `/health` still responds.
 - Non-simulator macOS reports may not include screenshots.

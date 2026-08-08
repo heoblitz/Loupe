@@ -11,6 +11,7 @@ struct LaunchOptions {
     var port: UInt16?
     var bindHost: String?
     var shouldInject: Bool
+    var macOSAppPath: String?
     var timeout: TimeInterval
 
     init(_ arguments: [String]) throws {
@@ -22,6 +23,7 @@ struct LaunchOptions {
         var port: UInt16?
         var bindHost: String?
         var shouldInject = false
+        var macOSAppPath: String?
         var launchMode: String?
         var timeout: TimeInterval = 15
         var index = 0
@@ -34,6 +36,8 @@ struct LaunchOptions {
                 bundleID = try Self.value(after: argument, in: arguments, index: &index)
             case "--device", "--udid":
                 device = try Self.value(after: argument, in: arguments, index: &index)
+            case "--macos-app":
+                macOSAppPath = try Self.value(after: argument, in: arguments, index: &index)
             case "--dylib":
                 if launchMode == "linked" {
                     throw CLIError("--dylib cannot be combined with --linked or --no-inject")
@@ -86,6 +90,9 @@ struct LaunchOptions {
         guard let bundleID else {
             throw CLIError("launch requires --bundle-id <id>")
         }
+        if macOSAppPath != nil, device != "booted" {
+            throw CLIError("--macos-app cannot be combined with --device or --udid")
+        }
 
         self.bundleID = bundleID
         self.device = device
@@ -95,6 +102,7 @@ struct LaunchOptions {
         self.port = port
         self.bindHost = bindHost
         self.shouldInject = shouldInject
+        self.macOSAppPath = macOSAppPath
         guard timeout > 0 else {
             throw CLIError("--timeout must be greater than 0")
         }

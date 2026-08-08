@@ -77,8 +77,9 @@ extension LoupeCLI {
         case "app launch":
             return """
             Usage: loupe app launch --bundle-id <id> [--device <sim|device|udid>] [--inject|--linked] [--host <url>] [--port <port>] [--bind-host <ip>] [--env KEY=VALUE] [--timeout <seconds>]
+                   loupe app launch --bundle-id <id> --macos-app <App.app> [--inject|--linked] [--port <port>] [--bind-host <ip>] [--env KEY=VALUE] [--timeout <seconds>]
 
-            For working-tree injector validation, set LOUPE_INJECTOR_PATH explicitly; otherwise injector resolution may use an installed Homebrew injector. Run `loupe injector-path` to inspect the resolved injector.
+            For working-tree injector validation, set LOUPE_INJECTOR_PATH for iOS Simulator or LOUPE_MACOS_INJECTOR_PATH for macOS. Otherwise injector resolution may use an installed Homebrew injector. Run `loupe injector-path` or `loupe injector-path --macos` to inspect the platform-specific injector.
             """
         case "app list":
             return "Usage: loupe app list [--json] [--timeout <seconds>]"
