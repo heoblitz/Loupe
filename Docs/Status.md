@@ -8,7 +8,8 @@ runtime servers.
 
 ## Current Capabilities
 
-- Launch simulator apps with injection through `loupe app launch`.
+- Launch iOS/tvOS Simulator apps and local macOS `.app` bundles with injection
+  through `loupe app launch`.
 - Assign an available localhost port on launch, record the runtime under
   `~/.loupe/runtimes`, and resolve later commands by `--bundle-id`, `--udid`,
   or `loupe app use <bundle-id>`.
@@ -103,7 +104,8 @@ clipping, and UIKit metadata.
   identity. It does not yet do broad automatic WatchKit/SwiftUI element
   discovery or runtime input actions. iOS physical devices require a debug app
   that links and embeds the dynamic `LoupeInjector` product and is selected by
-  `--host`; launch-time injection remains simulator-only.
+  `--host`. macOS launch-time injection is for local debug/development builds;
+  Hardened Runtime or library-validation settings can reject dynamic injection.
 - Native `UIAccessibility` container traversal is opt-in with
   `LOUPE_NATIVE_ACCESSIBILITY=1`; the default runtime path uses Loupe's
   view-derived accessibility tree. `act perform` does a bounded live traversal

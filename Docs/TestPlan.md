@@ -333,7 +333,7 @@ Current benchmark status:
   `scripts/verify-platform-builds.sh`
   - Covers LoupeKit and LoupeInjector builds for iOS Simulator, macOS, tvOS,
     visionOS Simulator, and watchOS Simulator.
-- Linked macOS AppKit runtime E2E:
+- CLI-launched macOS AppKit runtime E2E:
   `Examples/MacLoupeExample/run-macos-e2e.sh`
   - Covers runtime-backed AppKit button activation, workbench/detail/long-list
     route transitions, route trace artifacts, and route scroll offset probes.

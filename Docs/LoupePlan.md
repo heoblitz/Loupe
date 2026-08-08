@@ -22,7 +22,7 @@ fixtures.
 
 ```text
 loupe CLI
-  - launches and injects simulator apps where injection is supported
+  - launches and injects simulator apps and local macOS app bundles where injection is supported
   - talks to linked Loupe runtime servers where direct injection is unavailable
   - records runtime host mappings
   - stores snapshots, reports, screenshots, logs, and traces
@@ -39,8 +39,8 @@ LoupeCore
     compact observations, and design comparison
 ```
 
-Homebrew installs both the CLI and `LoupeInjector.framework`; `loupe app launch`
-resolves the injector path automatically for simulator injection workflows.
+Homebrew installs the CLI plus iOS Simulator and macOS `LoupeInjector` binaries;
+`loupe app launch` resolves the platform-appropriate injector automatically.
 
 ## Runtime Selection
 

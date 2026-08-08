@@ -997,6 +997,11 @@ struct LoupeCLI {
             environment["LOUPE_BIND_HOST"] = bindHost
         }
 
+        if let appPath = options.macOSAppPath {
+            try await launchMacOSApp(options: options, appPath: appPath, environment: environment)
+            return
+        }
+
         let resolvedSimulatorDevice: String?
         do {
             resolvedSimulatorDevice = try resolveSimulatorUDID(options.device)
@@ -1079,6 +1084,74 @@ struct LoupeCLI {
             )
         } else {
             print("launched linked app on \(options.device)")
+        }
+    }
+
+    private static func launchMacOSApp(
+        options: LaunchOptions,
+        appPath: String,
+        environment: [String: String]
+    ) async throws {
+        guard options.host == nil else {
+            throw CLIError("--host is not supported with --macos-app; Loupe uses the localhost host it starts.")
+        }
+
+        let appURL = URL(fileURLWithPath: appPath).standardizedFileURL
+        guard appURL.pathExtension == "app" else {
+            throw CLIError("--macos-app must point to a .app bundle: \(appURL.path)")
+        }
+        guard let executableURL = Bundle(url: appURL)?.executableURL,
+              FileManager.default.isExecutableFile(atPath: executableURL.path)
+        else {
+            throw CLIError("Could not find an executable in macOS app bundle: \(appURL.path)")
+        }
+
+        var launchEnvironment = ProcessInfo.processInfo.environment
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let port = try resolvedLoupePort(for: "macOS", environment: launchEnvironment)
+        guard isLocalhostPortAvailable(port) else {
+            throw CLIError("Loupe port \(port) is already in use. Choose another --port or omit it.")
+        }
+        let host = URL(string: "http://127.0.0.1:\(port)")!
+        launchEnvironment["LOUPE_PORT"] = String(port)
+
+        if options.shouldInject {
+            guard let dylibPath = try resolvedInjectorPath(
+                explicitPath: options.dylibPath,
+                platform: .macOS
+            ) else {
+                throw CLIError("macOS LoupeInjector not found. Set LOUPE_INJECTOR_PATH or install a Loupe release that includes the macOS injector.")
+            }
+            launchEnvironment["DYLD_INSERT_LIBRARIES"] = dylibPath
+        }
+
+        let process = Process()
+        process.executableURL = executableURL
+        process.environment = launchEnvironment
+        try process.run()
+
+        do {
+            let state = try await waitForMacOSRuntime(
+                host: host,
+                expectedBundleID: options.bundleID,
+                timeout: options.timeout
+            )
+            let record = runtimeHostRecord(
+                state: state,
+                host: host,
+                fallbackDeviceID: "macOS",
+                fallbackBundleID: options.bundleID
+            )
+            try storeRuntimeHost(record)
+            try storeCurrentRuntimeHost(record)
+            print("loupe host: \(host.absoluteString)")
+        } catch {
+            if process.isRunning {
+                process.terminate()
+            }
+            throw error
         }
     }
 
@@ -1203,11 +1276,17 @@ struct LoupeCLI {
     }
 
     private static func injectorPath(_ arguments: [String]) throws {
-        guard arguments.isEmpty else {
-            throw CLIError("Usage: loupe injector-path")
+        let platform: LoupeInjectorPlatform
+        switch arguments {
+        case []:
+            platform = .iOSSimulator
+        case ["--macos"]:
+            platform = .macOS
+        default:
+            throw CLIError("Usage: loupe injector-path [--macos]")
         }
 
-        guard let path = try resolvedInjectorPath(explicitPath: nil) else {
+        guard let path = try resolvedInjectorPath(explicitPath: nil, platform: platform) else {
             throw CLIError("LoupeInjector not found. Set LOUPE_INJECTOR_PATH or install Loupe through Homebrew.")
         }
 
@@ -1239,7 +1318,10 @@ struct LoupeCLI {
         print("action backend native: ok")
     }
 
-    private static func resolvedInjectorPath(explicitPath: String?) throws -> String? {
+    private static func resolvedInjectorPath(
+        explicitPath: String?,
+        platform: LoupeInjectorPlatform = .iOSSimulator
+    ) throws -> String? {
         if let explicitPath {
             guard FileManager.default.isExecutableFile(atPath: explicitPath) else {
                 throw CLIError("Injector is not executable: \(explicitPath)")
@@ -1247,7 +1329,7 @@ struct LoupeCLI {
             return explicitPath
         }
 
-        return LoupeInjectorPathResolver().resolve()
+        return LoupeInjectorPathResolver(platform: platform).resolve()
     }
 
     static let developmentVersion = "0.1.5-dev"
@@ -2903,6 +2985,34 @@ struct LoupeCLI {
         } while Date() < deadline
 
         throw CLIError("Timed out waiting for Loupe runtime at \(host.absoluteString): \(lastError.map(String.init(describing:)) ?? "no response")")
+    }
+
+    private static func waitForMacOSRuntime(
+        host: URL,
+        expectedBundleID: String,
+        timeout: TimeInterval
+    ) async throws -> LoupeRuntimeState {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastError: Error?
+
+        repeat {
+            do {
+                let state = try await fetchRuntimeState(host: host, timeout: min(1, timeout))
+                guard state.identity.platform == "macOS" else {
+                    throw CLIError("Loupe runtime at \(host.absoluteString) is \(state.identity.platform ?? "unknown-platform"), not macOS")
+                }
+                guard state.identity.bundleIdentifier == expectedBundleID else {
+                    let actual = state.identity.bundleIdentifier ?? "unknown-bundle"
+                    throw CLIError("Loupe runtime at \(host.absoluteString) is \(actual), not \(expectedBundleID)")
+                }
+                return state
+            } catch {
+                lastError = error
+                try await Task.sleep(nanoseconds: 200_000_000)
+            }
+        } while Date() < deadline
+
+        throw CLIError("Timed out waiting for macOS Loupe runtime at \(host.absoluteString): \(lastError.map(String.init(describing:)) ?? "no response")")
     }
 
     private static func resolvedLoupePort(for _: String, environment: [String: String]) throws -> UInt16 {

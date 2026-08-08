@@ -30,14 +30,29 @@ class Loupe < Formula
     simulator_build_dir = simulator_triple.sub(/ios[0-9.]+-simulator/, "ios-simulator")
     injector_binary = injector_scratch/simulator_build_dir/"release/libLoupeInjector.dylib"
     (libexec/"LoupeInjector.framework").install injector_binary => "LoupeInjector"
+
+    macos_injector_scratch = buildpath/".build/homebrew-loupe-macos-injector"
+    system "swift", "build",
+      "--configuration", "release",
+      "--disable-sandbox",
+      "--scratch-path", macos_injector_scratch,
+      "--product", "LoupeInjector"
+    macos_triple = Hardware::CPU.arm? ? "arm64-apple-macosx" : "x86_64-apple-macosx"
+    macos_injector_binary = macos_injector_scratch/macos_triple/"release/libLoupeInjector.dylib"
+    (libexec/"LoupeInjector.framework/macos").install macos_injector_binary => "LoupeInjector"
   end
 
   test do
     assert_match "loupe: ok", shell_output("#{bin}/loupe doctor")
     assert_path_exists libexec/"LoupeInjector.framework/LoupeInjector"
+    assert_path_exists libexec/"LoupeInjector.framework/macos/LoupeInjector"
     assert_equal(
       "#{libexec}/LoupeInjector.framework/LoupeInjector",
       shell_output("#{bin}/loupe injector-path").strip,
+    )
+    assert_equal(
+      "#{libexec}/LoupeInjector.framework/macos/LoupeInjector",
+      shell_output("#{bin}/loupe injector-path --macos").strip,
     )
   end
 end

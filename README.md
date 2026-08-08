@@ -67,6 +67,19 @@ loupe ui compact loupe-report/snapshot.json
 loupe ui node loupe-report/snapshot.json --test-id checkout.payButton
 ```
 
+Launch a local macOS debug app with the macOS injector:
+
+```bash
+loupe app launch \
+  --bundle-id com.example.App \
+  --macos-app /path/to/App.app
+loupe ui report --bundle-id com.example.App --output loupe-report
+```
+
+Dynamic-library injection can be rejected by Hardened Runtime or library
+validation. For those development builds, link and embed `LoupeInjector`
+instead.
+
 Act on the app and keep a trace:
 
 ```bash

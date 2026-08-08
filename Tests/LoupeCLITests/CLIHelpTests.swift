@@ -97,11 +97,12 @@ import Testing
         let wait = try #require(LoupeCLI.commandUsage("act wait"))
 
         #expect(launch.contains("bundle-id"))
+        #expect(launch.contains("--macos-app <App.app>"))
         #expect(!launch.contains("iOS Simulator app"))
         #expect(launch.contains("<sim|device|udid>"))
         #expect(launch.contains("LOUPE_INJECTOR_PATH"))
         #expect(launch.contains("Homebrew injector"))
-        #expect(launch.contains("loupe injector-path"))
+        #expect(launch.contains("loupe injector-path --macos"))
         #expect(scroll.contains("--from x,y --to x,y --udid <sim>"))
         #expect(scroll.contains("--delta dx,dy|--to-offset x,y"))
         #expect(scroll.contains("[--bundle-id <id>]"))
