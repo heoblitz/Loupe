@@ -72,7 +72,11 @@ public final class LoupeAgent {
         ).tree
     }
 
-    private func captureAccessibilityActionTree() -> CapturedAccessibilityTree {
+    public func captureAccessibilityActionTree() -> LoupeAccessibilityTree {
+        captureAccessibilityActionTreeWithObjects().tree
+    }
+
+    private func captureAccessibilityActionTreeWithObjects() -> CapturedAccessibilityTree {
         let capture = captureSnapshotWithViewRefs()
         return captureNativeAccessibilityTree(
             snapshot: capture.snapshot,
@@ -254,7 +258,7 @@ public final class LoupeAgent {
         guard let action = request.action else {
             throw LoupeMutationError(code: "missing_accessibility_action", message: "Accessibility action is required.")
         }
-        let capture = captureAccessibilityActionTree()
+        let capture = captureAccessibilityActionTreeWithObjects()
         let matches = accessibilityActionMatches(request: request, capture: capture)
         guard matches.count == 1, let target = matches.first else {
             if matches.isEmpty {

@@ -372,6 +372,7 @@ public struct LoupeAccessibilityQueryResult: Codable, Equatable {
     public var isVisible: Bool
     public var isEnabled: Bool
     public var isInteractive: Bool
+    public var actions: [LoupeAccessibilityAction]
 
     public init(node: LoupeAccessibilityNode) {
         ref = node.ref
@@ -384,6 +385,7 @@ public struct LoupeAccessibilityQueryResult: Codable, Equatable {
         isVisible = node.isVisible
         isEnabled = node.isEnabled
         isInteractive = node.isInteractive
+        actions = node.actions ?? []
     }
 }
 

@@ -19,7 +19,7 @@ extension LoupeCLI {
         let selector: LoupeSelector
         let targetIdentity: LoupeAccessibilityTargetIdentity?
         if let alias = options.targetAlias {
-            let saved = try ActionTargetAliasCacheStore().load()
+            let saved = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: options.host)).load()
             try saved.validate(host: options.host, runtimeIdentity: runtimeState.identity)
             let entry = try saved.target(at: alias)
             guard entry.actions.contains(options.action) else {
@@ -49,7 +49,7 @@ extension LoupeCLI {
         )
         let response = try await postActivation(request, host: options.host, timeout: options.timeout)
         if let cache {
-            try ActionTargetAliasCacheStore().consume(cacheID: cache.cacheID)
+            try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: options.host)).consume(cacheID: cache.cacheID)
         }
         _ = try await fetchRuntimeState(host: options.host, timeout: options.timeout)
         print(try accessibilityActionSummary(response))
@@ -68,7 +68,7 @@ extension LoupeCLI {
         )
         let focusSelector: LoupeSelector
         if let alias = tapOptions.targetAlias {
-            let entry = try ActionTargetAliasCacheStore().load().target(at: alias)
+            let entry = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: tapOptions.host)).load().target(at: alias)
             focusSelector = entry.testID.map(LoupeSelector.testID) ?? .ref(entry.sourceRef)
         } else if let selector = tapOptions.selector {
             focusSelector = selector

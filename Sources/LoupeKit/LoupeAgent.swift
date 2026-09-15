@@ -40,13 +40,63 @@ public final class LoupeAgent {
         ).tree
     }
 
-    func captureAccessibilityActionTree() -> CapturedAccessibilityTree {
+    public func captureAccessibilityActionTree() -> LoupeAccessibilityTree {
+        captureAccessibilityActionTreeWithObjects().tree
+    }
+
+    func captureAccessibilityActionTreeWithObjects() -> CapturedAccessibilityTree {
         let capture = captureSnapshotWithViewRefs()
-        return captureNativeAccessibilityTree(
+        return captureNativeAccessibilityActionTree(
             snapshot: capture.snapshot,
             viewRefs: capture.viewRefs,
             viewsByRef: capture.viewsByRef
         )
+    }
+
+    private func captureNativeAccessibilityActionTree(
+        snapshot: LoupeSnapshot,
+        viewRefs: [ObjectIdentifier: String],
+        viewsByRef: [String: UIView]
+    ) -> CapturedAccessibilityTree {
+        nextNativeAccessibilityRef = 0
+        var tree = LoupeAccessibilityTree(snapshotID: snapshot.id, screen: snapshot.screen, rootRefs: [], nodes: [:])
+        var signatures = Set<String>()
+        var objectsByRef: [String: NSObject] = [:]
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows {
+                appendNativeAccessibilityElements(
+                    in: window, snapshot: snapshot, viewRefs: viewRefs,
+                    accessibilityVisibleRefs: Set(snapshot.nodes.values.filter(\.isVisible).map(\.ref)), tree: &tree,
+                    signatures: &signatures, objectsByRef: &objectsByRef, includeViewElements: true
+                )
+            }
+        }
+        // Some UIKit chrome (notably UIBarButtonItem) is represented by a
+        // non-element wrapper whose declared action lives on the view snapshot.
+        // Preserve that concrete contract and retain the live owner for execution.
+        for source in snapshot.nodes.values.sorted(by: { $0.ref < $1.ref }) {
+            guard let view = viewsByRef[source.ref],
+                  let accessibility = source.accessibility,
+                  let actions = accessibility.actions, !actions.isEmpty,
+                  source.isVisible, source.isEnabled,
+                  let frame = source.frame, !frame.isEmpty else { continue }
+            let node = LoupeAccessibilityNode(
+                ref: makeNativeAccessibilityRef(sourceRef: source.ref), sourceRef: source.ref,
+                parentRef: treeParentRef(for: source.ref, tree: tree), role: source.role,
+                label: source.label ?? source.text ?? source.semanticText ?? source.renderedText,
+                value: source.value, hint: accessibility.hint, testID: source.testID,
+                traits: accessibility.traits, frame: frame,
+                activationPoint: accessibility.activationPoint ?? frame.center,
+                isVisible: true, isEnabled: true, isInteractive: true, actions: actions
+            )
+            let signature = nativeAccessibilitySignature(for: node)
+            guard signatures.insert(signature).inserted else { continue }
+            tree.nodes[node.ref] = node
+            objectsByRef[node.ref] = view
+            tree.rootRefs.append(node.ref)
+        }
+        tree.rootRefs.sort { accessibilityVisualOrder(tree.nodes[$0], tree.nodes[$1]) }
+        return CapturedAccessibilityTree(snapshot: snapshot, tree: tree, objectsByRef: objectsByRef)
     }
 
     func captureSnapshotWithViewRefs() -> CapturedSnapshot {
@@ -528,7 +578,8 @@ public final class LoupeAgent {
         accessibilityVisibleRefs: Set<String>,
         tree: inout LoupeAccessibilityTree,
         signatures: inout Set<String>,
-        objectsByRef: inout [String: NSObject]
+        objectsByRef: inout [String: NSObject],
+        includeViewElements: Bool = false
     ) {
         guard let sourceRef = viewRefs[ObjectIdentifier(view)] else {
             view.subviews.forEach {
@@ -539,10 +590,19 @@ public final class LoupeAgent {
                     accessibilityVisibleRefs: accessibilityVisibleRefs,
                     tree: &tree,
                     signatures: &signatures,
-                    objectsByRef: &objectsByRef
+                    objectsByRef: &objectsByRef,
+                    includeViewElements: includeViewElements
                 )
             }
             return
+        }
+
+        if includeViewElements {
+            appendNativeAccessibilityNode(
+                view, sourceRef: sourceRef, snapshot: snapshot,
+                accessibilityVisibleRefs: accessibilityVisibleRefs, tree: &tree,
+                signatures: &signatures, objectsByRef: &objectsByRef
+            )
         }
 
         var visitedContainers = Set<ObjectIdentifier>()
@@ -551,36 +611,11 @@ public final class LoupeAgent {
                 continue
             }
 
-            guard let node = nativeAccessibilityNode(
-                for: element,
-                sourceRef: sourceRef,
-                snapshot: snapshot,
-                accessibilityVisibleRefs: accessibilityVisibleRefs,
-                tree: tree
-            ) else {
-                continue
-            }
-
-            let signature = nativeAccessibilitySignature(for: node)
-            guard !signatures.contains(signature) else {
-                continue
-            }
-
-            signatures.insert(signature)
-            tree.nodes[node.ref] = node
-            objectsByRef[node.ref] = element
-            if let parentRef = node.parentRef, var parent = tree.nodes[parentRef] {
-                parent.children.append(node.ref)
-                parent.children.sort { lhs, rhs in
-                    accessibilityVisualOrder(tree.nodes[lhs], tree.nodes[rhs])
-                }
-                tree.nodes[parentRef] = parent
-            } else {
-                tree.rootRefs.append(node.ref)
-                tree.rootRefs.sort { lhs, rhs in
-                    accessibilityVisualOrder(tree.nodes[lhs], tree.nodes[rhs])
-                }
-            }
+            appendNativeAccessibilityNode(
+                element, sourceRef: sourceRef, snapshot: snapshot,
+                accessibilityVisibleRefs: accessibilityVisibleRefs, tree: &tree,
+                signatures: &signatures, objectsByRef: &objectsByRef
+            )
         }
 
         view.subviews.forEach {
@@ -591,8 +626,30 @@ public final class LoupeAgent {
                 accessibilityVisibleRefs: accessibilityVisibleRefs,
                 tree: &tree,
                 signatures: &signatures,
-                objectsByRef: &objectsByRef
+                objectsByRef: &objectsByRef,
+                includeViewElements: includeViewElements
             )
+        }
+    }
+
+    private func appendNativeAccessibilityNode(
+        _ element: NSObject, sourceRef: String, snapshot: LoupeSnapshot,
+        accessibilityVisibleRefs: Set<String>, tree: inout LoupeAccessibilityTree,
+        signatures: inout Set<String>, objectsByRef: inout [String: NSObject]
+    ) {
+        guard let node = nativeAccessibilityNode(
+            for: element, sourceRef: sourceRef, snapshot: snapshot,
+            accessibilityVisibleRefs: accessibilityVisibleRefs, tree: tree
+        ), signatures.insert(nativeAccessibilitySignature(for: node)).inserted else { return }
+        tree.nodes[node.ref] = node
+        objectsByRef[node.ref] = element
+        if let parentRef = node.parentRef, var parent = tree.nodes[parentRef] {
+            parent.children.append(node.ref)
+            parent.children.sort { accessibilityVisualOrder(tree.nodes[$0], tree.nodes[$1]) }
+            tree.nodes[parentRef] = parent
+        } else {
+            tree.rootRefs.append(node.ref)
+            tree.rootRefs.sort { accessibilityVisualOrder(tree.nodes[$0], tree.nodes[$1]) }
         }
     }
 
@@ -603,27 +660,36 @@ public final class LoupeAgent {
         accessibilityVisibleRefs: Set<String>,
         tree: LoupeAccessibilityTree
     ) -> LoupeAccessibilityNode? {
-        let testID = accessibilityIdentifier(for: element)
+        let sourceNode = snapshot.nodes[sourceRef]
+        let testID = accessibilityIdentifier(for: element) ?? sourceNode?.testID
         let label = nonEmpty(element.accessibilityLabel)
-        let value = nonEmpty(element.accessibilityValue)
-        let hint = nonEmpty(element.accessibilityHint)
+            ?? sourceNode?.label
+            ?? sourceNode?.text
+            ?? sourceNode?.semanticText
+            ?? sourceNode?.renderedText
+        let value = nonEmpty(element.accessibilityValue) ?? sourceNode?.value
+        let hint = nonEmpty(element.accessibilityHint) ?? sourceNode?.accessibility?.hint
         let traits = accessibilityTraits(element.accessibilityTraits)
-        let role = accessibilityRole(forTraits: traits)
+        let role = accessibilityRole(forTraits: traits) ?? sourceNode?.role
         let actions = accessibilityActions(for: element, role: role, traits: traits)
-        let frame = loupeRect(from: element.accessibilityFrame)
-        let activationPoint = validActivationPoint(
+        let nativeFrame = loupeRect(from: element.accessibilityFrame)
+        let frame = nativeFrame.isEmpty ? (sourceNode?.frame ?? nativeFrame) : nativeFrame
+        let nativeActivationPoint = validActivationPoint(
             LoupePoint(
                 x: finiteDouble(Double(element.accessibilityActivationPoint.x)) ?? 0,
                 y: finiteDouble(Double(element.accessibilityActivationPoint.y)) ?? 0
             ),
             frame: frame
         )
+        let activationPoint = nativeActivationPoint
+            ?? validActivationPoint(sourceNode?.accessibility?.activationPoint, frame: frame)
+            ?? frame.center
 
         guard testID != nil || label != nil || value != nil || hint != nil || !traits.isEmpty else {
             return nil
         }
 
-        let sourceSurfaceVisible = snapshot.nodes[sourceRef].map {
+        let sourceSurfaceVisible = sourceNode.map {
             $0.isVisible && accessibilityVisibleRefs.contains($0.ref)
         } ?? true
         let isVisible = sourceSurfaceVisible
@@ -643,7 +709,7 @@ public final class LoupeAgent {
             frame: frame,
             activationPoint: activationPoint,
             isVisible: isVisible,
-            isEnabled: !traits.contains("notEnabled"),
+            isEnabled: !traits.contains("notEnabled") && (sourceNode?.isEnabled ?? true),
             isInteractive: isInteractiveAccessibilityTraits(traits) || !actions.isEmpty,
             actions: actions,
             children: []
@@ -1166,10 +1232,10 @@ private func accessibilityActions(
     traits: [String]
 ) -> [LoupeAccessibilityAction] {
     var actions: [LoupeAccessibilityAction] = []
-    let activatingRoles: Set<String> = [
-        "button", "link", "keyboardKey", "switch", "segmentedControl",
-        "textField", "textView", "searchField", "cell",
-    ]
+    // UIKit frequently exposes UIBarButtonItem and SwiftUI button wrappers as
+    // UIAccessibilityElement rather than UIControl. Their button/link role is
+    // the platform's standard activation contract, not a display-text guess.
+    let standardActivatingRoles: Set<String> = ["button", "link", "keyboardKey"]
     let blockActions: (
         activate: Bool,
         increment: Bool,
@@ -1195,15 +1261,17 @@ private func accessibilityActions(
     }
 
     if element is UIControl
-        || role.map(activatingRoles.contains) == true
+        || role.map(standardActivatingRoles.contains) == true
         || blockActions.activate
         || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityActivate)) {
         actions.append(.activate)
     }
-    if traits.contains("adjustable") || ["slider", "stepper"].contains(role) || blockActions.increment {
+    if element is UISlider || element is UIStepper
+        || blockActions.increment || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityIncrement)) {
         actions.append(.increment)
     }
-    if traits.contains("adjustable") || ["slider", "stepper"].contains(role) || blockActions.decrement {
+    if element is UISlider || element is UIStepper
+        || blockActions.decrement || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityDecrement)) {
         actions.append(.decrement)
     }
     var supportsZoom = traits.contains("supportsZoom")

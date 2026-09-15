@@ -6,11 +6,17 @@ struct ActTargetsOptions {
     var host: URL?
     var udid: String?
     var timeout: TimeInterval
+    var search: String?
+    var limit: Int
+    var includeUnverified: Bool
 
     init(_ arguments: [String]) throws {
         host = nil
         var udid: String?
         var timeout: TimeInterval = 5
+        var search: String?
+        var limit = 30
+        var includeUnverified = false
         var index = 0
 
         while index < arguments.count {
@@ -30,6 +36,16 @@ struct ActTargetsOptions {
                     throw CLIError("--timeout must be greater than 0")
                 }
                 timeout = value
+            case "--search":
+                search = try Self.value(after: argument, in: arguments, index: &index)
+            case "--limit":
+                let raw = try Self.value(after: argument, in: arguments, index: &index)
+                guard let value = Int(raw), (1...ActionTargetAliasPlanner.maximumTargetCount).contains(value) else {
+                    throw CLIError("--limit must be between 1 and \(ActionTargetAliasPlanner.maximumTargetCount)")
+                }
+                limit = value
+            case "--include-unverified":
+                includeUnverified = true
             default:
                 throw CLIError("Unknown targets option: \(argument)")
             }
@@ -38,6 +54,9 @@ struct ActTargetsOptions {
 
         self.udid = udid
         self.timeout = timeout
+        self.search = search
+        self.limit = limit
+        self.includeUnverified = includeUnverified
     }
 
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
@@ -68,24 +87,25 @@ extension LoupeCLI {
         }
 
         let snapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
-        let accessibilityTree = try await fetchAccessibilityTree(
-            host: host,
-            fallbackSnapshot: snapshot,
-            timeout: options.timeout
-        )
+        let accessibilityTree = try await fetchAccessibilityActionTree(host: host, timeout: options.timeout)
         let cache = ActionTargetAliasPlanner.makeCache(
             snapshot: snapshot,
             accessibilityTree: accessibilityTree,
             runtimeIdentity: runtimeState.identity,
             bundleIdentifier: bundleIdentifier,
-            host: host
+            host: host,
+            search: options.search,
+            limit: options.limit
         )
-        try ActionTargetAliasCacheStore().store(cache)
+        try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: host)).store(cache)
         print(ActionTargetAliasText.render(cache))
         if cache.totalTargetCount > cache.targets.count {
             FileHandle.standardError.write(Data(
-                "TIP: showing the first \(cache.targets.count) action targets; use `loupe ui report` for full view analysis\n".utf8
+                "Matched: \(cache.totalTargetCount)  Shown: \(cache.targets.count)  Omitted: \(cache.totalTargetCount - cache.targets.count)\n".utf8
             ))
+        }
+        if options.includeUnverified {
+            FileHandle.standardError.write(Data("NOTE: --include-unverified is accepted for comparison workflows; aliases remain restricted to verified native actions.\n".utf8))
         }
     }
 }

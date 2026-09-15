@@ -62,7 +62,7 @@ struct RuntimeActionModelsTests {
                 "ax-a-duplicate": axNode(ref: "ax-a-duplicate", sourceRef: "dup", text: "First", frame: LoupeRect(x: 20, y: 100, width: 80, height: 44)),
                 "ax-hidden": axNode(ref: "ax-hidden", sourceRef: "hidden", text: "Hidden", frame: LoupeRect(x: 20, y: 10, width: 80, height: 44), visible: false),
                 "ax-disabled": axNode(ref: "ax-disabled", sourceRef: "disabled", text: "Disabled", frame: LoupeRect(x: 20, y: 20, width: 80, height: 44), enabled: false),
-                "ax-static": axNode(ref: "ax-static", sourceRef: "static", text: "Static", frame: LoupeRect(x: 20, y: 30, width: 80, height: 44), interactive: false),
+                "ax-static": axNode(ref: "ax-static", sourceRef: "static", text: "Static", frame: LoupeRect(x: 20, y: 30, width: 80, height: 44), interactive: false, actions: []),
                 "ax-offscreen": axNode(ref: "ax-offscreen", sourceRef: "offscreen", text: "Offscreen", frame: LoupeRect(x: 450, y: 40, width: 80, height: 44)),
                 "ax-window": LoupeAccessibilityNode(
                     ref: "ax-window",
@@ -133,7 +133,7 @@ struct RuntimeActionModelsTests {
 
         #expect(
             ActionTargetAliasText.render(cache)
-                == "App: com.example.checkout\n\n#1 button \"Pay \\\"now\\\"\\nplease\" [tap,activate,\"custom:Copy link\"]"
+                == "App: com.example.checkout\n\n#1 button \"Pay \\\"now\\\"\\nplease\" [tap,\"custom:Copy link\"]"
         )
         #expect(!ActionTargetAliasText.render(cache).contains("checkout.pay"))
         #expect(!ActionTargetAliasText.render(cache).contains("frame"))
@@ -178,7 +178,8 @@ struct RuntimeActionModelsTests {
             point: LoupePoint(x: 900, y: 900),
             isVisible: true,
             isEnabled: true,
-            isInteractive: true
+            isInteractive: true,
+            actions: [.activate]
         )
 
         #expect(throws: CLIError.self) {
@@ -512,7 +513,8 @@ struct RuntimeActionModelsTests {
         frame: LoupeRect,
         visible: Bool = true,
         enabled: Bool = true,
-        interactive: Bool = true
+        interactive: Bool = true,
+        actions: [LoupeAccessibilityAction] = [.activate]
     ) -> LoupeAccessibilityNode {
         LoupeAccessibilityNode(
             ref: ref,
@@ -523,7 +525,8 @@ struct RuntimeActionModelsTests {
             frame: frame,
             isVisible: visible,
             isEnabled: enabled,
-            isInteractive: interactive
+            isInteractive: interactive,
+            actions: actions
         )
     }
 

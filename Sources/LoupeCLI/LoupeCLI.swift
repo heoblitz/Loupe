@@ -2234,9 +2234,12 @@ struct LoupeCLI {
             )
             let runtimeState = try await fetchRuntimeState(host: options.host, timeout: options.timeout)
             if let alias = options.targetAlias {
-                let cache = try ActionTargetAliasCacheStore().load()
+                let cache = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: options.host)).load()
                 try cache.validate(host: options.host, runtimeIdentity: runtimeState.identity)
-                _ = try cache.target(at: alias)
+                let entry = try cache.target(at: alias)
+                if command == "tap", !entry.actions.contains(where: { $0 == .activate || $0 == .press }) {
+                    throw CLIError("Action target '#\(alias)' does not expose a tap action. Use `loupe act perform '#\(alias)' <action>` for one of its listed actions.")
+                }
                 aliasCache = cache
                 if !options.udidWasExplicit,
                    let deviceIdentifier = cache.deviceIdentifier,
@@ -2263,7 +2266,10 @@ struct LoupeCLI {
             }
             let resolvedTarget: ActionTarget
             if let alias = options.targetAlias, let aliasCache {
-                resolvedTarget = try actionTarget(alias: alias, cache: aliasCache)
+                resolvedTarget = try await freshActionTarget(
+                    alias: alias, cache: aliasCache, runtimeIdentity: runtimeState.identity,
+                    host: options.host, timeout: options.timeout
+                )
             } else {
                 resolvedTarget = try await resolveActionTarget(options)
             }
@@ -2288,7 +2294,7 @@ struct LoupeCLI {
                 try dispatchAction(command: command, options: options, target: resolvedTarget)
             }
             if let aliasCache {
-                try ActionTargetAliasCacheStore().consume(cacheID: aliasCache.cacheID)
+                try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: options.host)).consume(cacheID: aliasCache.cacheID)
             }
             try await verifyRuntimeAlive(host: options.host, timeout: options.timeout)
             if let scrollBaseline {
@@ -2319,14 +2325,44 @@ struct LoupeCLI {
     }
 
     static func actionTarget(alias: Int, cache: ActionTargetAliasCache) throws -> ActionTarget {
-        let entry = try cache.target(at: alias)
+        try actionTarget(entry: cache.target(at: alias), screen: cache.screen)
+    }
+
+    static func actionTarget(entry: ActionTargetAliasEntry, screen: LoupeScreen) -> ActionTarget {
         return ActionTarget(
             point: entry.point,
-            screen: cache.screen.size,
-            screenScale: cache.screen.scale,
+            screen: screen.size,
+            screenScale: screen.scale,
             source: .accessibility(ref: entry.ref, sourceRef: entry.sourceRef),
             match: .accessibility(entry.queryResult)
         )
+    }
+
+    /// Saved aliases are only a short-lived intent. Resolve them in a fresh native
+    /// action tree so HID never uses a coordinate captured before a relayout.
+    private static func freshActionTarget(
+        alias: Int, cache: ActionTargetAliasCache, runtimeIdentity: LoupeRuntimeIdentity,
+        host: URL, timeout: TimeInterval
+    ) async throws -> ActionTarget {
+        let saved = try cache.target(at: alias)
+        let snapshot = try await fetchSnapshot(host: host, timeout: timeout)
+        let tree = try await fetchAccessibilityActionTree(host: host, timeout: timeout)
+        guard let bundleIdentifier = runtimeIdentity.bundleIdentifier else {
+            throw CLIError("Runtime identity is missing its bundle identifier. Rerun `loupe act targets`")
+        }
+        let fresh = ActionTargetAliasPlanner.makeCache(
+            snapshot: snapshot, accessibilityTree: tree, runtimeIdentity: runtimeIdentity,
+            bundleIdentifier: bundleIdentifier, host: host
+        ).targets.filter { candidate in
+            candidate.actions.contains(where: { $0 == .activate || $0 == .press })
+                && candidate.role == saved.role
+                && candidate.text == saved.text
+                && (saved.testID == nil || candidate.testID == saved.testID)
+        }
+        guard fresh.count == 1, let target = fresh.first else {
+            throw CLIError("Saved action target '#\(alias)' no longer resolves uniquely. Rerun `loupe act targets`")
+        }
+        return actionTarget(entry: target, screen: tree.screen)
     }
 
     private static func scrollVerificationBaseline(
@@ -2527,7 +2563,9 @@ struct LoupeCLI {
             snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
         }
         let accessibilityTree: LoupeAccessibilityTree
-        if options.snapshotURL != nil {
+        if options.command == "tap", options.backend == "runtime" {
+            accessibilityTree = try await fetchAccessibilityActionTree(host: options.host, timeout: options.timeout)
+        } else if options.snapshotURL != nil {
             accessibilityTree = LoupeAccessibilityTree.build(from: snapshot)
         } else {
             accessibilityTree = try await fetchAccessibilityTree(
@@ -2551,6 +2589,10 @@ struct LoupeCLI {
         }
         if let result = accessibilityMatches.first,
            let point = result.activationPoint ?? center(of: result.frame) {
+            if options.command == "tap", options.backend == "runtime",
+               !(accessibilityTree.nodes[result.ref]?.actions?.contains(where: { $0 == .activate || $0 == .press }) ?? false) {
+                throw CLIError("Matched accessibility node does not expose a tap action. Use `loupe act perform` with one of its listed actions.")
+            }
             return ActionTarget(
                 point: point,
                 screen: snapshot.screen.size,
@@ -2558,6 +2600,10 @@ struct LoupeCLI {
                 source: .accessibility(ref: result.ref, sourceRef: result.sourceRef),
                 match: .accessibility(result)
             )
+        }
+
+        if options.command == "tap", options.backend == "runtime" {
+            throw CLIError("No native accessibility action matched selector. Rerun `loupe act targets` or use `loupe ui report` for view analysis.")
         }
 
         let viewMatches = preferPlatformBackedActionMatches(
@@ -2898,10 +2944,38 @@ struct LoupeCLI {
         }
     }
 
+    /// Action discovery intentionally has no snapshot fallback: aliases must be backed
+    /// by a currently executable native accessibility action, not a plausible view.
+    static func fetchAccessibilityActionTree(
+        host: URL,
+        timeout: TimeInterval = 5
+    ) async throws -> LoupeAccessibilityTree {
+        let url = host.appendingPathComponent("accessibility/actions")
+        let (data, response) = try await httpData(from: url, timeout: timeout, label: "accessibility action fetch")
+        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
+            throw CLIError("Runtime does not expose native accessibility actions. Relaunch with the current LoupeInjector.")
+        }
+        return try JSONDecoder().decode(LoupeAccessibilityTree.self, from: data)
+    }
+
     static func fetchRuntimeState(host: URL, timeout: TimeInterval = 5) async throws -> LoupeRuntimeState {
+        let statusURL = host.appendingPathComponent("status")
+        let (statusData, statusResponse) = try await httpData(from: statusURL, timeout: timeout, label: "runtime status fetch")
+        guard let httpResponse = statusResponse as? HTTPURLResponse else {
+            throw CLIError("runtime status fetch failed")
+        }
+        if (200..<300).contains(httpResponse.statusCode) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let status = try decoder.decode(LoupeRuntimeStatus.self, from: statusData)
+            return LoupeRuntimeState(identity: status.identity)
+        }
+        guard httpResponse.statusCode == 404 else {
+            throw CLIError("runtime status fetch failed")
+        }
         let url = host.appendingPathComponent("runtime")
         let (data, response) = try await httpData(from: url, timeout: timeout, label: "runtime fetch")
-        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
+        guard let legacyResponse = response as? HTTPURLResponse, (200..<300).contains(legacyResponse.statusCode) else {
             throw CLIError("runtime fetch failed")
         }
         let decoder = JSONDecoder()
@@ -3535,7 +3609,26 @@ struct LoupeCLI {
         } else {
             throw CLIError("runtime tap requires '#N', --test-id, or --ref")
         }
-        let request = LoupeActivationRequest(selector: try activationSelector(from: selector))
+        let action: LoupeAccessibilityAction
+        if case let .accessibility(result)? = target.match,
+           result.actions.contains(.press), !result.actions.contains(.activate) {
+            action = .press
+        } else {
+            action = .activate
+        }
+        let accessibilityTarget: LoupeAccessibilityTargetIdentity?
+        if case let .accessibility(result)? = target.match {
+            accessibilityTarget = LoupeAccessibilityTargetIdentity(
+                ref: result.ref, sourceRef: result.sourceRef, testID: result.testID,
+                role: result.role, label: result.text, frame: result.frame
+            )
+        } else {
+            accessibilityTarget = nil
+        }
+        let request = LoupeActivationRequest(
+            selector: try activationSelector(from: selector), action: action,
+            accessibilityTarget: accessibilityTarget
+        )
         _ = try await postActivation(request, host: options.host, timeout: options.timeout)
     }
 
@@ -3839,7 +3932,7 @@ struct LoupeCLI {
         var counts: [String: Int] = [:]
         var result: [String: LoupeNode] = [:]
 
-        for node in snapshot.nodes.values where !suppressesDiffNode(node, in: snapshot) {
+        for node in snapshot.nodes.values.sorted(by: { $0.ref < $1.ref }) where !suppressesDiffNode(node, in: snapshot) {
             let baseKey = nodeIdentityKey(node, screen: snapshot.screen.size)
             let count = counts[baseKey, default: 0]
             counts[baseKey] = count + 1

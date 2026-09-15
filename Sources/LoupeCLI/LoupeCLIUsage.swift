@@ -45,7 +45,7 @@ extension LoupeCLI {
     Usage: loupe act <subcommand>
 
     SUBCOMMANDS:
-      targets                 List lightweight accessibility action targets.
+      targets                 List verified accessibility action targets (--search, --limit, --include-unverified).
       perform                 Perform an Apple accessibility action on a target.
       tap                     Tap a selector, ref, or coordinate.
       swipe                   Dispatch a one-finger swipe.
