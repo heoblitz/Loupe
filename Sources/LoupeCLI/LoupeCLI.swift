@@ -2403,23 +2403,32 @@ struct LoupeCLI {
         let deadline = Date().addingTimeInterval(options.timeout)
 
         while true {
-            let requestTimeout = min(10, max(0.1, deadline.timeIntervalSinceNow))
-            let snapshot = try await fetchSnapshot(host: host, timeout: requestTimeout)
-            let accessibilityTree = try await fetchAccessibilityTree(
-                host: host,
-                fallbackSnapshot: snapshot,
-                timeout: min(10, max(0.1, deadline.timeIntervalSinceNow))
-            )
-            let accessibilityResult = LoupeAccessibilityTreeQuery.first(
-                options.selector,
-                in: accessibilityTree,
-                options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
-            )
+            let snapshot = try await fetchSnapshot(host: host, timeout: min(3, options.timeout))
             let viewResult = LoupeSnapshotQuery.first(
                 options.selector,
                 in: snapshot,
                 options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
             )
+            let needsAccessibilityTree: Bool
+            switch mode {
+            case .visible, .gone:
+                needsAccessibilityTree = viewResult == nil
+            case .value:
+                needsAccessibilityTree = false
+            }
+            var accessibilityResult: LoupeAccessibilityQueryResult?
+            if needsAccessibilityTree {
+                let accessibilityTree = try await fetchAccessibilityTree(
+                    host: host,
+                    fallbackSnapshot: snapshot,
+                    timeout: min(3, options.timeout)
+                )
+                accessibilityResult = LoupeAccessibilityTreeQuery.first(
+                    options.selector,
+                    in: accessibilityTree,
+                    options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
+                )
+            }
 
             switch mode {
             case .visible:
@@ -2503,25 +2512,22 @@ struct LoupeCLI {
         let deadline = Date().addingTimeInterval(timeout)
 
         while true {
-            let snapshot = try await fetchSnapshot(
-                host: options.host,
-                timeout: min(10, max(0.1, deadline.timeIntervalSinceNow))
-            )
-            let accessibilityTree = try await fetchAccessibilityTree(
-                host: options.host,
-                fallbackSnapshot: snapshot,
-                timeout: min(10, max(0.1, deadline.timeIntervalSinceNow))
-            )
-            if LoupeAccessibilityTreeQuery.first(
+            let snapshot = try await fetchSnapshot(host: options.host, timeout: min(3, options.timeout))
+            if LoupeSnapshotQuery.first(
                 options.selector,
-                in: accessibilityTree,
+                in: snapshot,
                 options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
             ) != nil {
                 return
             }
-            if LoupeSnapshotQuery.first(
+            let accessibilityTree = try await fetchAccessibilityTree(
+                host: options.host,
+                fallbackSnapshot: snapshot,
+                timeout: min(3, options.timeout)
+            )
+            if LoupeAccessibilityTreeQuery.first(
                 options.selector,
-                in: snapshot,
+                in: accessibilityTree,
                 options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
             ) != nil {
                 return

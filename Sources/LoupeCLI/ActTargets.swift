@@ -14,7 +14,7 @@ struct ActTargetsOptions {
     init(_ arguments: [String]) throws {
         host = nil
         var udid: String?
-        var timeout: TimeInterval = 15
+        var timeout: TimeInterval = 5
         var search: String?
         var limit = 30
         var includeAll = false
