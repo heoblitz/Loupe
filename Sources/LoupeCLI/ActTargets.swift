@@ -8,6 +8,7 @@ struct ActTargetsOptions {
     var timeout: TimeInterval
     var search: String?
     var limit: Int
+    var includeAll: Bool
     var includeUnverified: Bool
 
     init(_ arguments: [String]) throws {
@@ -16,6 +17,7 @@ struct ActTargetsOptions {
         var timeout: TimeInterval = 5
         var search: String?
         var limit = 30
+        var includeAll = false
         var includeUnverified = false
         var index = 0
 
@@ -46,6 +48,8 @@ struct ActTargetsOptions {
                 limit = value
             case "--include-unverified":
                 includeUnverified = true
+            case "--all":
+                includeAll = true
             default:
                 throw CLIError("Unknown targets option: \(argument)")
             }
@@ -56,6 +60,7 @@ struct ActTargetsOptions {
         self.timeout = timeout
         self.search = search
         self.limit = limit
+        self.includeAll = includeAll
         self.includeUnverified = includeUnverified
     }
 
@@ -95,7 +100,8 @@ extension LoupeCLI {
             bundleIdentifier: bundleIdentifier,
             host: host,
             search: options.search,
-            limit: options.limit
+            limit: options.limit,
+            includeAll: options.includeAll
         )
         try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: host)).store(cache)
         print(ActionTargetAliasText.render(cache))

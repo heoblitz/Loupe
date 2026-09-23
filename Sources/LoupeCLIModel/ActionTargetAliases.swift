@@ -153,11 +153,13 @@ package enum ActionTargetAliasPlanner {
         host: URL,
         search: String? = nil,
         limit: Int = maximumTargetCount,
+        includeAll: Bool = false,
         cacheID: String = UUID().uuidString,
         capturedAt: Date = Date()
     ) -> ActionTargetAliasCache {
         var results = accessibilityTree.nodes.values
             .filter(isActionTarget)
+            .filter { includeAll || isPrimaryActionTarget($0) }
             .map(LoupeAccessibilityQueryResult.init)
             .filter { actionPoint(for: $0, screen: accessibilityTree.screen) != nil }
             .sorted(by: visualOrder)
@@ -233,6 +235,22 @@ package enum ActionTargetAliasPlanner {
         return !(node.actions?.isEmpty ?? true)
     }
 
+    private static func isPrimaryActionTarget(_ node: LoupeAccessibilityNode) -> Bool {
+        let actions = node.actions ?? []
+        // Keep explicit control actions. Scrolling and global accessibility
+        // gestures remain available through `act targets --all` or `act perform`.
+        if actions.contains(where: {
+            !["activate", "press", "scroll-right", "scroll-left", "scroll-up", "scroll-down",
+              "scroll-next", "scroll-previous", "escape", "magic-tap", "scroll-to-visible"]
+                .contains($0.name)
+        }) {
+            return true
+        }
+        guard actions.contains(.activate) || actions.contains(.press) else { return false }
+        let role = nonEmpty(node.role)?.lowercased()
+        return (role != nil && role != "element" && role != "group") || nonEmpty(node.testID) != nil
+    }
+
     private static func nonEmpty(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
         return value
@@ -303,9 +321,10 @@ package enum ActionTargetAliasText {
         var lines = ["App: \(cache.bundleIdentifier)", ""]
         lines.append(contentsOf: cache.targets.map { target in
             let role = nonEmpty(target.role) ?? "element"
-            let text = escaped(nonEmpty(target.text) ?? "")
+            let label = nonEmpty(target.text) ?? ""
+            let text = escaped(label.count > 80 ? String(label.prefix(80)) + "…" : label)
             var actions = target.actions
-                .filter { $0 != .activate }
+                .filter { $0 != .activate && $0 != .press }
                 .map(\.commandName)
             if target.actions.contains(.activate) || target.actions.contains(.press) {
                 actions.insert("tap", at: 0)

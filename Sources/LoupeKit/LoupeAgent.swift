@@ -1266,11 +1266,16 @@ private func accessibilityActions(
         || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityActivate)) {
         actions.append(.activate)
     }
-    if element is UISlider || element is UIStepper
+    #if os(iOS)
+    let isAdjustableControl = element is UISlider || element is UIStepper
+    #else
+    let isAdjustableControl = false
+    #endif
+    if isAdjustableControl
         || blockActions.increment || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityIncrement)) {
         actions.append(.increment)
     }
-    if element is UISlider || element is UIStepper
+    if isAdjustableControl
         || blockActions.decrement || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityDecrement)) {
         actions.append(.decrement)
     }
