@@ -601,6 +601,24 @@ ruby -rjson -e '
   abort "expected SwiftUI probe source ref" unless probe_ax["sourceRef"] == probe.fetch("ref")
 ' "$INSPECT_PATH" "$ACCESSIBILITY_PATH" "$SNAPSHOT_PATH"
 
+echo "case: native SwiftUI accessibility action target"
+SWIFTUI_TARGETS_PATH="/tmp/loupe-native-swiftui-action-targets.txt"
+.build/debug/loupe act targets --host "$HOST" --udid "$DEVICE" --search Disable > "$SWIFTUI_TARGETS_PATH"
+SWIFTUI_BUTTON_ALIAS="$(ruby -e '
+  matches = File.readlines(ARGV.fetch(0), chomp: true).select { |line| line.match?(/\A#\d+ button "Disable" \[tap\]/) }
+  abort "expected exactly one native SwiftUI Disable target, got #{matches.inspect}" unless matches.length == 1
+  puts matches.fetch(0)[/\A#\d+/]
+' "$SWIFTUI_TARGETS_PATH")"
+.build/debug/loupe act tap "$SWIFTUI_BUTTON_ALIAS" --host "$HOST" --udid "$DEVICE"
+for _ in {1..20}; do
+  .build/debug/loupe act targets --host "$HOST" --udid "$DEVICE" --search Enable > "$SWIFTUI_TARGETS_PATH"
+  if grep -Eq '^#[0-9]+ button "Enable" \[tap\]' "$SWIFTUI_TARGETS_PATH"; then
+    break
+  fi
+  sleep 0.25
+done
+grep -Eq '^#[0-9]+ button "Enable" \[tap\]' "$SWIFTUI_TARGETS_PATH"
+
 launch_app fixtures.web
 .build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures.web.webView --timeout 5 >/tmp/loupe-native-wait-web.json
 fetch_snapshot

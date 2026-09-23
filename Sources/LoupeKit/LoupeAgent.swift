@@ -100,6 +100,9 @@ public final class LoupeAgent {
     }
 
     func captureSnapshotWithViewRefs() -> CapturedSnapshot {
+        #if os(iOS)
+        LoupeAccessibilityPreparation.prepare()
+        #endif
         nextRef = 0
 
         var nodes: [String: LoupeNode] = [:]
@@ -670,7 +673,9 @@ public final class LoupeAgent {
         let value = nonEmpty(element.accessibilityValue) ?? sourceNode?.value
         let hint = nonEmpty(element.accessibilityHint) ?? sourceNode?.accessibility?.hint
         let traits = accessibilityTraits(element.accessibilityTraits)
-        let role = accessibilityRole(forTraits: traits) ?? sourceNode?.role
+        let role = (element is UIView ? sourceNode?.role : nil)
+            ?? accessibilityRole(forTraits: traits)
+            ?? sourceNode?.role
         let actions = accessibilityActions(for: element, role: role, traits: traits)
         let nativeFrame = loupeRect(from: element.accessibilityFrame)
         let frame = nativeFrame.isEmpty ? (sourceNode?.frame ?? nativeFrame) : nativeFrame
@@ -1262,8 +1267,7 @@ private func accessibilityActions(
 
     if element is UIControl
         || role.map(standardActivatingRoles.contains) == true
-        || blockActions.activate
-        || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityActivate)) {
+        || blockActions.activate {
         actions.append(.activate)
     }
     #if os(iOS)
@@ -1271,33 +1275,27 @@ private func accessibilityActions(
     #else
     let isAdjustableControl = false
     #endif
-    if isAdjustableControl
-        || blockActions.increment || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityIncrement)) {
+    let isAdjustable = isAdjustableControl || traits.contains("adjustable")
+        || role.map(["adjustable", "slider", "stepper"].contains) == true
+    if isAdjustable || blockActions.increment {
         actions.append(.increment)
     }
-    if isAdjustableControl
-        || blockActions.decrement || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityDecrement)) {
+    if isAdjustable || blockActions.decrement {
         actions.append(.decrement)
     }
-    var supportsZoom = traits.contains("supportsZoom")
-    if #available(iOS 17.0, tvOS 17.0, visionOS 1.0, *) {
-        supportsZoom = supportsZoom
-            || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityZoomIn(at:)))
-            || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityZoomOut(at:)))
-    }
-    if supportsZoom {
+    if traits.contains("supportsZoom") {
         actions.append(contentsOf: [.zoomIn, .zoomOut])
     }
     if element is UIScrollView
-        || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityScroll(_:))) {
+        || role.map(["scrollView", "collectionView", "tableView", "webView"].contains) == true {
         actions.append(contentsOf: [
             .scrollRight, .scrollLeft, .scrollUp, .scrollDown, .scrollNext, .scrollPrevious,
         ])
     }
-    if blockActions.escape || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityPerformEscape)) {
+    if blockActions.escape {
         actions.append(.escape)
     }
-    if blockActions.magicTap || overridesAccessibilityMethod(element, #selector(NSObject.accessibilityPerformMagicTap)) {
+    if blockActions.magicTap {
         actions.append(.magicTap)
     }
     actions.append(contentsOf: (element.accessibilityCustomActions ?? []).compactMap { action in
@@ -1309,23 +1307,17 @@ private func accessibilityActions(
     return actions.filter { seen.insert($0).inserted }
 }
 
-private func overridesAccessibilityMethod(_ element: NSObject, _ selector: Selector) -> Bool {
-    guard let concrete = class_getInstanceMethod(type(of: element), selector),
-          let base = class_getInstanceMethod(NSObject.self, selector) else {
-        return false
-    }
-    return method_getImplementation(concrete) != method_getImplementation(base)
-}
-
 private func nativeAccessibilitySignature(for node: LoupeAccessibilityNode) -> String {
     let frame = node.frame.map {
-        "\(Int($0.x.rounded())):\(Int($0.y.rounded())):\(Int($0.width.rounded())):\(Int($0.height.rounded()))"
+        [$0.x, $0.y, $0.width, $0.height]
+            .map { String($0.rounded()) }
+            .joined(separator: ":")
     } ?? "nil"
     return [
         node.testID ?? "",
         node.label ?? "",
         node.value ?? "",
-        node.role ?? "",
+        node.testID == nil ? (node.role ?? "") : "",
         frame
     ].joined(separator: "|")
 }
