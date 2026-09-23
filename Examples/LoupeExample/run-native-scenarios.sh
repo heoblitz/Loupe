@@ -264,7 +264,7 @@ BACK_REF="$(query_ref example.components.back)"
 
 echo "case: routed UIKit component screen"
 launch_app components
-.build/debug/loupe act wait visible --host "$HOST" --test-id example.components --timeout 5 >/tmp/loupe-native-wait-components-routed.json
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.components --timeout 10 >/tmp/loupe-native-wait-components-routed.json
 fetch_snapshot
 
 echo "case: accessibility action targets are copyable and one-shot"

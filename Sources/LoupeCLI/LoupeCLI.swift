@@ -2403,11 +2403,12 @@ struct LoupeCLI {
         let deadline = Date().addingTimeInterval(options.timeout)
 
         while true {
-            let snapshot = try await fetchSnapshot(host: host, timeout: min(3, options.timeout))
+            let requestTimeout = min(10, max(0.1, deadline.timeIntervalSinceNow))
+            let snapshot = try await fetchSnapshot(host: host, timeout: requestTimeout)
             let accessibilityTree = try await fetchAccessibilityTree(
                 host: host,
                 fallbackSnapshot: snapshot,
-                timeout: min(3, options.timeout)
+                timeout: min(10, max(0.1, deadline.timeIntervalSinceNow))
             )
             let accessibilityResult = LoupeAccessibilityTreeQuery.first(
                 options.selector,
