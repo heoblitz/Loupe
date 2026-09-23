@@ -29,6 +29,11 @@ public final class LoupeAgent {
     }
 
     public func captureAccessibilityTree() -> LoupeAccessibilityTree {
+        #if os(iOS)
+        if ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" {
+            LoupeAccessibilityPreparation.prepare()
+        }
+        #endif
         let capture = captureSnapshotWithViewRefs()
         guard ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" else {
             return LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: capture.snapshot))
@@ -45,6 +50,9 @@ public final class LoupeAgent {
     }
 
     func captureAccessibilityActionTreeWithObjects() -> CapturedAccessibilityTree {
+        #if os(iOS)
+        LoupeAccessibilityPreparation.prepare()
+        #endif
         let capture = captureSnapshotWithViewRefs()
         return captureNativeAccessibilityActionTree(
             snapshot: capture.snapshot,
@@ -100,9 +108,6 @@ public final class LoupeAgent {
     }
 
     func captureSnapshotWithViewRefs() -> CapturedSnapshot {
-        #if os(iOS)
-        LoupeAccessibilityPreparation.prepare()
-        #endif
         nextRef = 0
 
         var nodes: [String: LoupeNode] = [:]
