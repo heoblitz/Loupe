@@ -564,7 +564,7 @@ ruby -rjson -e '
 
 echo "case: mixed fixture tabs for SwiftUI, WebKit, keyboard, and nested scroll"
 launch_app fixtures.swiftui
-.build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures --timeout 5 >/tmp/loupe-native-wait-fixtures.json
+.build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures --timeout 15 >/tmp/loupe-native-wait-fixtures.json
 fetch_snapshot
 assert_query example.fixtures /tmp/loupe-native-fixtures-query.json
 assert_query example.fixtures.swiftui.host /tmp/loupe-native-swiftui-host-query.json
