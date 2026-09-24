@@ -7,39 +7,33 @@ class Loupe < Formula
   head "https://github.com/heoblitz/Loupe.git", branch: "main"
 
   depends_on xcode: ["16.0", :build]
-  def install
-    system "swift", "build",
-      "--configuration", "release",
-      "--disable-sandbox",
-      "--product", "loupe"
 
-    bin.install ".build/release/loupe"
+  def swift_build(*args)
+    build_args = ["build", "--configuration", "release", "--disable-sandbox", *args]
+    system "swift", *build_args
+    Pathname(Utils.safe_popen_read("swift", *build_args, "--show-bin-path").strip)
+  end
+
+  def install
+    cli_bin_path = swift_build("--product", "loupe")
+    bin.install cli_bin_path/"loupe"
     (pkgshare/"skills").install "skills/loupe" => "loupe"
 
     simulator_triple = Hardware::CPU.arm? ? "arm64-apple-ios15.0-simulator" : "x86_64-apple-ios15.0-simulator"
     simulator_sdk = Utils.safe_popen_read("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path").strip
-    injector_scratch = buildpath/".build/homebrew-loupe-injector"
-    system "swift", "build",
-      "--configuration", "release",
-      "--disable-sandbox",
-      "--scratch-path", injector_scratch,
+    injector_bin_path = swift_build(
+      "--scratch-path", buildpath/".build/homebrew-loupe-injector",
       "--product", "LoupeInjector",
       "--sdk", simulator_sdk,
       "--triple", simulator_triple
+    )
+    (libexec/"LoupeInjector.framework").install injector_bin_path/"libLoupeInjector.dylib" => "LoupeInjector"
 
-    simulator_build_dir = simulator_triple.sub(/ios[0-9.]+-simulator/, "ios-simulator")
-    injector_binary = injector_scratch/simulator_build_dir/"release/libLoupeInjector.dylib"
-    (libexec/"LoupeInjector.framework").install injector_binary => "LoupeInjector"
-
-    macos_injector_scratch = buildpath/".build/homebrew-loupe-macos-injector"
-    system "swift", "build",
-      "--configuration", "release",
-      "--disable-sandbox",
-      "--scratch-path", macos_injector_scratch,
+    macos_injector_bin_path = swift_build(
+      "--scratch-path", buildpath/".build/homebrew-loupe-macos-injector",
       "--product", "LoupeInjector"
-    macos_triple = Hardware::CPU.arm? ? "arm64-apple-macosx" : "x86_64-apple-macosx"
-    macos_injector_binary = macos_injector_scratch/macos_triple/"release/libLoupeInjector.dylib"
-    (libexec/"LoupeInjector.framework/macos").install macos_injector_binary => "LoupeInjector"
+    )
+    (libexec/"LoupeInjector.framework/macos").install macos_injector_bin_path/"libLoupeInjector.dylib" => "LoupeInjector"
   end
 
   test do
