@@ -13,6 +13,7 @@ run_step() {
 
 run_step "swift test" swift test
 run_step "release CLI build" swift build --configuration release --disable-sandbox --product loupe
+run_step "CLI contracts" python3 scripts/verify-cli-contracts.py .build/release/loupe
 run_step "platform builds" scripts/verify-platform-builds.sh
 run_step "macOS example E2E" Examples/MacLoupeExample/run-macos-e2e.sh
 run_step "tvOS example E2E" Examples/LoupeTVExample/run-tvos-runtime-e2e.sh

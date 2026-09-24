@@ -5,6 +5,7 @@ package struct ActionOptions: ActionDispatchOptions {
     package var command: String
     package var host: URL
     package var hostWasExplicit: Bool
+    package var bundleID: String?
     package var backend: String
     package var udid: String
     package var udidWasExplicit: Bool
@@ -74,15 +75,17 @@ package struct ActionOptions: ActionDispatchOptions {
             case "--host":
                 host = try Self.url(after: argument, in: arguments, index: &index)
                 hostWasExplicit = true
+            case "--bundle-id":
+                bundleID = try Self.value(after: argument, in: arguments, index: &index)
             case "--backend":
                 backend = try Self.value(after: argument, in: arguments, index: &index)
             case "--udid", "--device":
                 udid = try Self.value(after: argument, in: arguments, index: &index)
                 udidWasExplicit = true
             case "--test-id":
-                selector = .testID(try Self.value(after: argument, in: arguments, index: &index))
+                try UniqueSelector.set(.testID(try Self.value(after: argument, in: arguments, index: &index)), on: &selector)
             case "--ref":
-                selector = .ref(try Self.value(after: argument, in: arguments, index: &index))
+                try UniqueSelector.set(.ref(try Self.value(after: argument, in: arguments, index: &index)), on: &selector)
             case "--snapshot":
                 snapshotURL = URL(fileURLWithPath: try Self.value(after: argument, in: arguments, index: &index))
             case "--text":

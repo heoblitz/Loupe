@@ -421,7 +421,7 @@ Current benchmark status:
   collection cells apply `enabledIncludingConstraints`, and repeated probes on
   the same container return `already-enabled` without another invalidation.
 - Runtime mutation discovery:
-  `loupe ui set --list` / `/mutations` exposes the active mutation property
+  `loupe ui mutations` / `/mutations` exposes the active mutation property
   registry for agent planning.
 - Runtime edit-to-code loop:
   `loupe ui set --output <mutation.json>`, `loupe ui node`, then

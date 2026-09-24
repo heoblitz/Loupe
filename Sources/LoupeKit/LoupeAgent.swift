@@ -60,7 +60,7 @@ public final class LoupeAgent {
         return (found, false)
     }
 
-    public func captureAccessibilityTree() -> LoupeAccessibilityTree {
+    public func captureAccessibilityTree(includeHidden: Bool = false) -> LoupeAccessibilityTree {
         #if os(iOS)
         if ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" {
             LoupeAccessibilityPreparation.prepare()
@@ -68,13 +68,19 @@ public final class LoupeAgent {
         #endif
         let capture = captureSnapshotWithViewRefs()
         guard ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" else {
-            return LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: capture.snapshot))
+            return LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: capture.snapshot), includeHidden: includeHidden)
         }
         return captureNativeAccessibilityTree(
             snapshot: capture.snapshot,
             viewRefs: capture.viewRefs,
-            viewsByRef: capture.viewsByRef
+            viewsByRef: capture.viewsByRef,
+            includeHidden: includeHidden
         ).tree
+    }
+
+    public func captureAccessibilityActionObservation() -> LoupeAccessibilityActionObservation {
+        let capture = captureAccessibilityActionTreeWithObjects()
+        return LoupeAccessibilityActionObservation(snapshot: capture.snapshot, tree: capture.tree)
     }
 
     public func captureAccessibilityActionTree() -> LoupeAccessibilityTree {
@@ -605,12 +611,13 @@ public final class LoupeAgent {
     private func captureNativeAccessibilityTree(
         snapshot: LoupeSnapshot,
         viewRefs: [ObjectIdentifier: String],
-        viewsByRef: [String: UIView]
+        viewsByRef: [String: UIView],
+        includeHidden: Bool = false
     ) -> CapturedAccessibilityTree {
         nextNativeAccessibilityRef = 0
 
         let context = LoupeSnapshotContext(snapshot: snapshot)
-        var tree = LoupeAccessibilityTree.build(from: context)
+        var tree = LoupeAccessibilityTree.build(from: context, includeHidden: includeHidden)
         var signatures = Set(tree.nodes.values.map(nativeAccessibilitySignature(for:)))
         let accessibilityVisibleRefs = context.occlusionVisibleRefs
         var objectsByRef = Dictionary(uniqueKeysWithValues: viewsByRef.map { sourceRef, view in

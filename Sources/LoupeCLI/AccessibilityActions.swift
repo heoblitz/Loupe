@@ -8,9 +8,11 @@ extension LoupeCLI {
         options.host = try await resolvedRuntimeHost(
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
-            udid: options.udid
+            udid: options.udid,
+            bundleID: options.bundleID, timeout: options.timeout
         )
         let runtimeState = try await fetchRuntimeState(host: options.host, timeout: options.timeout)
+        try validateBundleIdentity(state: runtimeState, expectedBundleID: options.bundleID)
         if let udid = options.udid {
             try validateRuntimeIdentity(state: runtimeState, expectedUDID: udid, host: options.host)
         }
@@ -64,14 +66,18 @@ extension LoupeCLI {
         tapOptions.host = try await resolvedRuntimeHost(
             requestedHost: tapOptions.host,
             hostWasExplicit: tapOptions.hostWasExplicit,
-            udid: tapOptions.udid
+            udid: tapOptions.udidWasExplicit ? tapOptions.udid : nil,
+            bundleID: tapOptions.bundleID, timeout: tapOptions.timeout
         )
         let focusSelector: LoupeSelector
+        let retryTargetArguments: [String]
         if let alias = tapOptions.targetAlias {
             let entry = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: tapOptions.host)).load().target(at: alias)
-            focusSelector = entry.testID.map(LoupeSelector.testID) ?? .ref(entry.sourceRef)
+            focusSelector = try inputFocusSelector(forSavedAliasTestID: entry.testID)
+            retryTargetArguments = try inputRetryTargetArguments(focusSelector)
         } else if let selector = tapOptions.selector {
             focusSelector = selector
+            retryTargetArguments = try inputRetryTargetArguments(focusSelector)
         } else {
             throw CLIError("input requires a target")
         }
@@ -83,7 +89,7 @@ extension LoupeCLI {
         if await waitForInputFocus(focusSelector, host: tapOptions.host, timeout: 1) == false {
             try await action(
                 command: "tap",
-                arguments: inputRetryTargetArguments(focusSelector) + options.commonArguments
+                arguments: retryTargetArguments + options.commonArguments
             )
             guard await waitForInputFocus(
                 focusSelector,
@@ -156,7 +162,7 @@ extension LoupeCLI {
     private static func fetchInputFocus(testID: String, host: URL, timeout: TimeInterval) async throws -> Bool? {
         var components = URLComponents(url: host.appendingPathComponent("input/focus"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "testID", value: testID)]
-        let (data, response) = try await httpData(
+        let (data, response) = try await RuntimeHTTPClient.shared.data(
             from: components.url!, timeout: min(1, timeout), label: "input focus fetch"
         )
         guard let http = response as? HTTPURLResponse else {
@@ -169,7 +175,14 @@ extension LoupeCLI {
         return try JSONDecoder().decode(InputFocusResponse.self, from: data).focused
     }
 
-    private static func inputRetryTargetArguments(_ selector: LoupeSelector) throws -> [String] {
+    static func inputFocusSelector(forSavedAliasTestID testID: String?) throws -> LoupeSelector {
+        guard let testID, !testID.isEmpty else {
+            throw CLIError("input aliases require a stable testID. Rerun `loupe act targets` and use --test-id <id>.")
+        }
+        return .testID(testID)
+    }
+
+    static func inputRetryTargetArguments(_ selector: LoupeSelector) throws -> [String] {
         switch selector {
         case let .testID(value):
             return ["--test-id", value]

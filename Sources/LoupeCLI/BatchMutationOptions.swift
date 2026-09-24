@@ -67,11 +67,11 @@ struct BatchMutationOptions {
             case "--trace-dir":
                 traceDirectory = URL(fileURLWithPath: try Self.value(after: "--trace-dir", in: arguments, index: &index), isDirectory: true)
             case "--refs":
-                selector = .refs(try Self.refList(try Self.value(after: "--refs", in: arguments, index: &index)))
+                try UniqueSelector.set(.refs(try Self.refList(try Self.value(after: "--refs", in: arguments, index: &index))), on: &selector)
             case "--type-name":
-                selector = .typeName(try Self.value(after: "--type-name", in: arguments, index: &index))
+                try UniqueSelector.set(.typeName(try Self.value(after: "--type-name", in: arguments, index: &index)), on: &selector)
             case "--role":
-                selector = .role(try Self.value(after: "--role", in: arguments, index: &index))
+                try UniqueSelector.set(.role(try Self.value(after: "--role", in: arguments, index: &index)), on: &selector)
             case "--all":
                 visibleOnly = false
             case "--visible-only":

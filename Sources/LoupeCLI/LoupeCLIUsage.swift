@@ -45,7 +45,7 @@ extension LoupeCLI {
     Usage: loupe act <subcommand>
 
     SUBCOMMANDS:
-      targets                 List verified accessibility action targets (--search, --limit, --include-unverified).
+      targets                 List verified accessibility action targets (--search, --limit, --all).
       perform                 Perform an Apple accessibility action on a target.
       tap                     Tap a selector, ref, or coordinate.
       swipe                   Dispatch a one-finger swipe.
@@ -96,20 +96,19 @@ extension LoupeCLI {
         case "ui snapshot":
             return "Usage: loupe ui snapshot [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]"
         case "ui compact":
-            return "Usage: loupe ui compact [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]"
+            return "Usage: loupe ui compact [snapshot.json | --host <url> | --bundle-id <id>] [--udid <sim>] [--output <path>] [--timeout <seconds>]"
         case "ui tree":
             return """
-            Usage: loupe ui tree [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--view|--accessibility] [--depth <n>]
+            Usage: loupe ui tree [snapshot.json | --host <url> | --bundle-id <id>] [--udid <sim>] [--view|--accessibility] [--depth <n>] [--limit <n>|--all]
                    loupe ui tree --interesting|--visible-leaves|--text|--mutable
+            Select a subtree: --test-id <id> | --ref <ref> | --role <role> | --exact-text <text>
 
-            Print a human-readable tree. Use --mutable to discover refs likely useful for runtime mutation.
+            Print up to 80 lines (240 characters each). Use --limit 1...500 or --all for full output. Use --mutable to discover mutation refs.
             """
-        case "ui text", "ui text-map":
-            return "Usage: loupe ui text [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--accessibility]"
-        case "ui screen", "ui screen-map":
-            return "Usage: loupe ui screen [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--include-hidden] [--include-containers] [--limit <n>]"
+        case "ui screen":
+            return "Usage: loupe ui screen [snapshot.json | --host <url> | --bundle-id <id>] [--udid <sim>] [--include-hidden] [--include-containers] [--limit <n>]"
         case "ui accessibility":
-            return "Usage: loupe ui accessibility [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--include-hidden] [--output <path>]"
+            return "Usage: loupe ui accessibility [snapshot.json | --host <url> | --bundle-id <id>] [--udid <sim>] [--include-hidden] [--output <path>]"
         case "ui screenshot":
             return "Usage: loupe ui screenshot --udid <sim> --output <path> [--timeout <seconds>]"
         case "ui node":
@@ -118,8 +117,8 @@ extension LoupeCLI {
             return QueryOptions.usage
         case "ui subtree":
             return "Usage: loupe ui subtree <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--depth <n>] [--include-hidden]"
-        case "ui paint", "ui paint-stack":
-            return "Usage: loupe ui paint [snapshot.json] (--point x,y | --ref <ref>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--limit <n>] [--json]"
+        case "ui paint":
+            return "Usage: loupe ui paint [snapshot.json | --host <url> | --bundle-id <id>] (--point x,y | --ref <ref>) [--udid <sim>] [--limit <n>] [--json]"
         case "ui audit":
             return AuditOptions.usage
         case "ui constraints":
@@ -147,24 +146,24 @@ extension LoupeCLI {
         case "ui apply-design-suggestions":
             return ApplyDesignSuggestionsOptions.usage
         case "act targets":
-            return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]\nOptions: [--search <text>] [--limit <n>] [--all]\n\nExample: loupe act targets"
+            return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]\nOptions: [--search <text>] [--limit <n>] [--all]\n\nExample: loupe act targets"
         case "act perform":
-            return "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--udid <sim>] [--timeout <seconds>]\n\nExample: loupe act perform '#4' increment"
+            return "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--bundle-id <id>] [--udid <sim>] [--timeout <seconds>]\n\nExample: loupe act perform '#4' increment"
         case "act tap":
             return """
-            Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]
+            Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--bundle-id <id>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]
 
             Coordinates are screen points, not screenshot pixels. Trace files include coordinateUnit, resolvedScreen, and resolvedScreenScale.
             Example: loupe act tap '#2'
             """
         case "act swipe":
-            return "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]"
+            return "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--bundle-id <id>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]"
         case "act drag":
-            return "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]"
+            return "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--bundle-id <id>] [--duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]"
         case "act input":
-            return "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--timeout <seconds>]\n\nExample: loupe act input '#3' \"4242 4242 4242 4242\""
+            return "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]\n\nSaved input aliases require a testID.\nExample: loupe act input --test-id card.number --text \"4242 4242 4242 4242\""
         case "act press":
-            return "Usage: loupe act press up|down|left|right|select|menu|playPause [--udid <sim>] [--host <url>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]"
+            return "Usage: loupe act press up|down|left|right|select|menu|playPause [--udid <sim>] [--host <url>] [--bundle-id <id>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]"
         case "act wait":
             return """
             Usage: loupe act wait visible|gone (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--timeout <seconds>] [--output <path>]
@@ -182,8 +181,6 @@ extension LoupeCLI {
             return "Usage: loupe debug refs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
         case "debug object-graph":
             return "Usage: loupe debug object-graph [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
-        case "debug heap":
-            return "Usage: loupe debug heap [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
         case "debug objects":
             return "Usage: loupe debug objects classes|describe <args>"
         case "debug objects classes":
@@ -196,8 +193,6 @@ extension LoupeCLI {
             return "Usage: loupe debug keychain [list] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
         case "debug defaults":
             return "Usage: loupe debug defaults get|set|unset <key> [value] [--bool true|false] [--number n] [--host <url>] [--output <path>]"
-        case "debug flags":
-            return "Usage: loupe debug flags get|set|unset <key> [value] [--bool true|false] [--number n] [--host <url>] [--output <path>]"
         case "debug trace":
             return "Usage: loupe debug trace summary|diff|explore|cleanup <args>"
         case "debug trace summary":

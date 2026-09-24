@@ -1,6 +1,6 @@
 import Foundation
 
-public struct LoupeAccessibilityNode: Codable, Equatable {
+public struct LoupeAccessibilityNode: Codable, Equatable, Sendable {
     public var ref: String
     public var sourceRef: String
     public var parentRef: String?
@@ -101,7 +101,7 @@ public struct LoupeAccessibilityNode: Codable, Equatable {
     }
 }
 
-public struct LoupeAccessibilityTree: Codable, Equatable {
+public struct LoupeAccessibilityTree: Codable, Equatable, Sendable {
     public var snapshotID: String
     public var screen: LoupeScreen
     public var rootRefs: [String]
@@ -361,7 +361,7 @@ public struct LoupeAccessibilityTree: Codable, Equatable {
     }
 }
 
-public struct LoupeAccessibilityQueryResult: Codable, Equatable {
+public struct LoupeAccessibilityQueryResult: Codable, Equatable, Sendable {
     public var ref: String
     public var sourceRef: String
     public var role: String?

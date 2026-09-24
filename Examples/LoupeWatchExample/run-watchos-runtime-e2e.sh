@@ -155,15 +155,15 @@ done
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id watch.example.summary > "$INSPECT_SUMMARY_PATH"
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --role application > "$INSPECT_ROOT_PATH"
 .build/debug/loupe ui accessibility --host "$HOST" --timeout 10 --output "$ACCESSIBILITY_PATH" >/dev/null
-.build/debug/loupe ui tree "$SNAPSHOT_PATH" --view --depth 10 > "$VIEW_TREE_PATH"
-.build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --depth 10 > "$ACCESSIBILITY_TREE_PATH"
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --view --depth 10 > "$VIEW_TREE_PATH"
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --accessibility --depth 10 > "$ACCESSIBILITY_TREE_PATH"
 .build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
 .build/debug/loupe debug leaks --alive-only --host "$HOST" --udid "$DEVICE" --output "$LEAKS_PATH" >/dev/null
-.build/debug/loupe debug flags get watch-session-active --host "$HOST" --output "$ACTIVE_FLAG_PATH" >/dev/null
-.build/debug/loupe debug flags get watch-session-focus --host "$HOST" --output "$FOCUS_FLAG_PATH" >/dev/null
-.build/debug/loupe debug flags get watch-session-interval --host "$HOST" --output "$INTERVAL_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults get watch-session-active --host "$HOST" --output "$ACTIVE_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults get watch-session-focus --host "$HOST" --output "$FOCUS_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults get watch-session-interval --host "$HOST" --output "$INTERVAL_FLAG_PATH" >/dev/null
 
 ruby -rjson -e '
   runtime = JSON.parse(File.read(ARGV.fetch(0)))

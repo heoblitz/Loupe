@@ -1,6 +1,6 @@
 import Foundation
 
-public struct LoupeVisibleText: Codable, Equatable {
+public struct LoupeVisibleText: Codable, Equatable, Sendable {
     public var ref: String
     public var typeName: String
     public var className: String?
@@ -28,7 +28,7 @@ public struct LoupeVisibleText: Codable, Equatable {
     }
 }
 
-public struct LoupeInteractiveElement: Codable, Equatable {
+public struct LoupeInteractiveElement: Codable, Equatable, Sendable {
     public var ref: String
     public var typeName: String
     public var className: String?
@@ -59,7 +59,7 @@ public struct LoupeInteractiveElement: Codable, Equatable {
     }
 }
 
-public struct LoupeVisualSurface: Codable, Equatable {
+public struct LoupeVisualSurface: Codable, Equatable, Sendable {
     public var ref: String
     public var typeName: String
     public var className: String?
@@ -87,7 +87,7 @@ public struct LoupeVisualSurface: Codable, Equatable {
     }
 }
 
-public struct LoupeCompactObservation: Codable, Equatable {
+public struct LoupeCompactObservation: Codable, Equatable, Sendable {
     public var snapshotID: String
     public var screen: LoupeScreen
     public var visibleTexts: [LoupeVisibleText]
@@ -126,7 +126,7 @@ public struct LoupeCompactObservation: Codable, Equatable {
     }
 }
 
-public struct LoupeObservationOptions: Equatable {
+public struct LoupeObservationOptions: Equatable, Sendable {
     public var maxVisibleTexts: Int
     public var maxInteractiveElements: Int
     public var maxVisualSurfaces: Int

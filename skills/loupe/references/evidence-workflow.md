@@ -113,6 +113,6 @@ then collect with `debug logs --host <host> --output <logs.json>`.
 `debug network` collects app-authored `dev.loupe.network` events and LoupeKit
 fixture URLProtocol events; it is not a general packet sniffer.
 
-Use `debug refs`, `object-graph`, `leaks`, `keychain`, `defaults`, or `flags`
+Use `debug refs`, `object-graph`, `leaks`, `keychain`, or `defaults`
 only when the app or task contract names that evidence/key. These are
 app-scoped diagnostics; empty output can be a valid bounded result.

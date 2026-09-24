@@ -28,7 +28,7 @@ import Testing
             "--host", "http://127.0.0.1:9876",
             "--udid", "SIM-1",
             "--output", "/tmp/loupe-reference-graph.json"
-        ], commandName: "object-graph")
+        ])
 
         #expect(options.target == "DeviceActuationService")
         #expect(options.runtimeOptions.host.absoluteString == "http://127.0.0.1:9876")
@@ -41,7 +41,7 @@ import Testing
             "--output", "/tmp/loupe-reference-graph.json",
             "--target", "DeviceActuationService",
             "--host", "http://127.0.0.1:9876"
-        ], commandName: "heap")
+        ])
 
         #expect(options.target == "DeviceActuationService")
         #expect(options.runtimeOptions.host.absoluteString == "http://127.0.0.1:9876")

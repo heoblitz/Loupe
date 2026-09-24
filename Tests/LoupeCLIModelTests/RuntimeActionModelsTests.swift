@@ -4,6 +4,21 @@ import Testing
 @testable import LoupeCLIModel
 
 struct RuntimeActionModelsTests {
+    @Test func actionsRejectConflictingSelectorsInsteadOfUsingTheLastOne() {
+        #expect(throws: CLIError.self) {
+            try ActionOptions(command: "tap", arguments: ["--test-id", "safe", "--ref", "other"])
+        }
+        #expect(throws: CLIError.self) {
+            try AccessibilityActionOptions(arguments: ["--test-id", "safe", "--ref", "other", "--action", "activate"])
+        }
+    }
+    @Test func actionCommandsAcceptBundleSelectionConsistently() throws {
+        #expect(try ActionOptions(command: "tap", arguments: ["#1", "--bundle-id", "test.app"]).bundleID == "test.app")
+        #expect(try AccessibilityActionOptions(arguments: ["#1", "activate", "--bundle-id", "test.app"]).bundleID == "test.app")
+        let input = try TargetedInputOptions(arguments: ["--test-id", "field", "--text", "hello", "--bundle-id", "test.app"])
+        #expect(input.commonArguments == ["--bundle-id", "test.app"])
+        #expect(try ActionOptions(command: "tap", arguments: input.targetArguments + input.commonArguments).bundleID == "test.app")
+    }
     @Test func tapParsesQuotedNumericActionTargetAlias() throws {
         let options = try ActionOptions(
             command: "tap",
@@ -196,6 +211,55 @@ struct RuntimeActionModelsTests {
         let rendered = ActionTargetAliasText.render(cache)
         #expect(rendered.contains(String(repeating: "a", count: 80) + "…"))
         #expect(!rendered.contains(String(repeating: "a", count: 81)))
+    }
+
+    @Test func searchedTargetBeyondDisplayLimitCanStillResolveAndDetectAmbiguity() throws {
+        let screen = LoupeScreen(size: LoupeSize(width: 400, height: 800), scale: 2)
+        let snapshot = LoupeSnapshot(id: "snapshot", capturedAt: Date(), screen: screen, rootRefs: [], nodes: [:])
+        var nodes: [String: LoupeAccessibilityNode] = [:]
+        for index in 0...100 {
+            let ref = "ax-\(index)"
+            nodes[ref] = axNode(ref: ref, sourceRef: "n\(index)", text: "Button \(index)",
+                frame: LoupeRect(x: 10, y: Double(index * 5), width: 20, height: 4))
+        }
+        var tree = LoupeAccessibilityTree(snapshotID: "tree", screen: screen, rootRefs: [], nodes: nodes)
+        let cache = ActionTargetAliasPlanner.makeCache(
+            snapshot: snapshot, accessibilityTree: tree,
+            runtimeIdentity: LoupeRuntimeIdentity(processIdentifier: 1),
+            bundleIdentifier: "test", host: URL(string: "http://localhost")!, search: "Button 100"
+        )
+        let saved = try #require(cache.targets.first)
+        #expect(try ActionTargetAliasPlanner.resolveTapTarget(saved, snapshot: snapshot, accessibilityTree: tree).ref == "ax-100")
+
+        tree.nodes["duplicate"] = axNode(ref: "duplicate", sourceRef: "other", text: "Button 100",
+            frame: LoupeRect(x: 10, y: 700, width: 20, height: 4))
+        #expect(throws: CLIError.self) {
+            try ActionTargetAliasPlanner.resolveTapTarget(saved, snapshot: snapshot, accessibilityTree: tree)
+        }
+    }
+
+    @Test func auxiliaryActivatableTargetUsesFreshCoordinates() throws {
+        let screen = LoupeScreen(size: LoupeSize(width: 400, height: 800), scale: 2)
+        let snapshot = LoupeSnapshot(id: "snapshot", capturedAt: Date(), screen: screen, rootRefs: [], nodes: [:])
+        var node = LoupeAccessibilityNode(ref: "ax", sourceRef: "n", role: "element", label: "Open",
+            frame: LoupeRect(x: 10, y: 10, width: 20, height: 20), isVisible: true, isEnabled: true,
+            isInteractive: true, actions: [.activate])
+        var tree = LoupeAccessibilityTree(snapshotID: "tree", screen: screen, rootRefs: [], nodes: ["ax": node])
+        let cache = ActionTargetAliasPlanner.makeCache(
+            snapshot: snapshot, accessibilityTree: tree,
+            runtimeIdentity: LoupeRuntimeIdentity(processIdentifier: 1),
+            bundleIdentifier: "test", host: URL(string: "http://localhost")!, includeAll: true
+        )
+        let saved = try #require(cache.targets.first)
+        node.frame = LoupeRect(x: 100, y: 200, width: 20, height: 20)
+        tree.nodes["ax"] = node
+        #expect(try ActionTargetAliasPlanner.resolveTapTarget(saved, snapshot: snapshot, accessibilityTree: tree).point
+            == LoupePoint(x: 110, y: 210))
+        node.isEnabled = false
+        tree.nodes["ax"] = node
+        #expect(throws: CLIError.self) {
+            try ActionTargetAliasPlanner.resolveTapTarget(saved, snapshot: snapshot, accessibilityTree: tree)
+        }
     }
 
     @Test func performParsesAliasAndCustomAccessibilityAction() throws {

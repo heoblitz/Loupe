@@ -5,11 +5,11 @@ import LoupeCore
 struct ActTargetsOptions {
     var host: URL?
     var udid: String?
+    var bundleID: String?
     var timeout: TimeInterval
     var search: String?
     var limit: Int
     var includeAll: Bool
-    var includeUnverified: Bool
 
     init(_ arguments: [String]) throws {
         host = nil
@@ -18,7 +18,6 @@ struct ActTargetsOptions {
         var search: String?
         var limit = 30
         var includeAll = false
-        var includeUnverified = false
         var index = 0
 
         while index < arguments.count {
@@ -32,6 +31,8 @@ struct ActTargetsOptions {
                 host = url
             case "--udid", "--device":
                 udid = try Self.value(after: argument, in: arguments, index: &index)
+            case "--bundle-id":
+                bundleID = try Self.value(after: argument, in: arguments, index: &index)
             case "--timeout":
                 let raw = try Self.value(after: argument, in: arguments, index: &index)
                 guard let value = TimeInterval(raw), value > 0 else {
@@ -46,8 +47,6 @@ struct ActTargetsOptions {
                     throw CLIError("--limit must be between 1 and \(ActionTargetAliasPlanner.maximumTargetCount)")
                 }
                 limit = value
-            case "--include-unverified":
-                includeUnverified = true
             case "--all":
                 includeAll = true
             default:
@@ -61,7 +60,6 @@ struct ActTargetsOptions {
         self.search = search
         self.limit = limit
         self.includeAll = includeAll
-        self.includeUnverified = includeUnverified
     }
 
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
@@ -79,9 +77,11 @@ extension LoupeCLI {
         let options = try ActTargetsOptions(arguments)
         let host = try await resolvedRuntimeHost(
             requestedHost: options.host,
-            udid: options.udid
+            udid: options.udid,
+            bundleID: options.bundleID, timeout: options.timeout
         )
         let runtimeState = try await fetchRuntimeState(host: host, timeout: options.timeout)
+        try validateBundleIdentity(state: runtimeState, expectedBundleID: options.bundleID)
         if let udid = options.udid {
             try validateRuntimeIdentity(state: runtimeState, expectedUDID: udid, host: host)
         }
@@ -91,11 +91,10 @@ extension LoupeCLI {
             throw CLIError("Loupe runtime did not report a bundle identifier; cannot cache action targets")
         }
 
-        let snapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
-        let accessibilityTree = try await fetchAccessibilityActionTree(host: host, timeout: options.timeout)
+        let observation = try await fetchAccessibilityActionObservation(host: host, timeout: options.timeout)
         let cache = ActionTargetAliasPlanner.makeCache(
-            snapshot: snapshot,
-            accessibilityTree: accessibilityTree,
+            snapshot: observation.snapshot,
+            accessibilityTree: observation.tree,
             runtimeIdentity: runtimeState.identity,
             bundleIdentifier: bundleIdentifier,
             host: host,
@@ -109,9 +108,6 @@ extension LoupeCLI {
             FileHandle.standardError.write(Data(
                 "Matched: \(cache.totalTargetCount)  Shown: \(cache.targets.count)  Omitted: \(cache.totalTargetCount - cache.targets.count)\n".utf8
             ))
-        }
-        if options.includeUnverified {
-            FileHandle.standardError.write(Data("NOTE: --include-unverified is accepted for comparison workflows; aliases remain restricted to verified native actions.\n".utf8))
         }
     }
 }

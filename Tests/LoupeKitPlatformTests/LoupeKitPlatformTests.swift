@@ -3,12 +3,327 @@ import Testing
 import LoupeCore
 @testable import LoupeKit
 
+#if canImport(Darwin)
+import Darwin
+#endif
+
+#if canImport(Darwin)
+private func availableLoopbackPort() throws -> UInt16 {
+    let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { throw SocketTestError.failed("socket") }
+    defer { Darwin.close(fd) }
+
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = 0
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let result = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard result == 0 else { throw SocketTestError.failed("bind") }
+
+    var boundAddress = sockaddr_in()
+    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+    guard withUnsafeMutablePointer(to: &boundAddress, {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.getsockname(fd, $0, &length)
+        }
+    }) == 0 else {
+        throw SocketTestError.failed("getsockname")
+    }
+    return UInt16(bigEndian: boundAddress.sin_port)
+}
+
+private func connectLoopback(port: UInt16) throws -> Int32 {
+    let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { throw SocketTestError.failed("socket") }
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = port.bigEndian
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let result = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard result == 0 else {
+        Darwin.close(fd)
+        throw SocketTestError.failed("connect")
+    }
+    return fd
+}
+
+private func requestLoopback(port: UInt16, request: String) throws -> String {
+    let fd = try connectLoopback(port: port)
+    defer { Darwin.close(fd) }
+    var receiveTimeout = timeval(tv_sec: 2, tv_usec: 0)
+    Darwin.setsockopt(
+        fd,
+        SOL_SOCKET,
+        SO_RCVTIMEO,
+        &receiveTimeout,
+        socklen_t(MemoryLayout<timeval>.size)
+    )
+    try sendAll(Data(request.utf8), to: fd)
+    return try receiveLoopbackResponse(from: fd)
+}
+
+private func receiveLoopbackResponse(from fd: Int32) throws -> String {
+    var response = Data()
+    var bytes = [UInt8](repeating: 0, count: 4096)
+    while true {
+        let count = Darwin.recv(fd, &bytes, bytes.count, 0)
+        if count > 0 {
+            response.append(bytes, count: Int(count))
+            continue
+        }
+        guard count == 0 || errno == EAGAIN else {
+            throw SocketTestError.failed("recv")
+        }
+        break
+    }
+    guard !response.isEmpty else { throw SocketTestError.failed("empty response") }
+    return String(decoding: response, as: UTF8.self)
+}
+
+private func sendAll(_ data: Data, to fd: Int32) throws {
+    try data.withUnsafeBytes { rawBuffer in
+        guard let baseAddress = rawBuffer.baseAddress else { return }
+        var offset = 0
+        while offset < rawBuffer.count {
+            let result = Darwin.send(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset, 0)
+            guard result > 0 else { throw SocketTestError.failed("send") }
+            offset += result
+        }
+    }
+}
+
+private final class ServerLifetimeProbe {
+    weak var server: LoupeServer?
+}
+
+private func startedEphemeralServer(port: UInt16) throws -> ServerLifetimeProbe {
+    let probe = ServerLifetimeProbe()
+    do {
+        let server = LoupeServer()
+        probe.server = server
+        try server.start(port: port)
+    }
+    return probe
+}
+
+private enum SocketTestError: Error {
+    case failed(String)
+}
+#endif
+
 #if canImport(AppKit) && !canImport(UIKit)
 import AppKit
 import SwiftUI
 #endif
 
 #if canImport(UIKit) || canImport(AppKit)
+@Suite struct LoupeServerTransportTests {
+    @Test func unknownEndpointReturnsDecodableJSONError() async throws {
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        try server.start(port: port)
+        defer { server.stop() }
+
+        let response = try await offMainActor {
+            return try requestLoopback(port: port, request: "GET /not-a-route HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        }
+
+        #expect(response.contains("HTTP/1.1 404 Not Found"))
+        let body = try httpBody(response)
+        let object = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: String]
+        #expect(object?["error"] == "not_found")
+    }
+
+    @Test func stopThenRestartReusesThePort() async throws {
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        try server.start(port: port)
+        server.stop()
+        try server.start(port: port)
+        defer { server.stop() }
+
+        let response = try await offMainActor {
+            return try requestLoopback(port: port, request: "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        }
+        #expect(response.contains("HTTP/1.1 200 OK"))
+    }
+
+    @Test func incompleteClientDoesNotBlockConcurrentHealthRequest() async throws {
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        try server.start(port: port)
+        defer { server.stop() }
+
+        let slowClient = try connectLoopback(port: port)
+        defer { Darwin.close(slowClient) }
+        try sendAll(
+            Data("GET /runtime HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n".utf8),
+            to: slowClient
+        )
+
+        let response = try await offMainActor {
+            return try requestLoopback(port: port, request: "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        }
+        #expect(response.contains("HTTP/1.1 200 OK"))
+        #expect(response.contains(#"{"status":"ok","name":"LoupeKit"}"#))
+    }
+
+    @Test func fragmentedRequestWaitsForItsTerminator() async throws {
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        try server.start(port: port)
+        defer { server.stop() }
+
+        let client = try connectLoopback(port: port)
+        defer { Darwin.close(client) }
+        try sendAll(Data("GET /health HTTP/1.1\r\nHost: localhost\r\n".utf8), to: client)
+        var shortTimeout = timeval(tv_sec: 0, tv_usec: 100_000)
+        Darwin.setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &shortTimeout, socklen_t(MemoryLayout<timeval>.size))
+        var byte: UInt8 = 0
+        #expect(Darwin.recv(client, &byte, 1, 0) == -1)
+        #expect(errno == EAGAIN)
+
+        var responseTimeout = timeval(tv_sec: 2, tv_usec: 0)
+        Darwin.setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &responseTimeout, socklen_t(MemoryLayout<timeval>.size))
+        try sendAll(Data("\r\n".utf8), to: client)
+        let response = try receiveLoopbackResponse(from: client)
+        #expect(response.contains("HTTP/1.1 200 OK"))
+    }
+
+    @Test func objectDescriptionControlCharacterErrorIsDecodableJSON() async throws {
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        try server.start(port: port)
+        defer { server.stop() }
+
+        let response = try await offMainActor {
+            try requestLoopback(
+                port: port,
+                request: "GET /objects/describe?class=%09 HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            )
+        }
+        #expect(response.contains("HTTP/1.1 400 Bad Request"))
+        let object = try JSONSerialization.jsonObject(with: Data(try httpBody(response).utf8)) as? [String: String]
+        #expect(object?["error"] == "object_description_failed")
+        #expect(object?["message"]?.contains("\t") == true)
+    }
+
+    @Test func serverDeinitializationReleasesItsListener() async throws {
+        let port = try availableLoopbackPort()
+        let probe = try startedEphemeralServer(port: port)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(probe.server == nil)
+
+        let replacement = LoupeServer()
+        try replacement.start(port: port)
+        defer { replacement.stop() }
+        let response = try await offMainActor {
+            try requestLoopback(port: port, request: "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        }
+        #expect(response.contains("HTTP/1.1 200 OK"))
+    }
+
+    @Test func actionObservationReturnsMatchingSnapshotAndTree() async throws {
+        #if canImport(AppKit) && !canImport(UIKit)
+        await MainActor.run { _ = NSApplication.shared }
+        #endif
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        try server.start(port: port)
+        defer { server.stop() }
+
+        let response = try await offMainActor {
+            try requestLoopback(
+                port: port,
+                request: "GET /accessibility/action-observation HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            )
+        }
+        #expect(response.contains("HTTP/1.1 200 OK"))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let observation = try decoder.decode(
+            LoupeAccessibilityActionObservation.self,
+            from: Data(try httpBody(response).utf8)
+        )
+        #expect(observation.snapshot.id == observation.tree.snapshotID)
+    }
+
+    @Test func concurrentStartsLeaveOneRestartableListener() async throws {
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        defer { server.stop() }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<64 {
+                group.addTask {
+                    try server.start(port: port)
+                }
+            }
+            try await group.waitForAll()
+        }
+        server.stop()
+        try server.start(port: port)
+
+        let response = try await offMainActor {
+            try requestLoopback(port: port, request: "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        }
+        #expect(response.contains("HTTP/1.1 200 OK"))
+    }
+
+    @Test func slowlorisConnectionsExpireFromAcceptanceDeadline() async throws {
+        let port = try availableLoopbackPort()
+        let server = LoupeServer(requestDeadlineNanoseconds: 250_000_000)
+        try server.start(port: port)
+        defer { server.stop() }
+
+        var slowClients: [Int32] = []
+        defer { slowClients.forEach { Darwin.close($0) } }
+        for _ in 0..<16 {
+            let client = try connectLoopback(port: port)
+            slowClients.append(client)
+            try sendAll(Data("G".utf8), to: client)
+        }
+
+        try await Task.sleep(nanoseconds: 800_000_000)
+        let response = try await offMainActor {
+            try requestLoopback(port: port, request: "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        }
+        #expect(response.contains("HTTP/1.1 200 OK"))
+    }
+}
+
+private func httpBody(_ response: String) throws -> String {
+    guard let range = response.range(of: "\r\n\r\n") else {
+        throw SocketTestError.failed("missing HTTP body")
+    }
+    return String(response[range.upperBound...])
+}
+
+private func offMainActor<Value: Sendable>(
+    _ operation: @escaping @Sendable () throws -> Value
+) async throws -> Value {
+    try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global().async {
+            do {
+                continuation.resume(returning: try operation())
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}
+
 @Suite struct LoupeRuntimeBridgeTests {
     @MainActor
     @Test func runtimeLogBridgeKeepsMostRecentFiveHundredEntries() {
@@ -306,6 +621,43 @@ import SwiftUI
     }
 
     @MainActor
+    @Test func serverAccessibilityIncludesHiddenNodesWhenRequested() async throws {
+        guard runLiveAppKitSwiftPMTests else {
+            return
+        }
+
+        let fixture = AppKitFixture()
+        defer { fixture.tearDown() }
+        let port = try availableLoopbackPort()
+        let server = LoupeServer()
+        try server.start(port: port)
+        defer { server.stop() }
+
+        let hiddenResponse = try await offMainActor {
+            try requestLoopback(
+                port: port,
+                request: "GET /accessibility?includeHidden=true HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            )
+        }
+        let visibleResponse = try await offMainActor {
+            try requestLoopback(
+                port: port,
+                request: "GET /accessibility HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            )
+        }
+        let hiddenTree = try JSONDecoder().decode(
+            LoupeAccessibilityTree.self,
+            from: Data(try httpBody(hiddenResponse).utf8)
+        )
+        let visibleTree = try JSONDecoder().decode(
+            LoupeAccessibilityTree.self,
+            from: Data(try httpBody(visibleResponse).utf8)
+        )
+        #expect(hiddenTree.nodes.values.contains { $0.testID == fixture.hiddenTestID })
+        #expect(!visibleTree.nodes.values.contains { $0.testID == fixture.hiddenTestID })
+    }
+
+    @MainActor
     @Test func appKitSnapshotCapturesWindowTestIDMetadataAndDiagnostics() throws {
         guard runLiveAppKitSwiftPMTests else {
             return
@@ -492,6 +844,7 @@ private final class AppKitFixture {
     let nativeAXHostTestID = "platform.nativeAX.host"
     let nativeAXActionTestID = "platform.nativeAX.action"
     let customAXTextTestID = "platform.customAXText"
+    let hiddenTestID = "platform.hidden"
 
     private let window: NSWindow
     private let nativeAXHost: NativeAccessibilityHostView
@@ -564,6 +917,9 @@ private final class AppKitFixture {
         nativeAXHost.testID(nativeAXHostTestID)
         let customAXText = AccessibilityRoleTextView(frame: NSRect(x: 210, y: 96, width: 130, height: 24))
         customAXText.testID(customAXTextTestID)
+        let hidden = NSView(frame: NSRect(x: 12, y: 12, width: 20, height: 20))
+        hidden.testID(hiddenTestID)
+        hidden.isHidden = true
 
         contentView.addSubview(label)
         contentView.addSubview(button)
@@ -574,6 +930,7 @@ private final class AppKitFixture {
         contentView.addSubview(imageView)
         contentView.addSubview(nativeAXHost)
         contentView.addSubview(customAXText)
+        contentView.addSubview(hidden)
         window.contentView = contentView
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()

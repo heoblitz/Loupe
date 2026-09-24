@@ -14,6 +14,16 @@ import Testing
         #expect(try ActTargetsOptions(["--all"]).includeAll)
     }
 
+    @Test func supportsBundleSelection() throws {
+        #expect(try ActTargetsOptions(["--bundle-id", "test.app"]).bundleID == "test.app")
+    }
+
+    @Test func rejectsRemovedUnverifiedOption() {
+        #expect(throws: (any Error).self) {
+            _ = try ActTargetsOptions(["--include-unverified"])
+        }
+    }
+
     @Test func parsesExplicitHost() throws {
         let options = try ActTargetsOptions([
             "--host", "http://127.0.0.1:30632",

@@ -1,6 +1,6 @@
 import Foundation
 
-public enum LoupeNodeKind: String, Codable, Equatable {
+public enum LoupeNodeKind: String, Codable, Equatable, Sendable {
     case application
     case scene
     case window
@@ -32,7 +32,7 @@ public enum LoupeNodeKind: String, Codable, Equatable {
     }
 }
 
-public struct LoupeStyle: Codable, Equatable {
+public struct LoupeStyle: Codable, Equatable, Sendable {
     public var alpha: Double?
     public var backgroundColor: LoupeColor?
     public var tintColor: LoupeColor?
@@ -78,7 +78,7 @@ public struct LoupeStyle: Codable, Equatable {
     }
 }
 
-public struct LoupeAccessibility: Codable, Equatable {
+public struct LoupeAccessibility: Codable, Equatable, Sendable {
     public var identifier: String?
     public var label: String?
     public var value: String?
@@ -112,7 +112,7 @@ public struct LoupeAccessibility: Codable, Equatable {
     }
 }
 
-public struct LoupeNodeRuntimeProperties: Codable, Equatable {
+public struct LoupeNodeRuntimeProperties: Codable, Equatable, Sendable {
     public var frameworkBundleIdentifier: String?
 
     public init(frameworkBundleIdentifier: String? = nil) {
@@ -120,7 +120,7 @@ public struct LoupeNodeRuntimeProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeSwiftUIProperty: Codable, Equatable {
+public struct LoupeSwiftUIProperty: Codable, Equatable, Sendable {
     public var name: String
     public var typeName: String
     public var value: LoupeMetadataValue?
@@ -139,7 +139,7 @@ public struct LoupeSwiftUIProperty: Codable, Equatable {
     }
 }
 
-public struct LoupeSwiftUIProperties: Codable, Equatable {
+public struct LoupeSwiftUIProperties: Codable, Equatable, Sendable {
     public var origin: String
     public var backingTypeName: String
     public var viewController: String?
@@ -164,7 +164,7 @@ public struct LoupeSwiftUIProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIControlProperties: Codable, Equatable {
+public struct LoupeUIControlProperties: Codable, Equatable, Sendable {
     public var controlState: String?
     public var controlEvents: [String]
 
@@ -174,7 +174,7 @@ public struct LoupeUIControlProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUILabelProperties: Codable, Equatable {
+public struct LoupeUILabelProperties: Codable, Equatable, Sendable {
     public var textAlignment: String?
     public var numberOfLines: Int?
     public var lineBreakMode: String?
@@ -186,7 +186,7 @@ public struct LoupeUILabelProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIButtonProperties: Codable, Equatable {
+public struct LoupeUIButtonProperties: Codable, Equatable, Sendable {
     public var lineBreakMode: String?
 
     public init(lineBreakMode: String? = nil) {
@@ -194,7 +194,7 @@ public struct LoupeUIButtonProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUITextFieldProperties: Codable, Equatable {
+public struct LoupeUITextFieldProperties: Codable, Equatable, Sendable {
     public var textAlignment: String?
     public var borderStyle: String?
     public var isSecureTextEntry: Bool?
@@ -206,7 +206,7 @@ public struct LoupeUITextFieldProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUITextViewProperties: Codable, Equatable {
+public struct LoupeUITextViewProperties: Codable, Equatable, Sendable {
     public var textAlignment: String?
 
     public init(textAlignment: String? = nil) {
@@ -214,7 +214,7 @@ public struct LoupeUITextViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIScrollViewProperties: Codable, Equatable {
+public struct LoupeUIScrollViewProperties: Codable, Equatable, Sendable {
     public var contentOffset: LoupePoint
     public var contentSize: LoupeSize
     public var contentInset: LoupeInsets
@@ -291,7 +291,7 @@ public struct LoupeUIScrollViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUISwitchProperties: Codable, Equatable {
+public struct LoupeUISwitchProperties: Codable, Equatable, Sendable {
     public var isOn: Bool
 
     public init(isOn: Bool) {
@@ -299,7 +299,7 @@ public struct LoupeUISwitchProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUISliderProperties: Codable, Equatable {
+public struct LoupeUISliderProperties: Codable, Equatable, Sendable {
     public var value: Double?
     public var minimumValue: Double?
     public var maximumValue: Double?
@@ -311,7 +311,7 @@ public struct LoupeUISliderProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIStepperProperties: Codable, Equatable {
+public struct LoupeUIStepperProperties: Codable, Equatable, Sendable {
     public var value: Double?
     public var minimumValue: Double?
     public var maximumValue: Double?
@@ -330,7 +330,7 @@ public struct LoupeUIStepperProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUISegmentedControlProperties: Codable, Equatable {
+public struct LoupeUISegmentedControlProperties: Codable, Equatable, Sendable {
     public var selectedSegmentIndex: Int?
     public var segments: [String]
 
@@ -340,7 +340,7 @@ public struct LoupeUISegmentedControlProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIDatePickerProperties: Codable, Equatable {
+public struct LoupeUIDatePickerProperties: Codable, Equatable, Sendable {
     public var mode: String?
     public var date: Date?
     public var minimumDate: Date?
@@ -354,7 +354,7 @@ public struct LoupeUIDatePickerProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIPageControlProperties: Codable, Equatable {
+public struct LoupeUIPageControlProperties: Codable, Equatable, Sendable {
     public var currentPage: Int?
     public var numberOfPages: Int?
 
@@ -364,7 +364,7 @@ public struct LoupeUIPageControlProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIProgressViewProperties: Codable, Equatable {
+public struct LoupeUIProgressViewProperties: Codable, Equatable, Sendable {
     public var value: Double?
 
     public init(value: Double? = nil) {
@@ -372,7 +372,7 @@ public struct LoupeUIProgressViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIActivityIndicatorProperties: Codable, Equatable {
+public struct LoupeUIActivityIndicatorProperties: Codable, Equatable, Sendable {
     public var isAnimating: Bool?
     public var style: String?
 
@@ -382,7 +382,7 @@ public struct LoupeUIActivityIndicatorProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUICollectionFlowLayoutProperties: Codable, Equatable {
+public struct LoupeUICollectionFlowLayoutProperties: Codable, Equatable, Sendable {
     public var itemSize: LoupeSize
     public var estimatedItemSize: LoupeSize
     public var usesEstimatedItemSize: Bool
@@ -401,7 +401,7 @@ public struct LoupeUICollectionFlowLayoutProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUICollectionViewProperties: Codable, Equatable {
+public struct LoupeUICollectionViewProperties: Codable, Equatable, Sendable {
     public var selfSizingInvalidation: String?
     public var layoutClassName: String
     public var delegateRespondsToSizeForItemAt: Bool
@@ -420,7 +420,7 @@ public struct LoupeUICollectionViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUITableViewProperties: Codable, Equatable {
+public struct LoupeUITableViewProperties: Codable, Equatable, Sendable {
     public var selfSizingInvalidation: String?
     public var rowHeight: Double
     public var estimatedRowHeight: Double
@@ -448,7 +448,7 @@ public struct LoupeUITableViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIImageViewProperties: Codable, Equatable {
+public struct LoupeUIImageViewProperties: Codable, Equatable, Sendable {
     public var imageSize: LoupeSize?
 
     public init(imageSize: LoupeSize? = nil) {
@@ -456,7 +456,7 @@ public struct LoupeUIImageViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIPickerViewProperties: Codable, Equatable {
+public struct LoupeUIPickerViewProperties: Codable, Equatable, Sendable {
     public var numberOfComponents: Int?
     public var selectedRows: [Int]
 
@@ -466,7 +466,7 @@ public struct LoupeUIPickerViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUITabBarProperties: Codable, Equatable {
+public struct LoupeUITabBarProperties: Codable, Equatable, Sendable {
     public var items: [String]
     public var selectedItem: String?
 
@@ -476,7 +476,7 @@ public struct LoupeUITabBarProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeWKWebViewProperties: Codable, Equatable {
+public struct LoupeWKWebViewProperties: Codable, Equatable, Sendable {
     public var url: String?
     public var title: String?
 
@@ -486,7 +486,7 @@ public struct LoupeWKWebViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUILayoutPriorities: Codable, Equatable {
+public struct LoupeUILayoutPriorities: Codable, Equatable, Sendable {
     public var horizontal: Double
     public var vertical: Double
 
@@ -496,7 +496,7 @@ public struct LoupeUILayoutPriorities: Codable, Equatable {
     }
 }
 
-public struct LoupeUILayoutConstraintProperties: Codable, Equatable {
+public struct LoupeUILayoutConstraintProperties: Codable, Equatable, Sendable {
     public var id: String
     public var identifier: String?
     public var firstItem: String?
@@ -536,7 +536,7 @@ public struct LoupeUILayoutConstraintProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUILayoutProperties: Codable, Equatable {
+public struct LoupeUILayoutProperties: Codable, Equatable, Sendable {
     public var translatesAutoresizingMaskIntoConstraints: Bool
     public var isAmbiguousLayout: Bool
     public var hugging: LoupeUILayoutPriorities
@@ -585,7 +585,7 @@ public struct LoupeUILayoutProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIStackViewProperties: Codable, Equatable {
+public struct LoupeUIStackViewProperties: Codable, Equatable, Sendable {
     public var axis: String
     public var alignment: String
     public var distribution: String
@@ -613,7 +613,7 @@ public struct LoupeUIStackViewProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeUIKitProperties: Codable, Equatable {
+public struct LoupeUIKitProperties: Codable, Equatable, Sendable {
     public var viewController: String?
     public var viewControllerRole: String?
     public var className: String
@@ -732,7 +732,7 @@ public struct LoupeUIKitProperties: Codable, Equatable {
 }
 
 @dynamicMemberLookup
-public struct LoupeAppKitProperties: Codable, Equatable {
+public struct LoupeAppKitProperties: Codable, Equatable, Sendable {
     private var storage: LoupeUIKitProperties
 
     public init(storage: LoupeUIKitProperties) {
@@ -756,7 +756,7 @@ public struct LoupeAppKitProperties: Codable, Equatable {
     }
 }
 
-public struct LoupeNode: Codable, Equatable {
+public struct LoupeNode: Codable, Equatable, Sendable {
     public var ref: String
     public var parentRef: String?
     public var kind: LoupeNodeKind
@@ -932,7 +932,7 @@ extension LoupeNode {
     }
 }
 
-public struct LoupeScreen: Codable, Equatable {
+public struct LoupeScreen: Codable, Equatable, Sendable {
     public var size: LoupeSize
     public var scale: Double
     public var interfaceStyle: String?
@@ -944,7 +944,7 @@ public struct LoupeScreen: Codable, Equatable {
     }
 }
 
-public struct LoupeSnapshot: Codable, Equatable {
+public struct LoupeSnapshot: Codable, Equatable, Sendable {
     public var id: String
     public var capturedAt: Date
     public var screen: LoupeScreen

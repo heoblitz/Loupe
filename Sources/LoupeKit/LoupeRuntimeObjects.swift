@@ -6,7 +6,7 @@ import ObjectiveC
 
 @MainActor
 extension LoupeRuntime {
-    public func runtimeObjectClasses(
+    nonisolated public func runtimeObjectClasses(
         matching: String? = nil,
         limit: Int = 100
     ) -> LoupeRuntimeObjectClassList {
@@ -24,7 +24,7 @@ extension LoupeRuntime {
         )
     }
 
-    public func runtimeObjectDescription(className: String) throws -> LoupeRuntimeObjectDescription {
+    nonisolated public func runtimeObjectDescription(className: String) throws -> LoupeRuntimeObjectDescription {
         guard let cls = NSClassFromString(className) ?? objc_getClass(className) as? AnyClass else {
             throw LoupeRuntimeObjectError.classNotFound(className)
         }
@@ -37,25 +37,19 @@ extension LoupeRuntime {
         )
     }
 
-    private func objcRuntimeClassSummaries() -> [LoupeRuntimeObjectClassSummary] {
-        let classCount = Int(objc_getClassList(nil, 0))
-        guard classCount > 0 else {
-            return []
-        }
-
-        let classes = UnsafeMutablePointer<AnyClass?>.allocate(capacity: classCount)
+    nonisolated private func objcRuntimeClassSummaries() -> [LoupeRuntimeObjectClassSummary] {
+        let capacity = Int(objc_getClassList(nil, 0))
+        guard capacity > 0 else { return [] }
+        let classes = UnsafeMutablePointer<AnyClass?>.allocate(capacity: capacity)
         defer { classes.deallocate() }
+        // Class registration can race the count query. The runtime returns the
+        // total class count even when the supplied buffer is smaller.
+        let count = min(capacity, Int(objc_getClassList(AutoreleasingUnsafeMutablePointer(classes), Int32(capacity))))
+        guard count > 0 else { return [] }
 
-        let returnedCount = Int(objc_getClassList(AutoreleasingUnsafeMutablePointer(classes), Int32(classCount)))
-        guard returnedCount > 0 else {
-            return []
-        }
-
-        return (0..<returnedCount)
+        return (0..<count)
             .compactMap { index -> LoupeRuntimeObjectClassSummary? in
-                guard let cls = classes[index] else {
-                    return nil
-                }
+                guard let cls = classes[index] else { return nil }
                 return LoupeRuntimeObjectClassSummary(
                     name: String(cString: class_getName(cls)),
                     superclass: superclassName(for: cls)
@@ -66,14 +60,14 @@ extension LoupeRuntime {
             }
     }
 
-    private func superclassName(for cls: AnyClass) -> String? {
+    nonisolated private func superclassName(for cls: AnyClass) -> String? {
         guard let superclass = class_getSuperclass(cls) else {
             return nil
         }
         return String(cString: class_getName(superclass))
     }
 
-    private func ivarMembers(for cls: AnyClass) -> [LoupeRuntimeObjectMember] {
+    nonisolated private func ivarMembers(for cls: AnyClass) -> [LoupeRuntimeObjectMember] {
         var count: UInt32 = 0
         guard let ivars = class_copyIvarList(cls, &count) else {
             return []
@@ -92,7 +86,7 @@ extension LoupeRuntime {
         }
     }
 
-    private func propertyMembers(for cls: AnyClass) -> [LoupeRuntimeObjectMember] {
+    nonisolated private func propertyMembers(for cls: AnyClass) -> [LoupeRuntimeObjectMember] {
         var count: UInt32 = 0
         guard let properties = class_copyPropertyList(cls, &count) else {
             return []

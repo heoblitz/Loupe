@@ -63,13 +63,19 @@ public final class LoupeAgent {
         captureSnapshotWithViewRefs().snapshot
     }
 
-    public func captureAccessibilityTree() -> LoupeAccessibilityTree {
+    public func captureAccessibilityTree(includeHidden: Bool = false) -> LoupeAccessibilityTree {
         let capture = captureSnapshotWithViewRefs()
         return captureNativeAccessibilityTree(
             snapshot: capture.snapshot,
             viewRefs: capture.viewRefs,
-            viewsByRef: capture.viewsByRef
+            viewsByRef: capture.viewsByRef,
+            includeHidden: includeHidden
         ).tree
+    }
+
+    public func captureAccessibilityActionObservation() -> LoupeAccessibilityActionObservation {
+        let capture = captureAccessibilityActionTreeWithObjects()
+        return LoupeAccessibilityActionObservation(snapshot: capture.snapshot, tree: capture.tree)
     }
 
     public func captureAccessibilityActionTree() -> LoupeAccessibilityTree {
@@ -528,11 +534,12 @@ public final class LoupeAgent {
     private func captureNativeAccessibilityTree(
         snapshot: LoupeSnapshot,
         viewRefs: [ObjectIdentifier: String],
-        viewsByRef: [String: NSView]
+        viewsByRef: [String: NSView],
+        includeHidden: Bool = false
     ) -> CapturedAccessibilityTree {
         nextNativeAccessibilityRef = 0
 
-        var tree = LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: snapshot))
+        var tree = LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: snapshot), includeHidden: includeHidden)
         var signatures = Set(tree.nodes.values.map(nativeAccessibilitySignature(for:)))
         var objectsByRef = Dictionary(uniqueKeysWithValues: viewsByRef.map { sourceRef, view in
             ("ax-\(sourceRef)", view as NSObject)
