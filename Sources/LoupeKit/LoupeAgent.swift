@@ -53,7 +53,7 @@ public final class LoupeAgent {
         #if os(iOS)
         LoupeAccessibilityPreparation.prepare()
         #endif
-        let capture = captureSnapshotWithViewRefs()
+        let capture = captureSnapshotWithViewRefs(actionTargetsOnly: true)
         return captureNativeAccessibilityActionTree(
             snapshot: capture.snapshot,
             viewRefs: capture.viewRefs,
@@ -75,7 +75,8 @@ public final class LoupeAgent {
                 appendNativeAccessibilityElements(
                     in: window, snapshot: snapshot, viewRefs: viewRefs,
                     accessibilityVisibleRefs: Set(snapshot.nodes.values.filter(\.isVisible).map(\.ref)), tree: &tree,
-                    signatures: &signatures, objectsByRef: &objectsByRef, includeViewElements: true
+                    signatures: &signatures, objectsByRef: &objectsByRef,
+                    includeViewElements: true, actionsOnly: true
                 )
             }
         }
@@ -107,7 +108,7 @@ public final class LoupeAgent {
         return CapturedAccessibilityTree(snapshot: snapshot, tree: tree, objectsByRef: objectsByRef)
     }
 
-    func captureSnapshotWithViewRefs() -> CapturedSnapshot {
+    func captureSnapshotWithViewRefs(actionTargetsOnly: Bool = false) -> CapturedSnapshot {
         nextRef = 0
 
         var nodes: [String: LoupeNode] = [:]
@@ -148,6 +149,7 @@ public final class LoupeAgent {
                 let windowRef = captureWindow(
                     window,
                     parentRef: sceneRef,
+                    actionTargetsOnly: actionTargetsOnly,
                     nodes: &nodes,
                     viewRefs: &viewRefs,
                     viewsByRef: &viewsByRef
@@ -295,6 +297,7 @@ public final class LoupeAgent {
     private func captureWindow(
         _ window: UIWindow,
         parentRef: String,
+        actionTargetsOnly: Bool,
         nodes: inout [String: LoupeNode],
         viewRefs: inout [ObjectIdentifier: String],
         viewsByRef: inout [String: UIView]
@@ -309,6 +312,7 @@ public final class LoupeAgent {
                 subview,
                 parentRef: ref,
                 inheritedVisible: window.isHidden == false && window.alpha > 0.01,
+                actionTargetsOnly: actionTargetsOnly,
                 nodes: &nodes,
                 viewRefs: &viewRefs,
                 viewsByRef: &viewsByRef
@@ -326,10 +330,10 @@ public final class LoupeAgent {
             isVisible: window.isHidden == false && window.alpha > 0.01,
             isEnabled: true,
             isInteractive: true,
-            style: style(for: window),
-            accessibility: accessibility(for: window),
-            runtime: runtimeProperties(for: window),
-            uikit: uiKitProperties(for: window),
+            style: actionTargetsOnly ? nil : style(for: window),
+            accessibility: actionTargetsOnly ? nil : accessibility(for: window),
+            runtime: actionTargetsOnly ? nil : runtimeProperties(for: window),
+            uikit: actionTargetsOnly ? nil : uiKitProperties(for: window),
             custom: window.loupeMetadata,
             children: childRefs
         )
@@ -341,6 +345,7 @@ public final class LoupeAgent {
         _ view: UIView,
         parentRef: String,
         inheritedVisible: Bool,
+        actionTargetsOnly: Bool,
         nodes: inout [String: LoupeNode],
         viewRefs: inout [ObjectIdentifier: String],
         viewsByRef: inout [String: UIView]
@@ -363,6 +368,7 @@ public final class LoupeAgent {
                 subview,
                 parentRef: ref,
                 inheritedVisible: visible,
+                actionTargetsOnly: actionTargetsOnly,
                 nodes: &nodes,
                 viewRefs: &viewRefs,
                 viewsByRef: &viewsByRef
@@ -387,6 +393,27 @@ public final class LoupeAgent {
         )
 
         let accessibility = accessibility(for: view)
+        if actionTargetsOnly {
+            nodes[ref] = LoupeNode(
+                ref: ref,
+                parentRef: parentRef,
+                kind: .view,
+                typeName: typeName(of: view),
+                role: role(for: view),
+                testID: testID,
+                label: accessibility.label,
+                value: accessibility.value,
+                text: text(for: view),
+                semanticText: accessibility.actions?.isEmpty == false ? semanticText(for: view) : nil,
+                frame: frameInScreen(for: view),
+                isVisible: visible,
+                isEnabled: isEnabled(view),
+                isInteractive: isInteractive(view),
+                accessibility: accessibility,
+                children: childRefs
+            )
+            return ref
+        }
         let runtimeProperties = runtimeProperties(for: view)
         let uiKitProperties = uiKitProperties(for: view)
         let swiftUIProperties = loupeSwiftUIProperties(
@@ -587,7 +614,8 @@ public final class LoupeAgent {
         tree: inout LoupeAccessibilityTree,
         signatures: inout Set<String>,
         objectsByRef: inout [String: NSObject],
-        includeViewElements: Bool = false
+        includeViewElements: Bool = false,
+        actionsOnly: Bool = false
     ) {
         guard let sourceRef = viewRefs[ObjectIdentifier(view)] else {
             view.subviews.forEach {
@@ -599,7 +627,8 @@ public final class LoupeAgent {
                     tree: &tree,
                     signatures: &signatures,
                     objectsByRef: &objectsByRef,
-                    includeViewElements: includeViewElements
+                    includeViewElements: includeViewElements,
+                    actionsOnly: actionsOnly
                 )
             }
             return
@@ -609,7 +638,8 @@ public final class LoupeAgent {
             appendNativeAccessibilityNode(
                 view, sourceRef: sourceRef, snapshot: snapshot,
                 accessibilityVisibleRefs: accessibilityVisibleRefs, tree: &tree,
-                signatures: &signatures, objectsByRef: &objectsByRef
+                signatures: &signatures, objectsByRef: &objectsByRef,
+                actionsOnly: actionsOnly
             )
         }
 
@@ -622,7 +652,8 @@ public final class LoupeAgent {
             appendNativeAccessibilityNode(
                 element, sourceRef: sourceRef, snapshot: snapshot,
                 accessibilityVisibleRefs: accessibilityVisibleRefs, tree: &tree,
-                signatures: &signatures, objectsByRef: &objectsByRef
+                signatures: &signatures, objectsByRef: &objectsByRef,
+                actionsOnly: actionsOnly
             )
         }
 
@@ -635,7 +666,8 @@ public final class LoupeAgent {
                 tree: &tree,
                 signatures: &signatures,
                 objectsByRef: &objectsByRef,
-                includeViewElements: includeViewElements
+                includeViewElements: includeViewElements,
+                actionsOnly: actionsOnly
             )
         }
     }
@@ -643,11 +675,13 @@ public final class LoupeAgent {
     private func appendNativeAccessibilityNode(
         _ element: NSObject, sourceRef: String, snapshot: LoupeSnapshot,
         accessibilityVisibleRefs: Set<String>, tree: inout LoupeAccessibilityTree,
-        signatures: inout Set<String>, objectsByRef: inout [String: NSObject]
+        signatures: inout Set<String>, objectsByRef: inout [String: NSObject],
+        actionsOnly: Bool = false
     ) {
         guard let node = nativeAccessibilityNode(
             for: element, sourceRef: sourceRef, snapshot: snapshot,
-            accessibilityVisibleRefs: accessibilityVisibleRefs, tree: tree
+            accessibilityVisibleRefs: accessibilityVisibleRefs, tree: tree,
+            actionsOnly: actionsOnly
         ), signatures.insert(nativeAccessibilitySignature(for: node)).inserted else { return }
         tree.nodes[node.ref] = node
         objectsByRef[node.ref] = element
@@ -666,9 +700,16 @@ public final class LoupeAgent {
         sourceRef: String,
         snapshot: LoupeSnapshot,
         accessibilityVisibleRefs: Set<String>,
-        tree: LoupeAccessibilityTree
+        tree: LoupeAccessibilityTree,
+        actionsOnly: Bool
     ) -> LoupeAccessibilityNode? {
         let sourceNode = snapshot.nodes[sourceRef]
+        let traits = accessibilityTraits(element.accessibilityTraits)
+        let role = (element is UIView ? sourceNode?.role : nil)
+            ?? accessibilityRole(forTraits: traits)
+            ?? sourceNode?.role
+        let actions = accessibilityActions(for: element, role: role, traits: traits)
+        if actionsOnly && actions.isEmpty { return nil }
         let testID = accessibilityIdentifier(for: element) ?? sourceNode?.testID
         let label = nonEmpty(element.accessibilityLabel)
             ?? sourceNode?.label
@@ -677,11 +718,6 @@ public final class LoupeAgent {
             ?? sourceNode?.renderedText
         let value = nonEmpty(element.accessibilityValue) ?? sourceNode?.value
         let hint = nonEmpty(element.accessibilityHint) ?? sourceNode?.accessibility?.hint
-        let traits = accessibilityTraits(element.accessibilityTraits)
-        let role = (element is UIView ? sourceNode?.role : nil)
-            ?? accessibilityRole(forTraits: traits)
-            ?? sourceNode?.role
-        let actions = accessibilityActions(for: element, role: role, traits: traits)
         let nativeFrame = loupeRect(from: element.accessibilityFrame)
         let frame = nativeFrame.isEmpty ? (sourceNode?.frame ?? nativeFrame) : nativeFrame
         let nativeActivationPoint = validActivationPoint(
