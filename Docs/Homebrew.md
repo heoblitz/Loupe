@@ -85,4 +85,4 @@ loupe injector-path --macos
 
 ## Current Status
 
-The stable formula currently points at `v0.2.1`.
+The stable formula currently points at `v0.2.2`.
