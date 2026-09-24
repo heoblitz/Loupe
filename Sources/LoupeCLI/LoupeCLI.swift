@@ -2505,7 +2505,9 @@ struct LoupeCLI {
                 throw CLIError("Timed out waiting for a Loupe snapshot")
             }
             do {
-                return try await fetchSnapshot(host: host, timeout: min(3, remaining))
+                // A capture can be synchronously queued on the app main actor. Let its one
+                // in-flight request use the wait deadline so cancellation cannot queue a duplicate capture.
+                return try await fetchSnapshot(host: host, timeout: remaining)
             } catch {
                 let pause = min(0.1, max(0, deadline.timeIntervalSinceNow))
                 guard pause > 0 else { throw error }

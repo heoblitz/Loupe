@@ -44,7 +44,7 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
     }
 
     private mutating func visit(_ value: Any, propertyName: String?, depth: Int) {
-        guard depth <= maxDepth else {
+        guard depth <= maxDepth, rootTypeName == nil else {
             return
         }
 
@@ -62,6 +62,7 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
             properties.removeAll()
             seenPropertyNames.removeAll()
             collectProperties(from: value)
+            return
         }
 
         for (index, child) in mirror.children.enumerated().prefix(24) {
@@ -70,6 +71,9 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
                 propertyName: normalizedPropertyName(child.label),
                 depth: depth + 1 + index / 24
             )
+            guard rootTypeName == nil else {
+                return
+            }
         }
     }
 

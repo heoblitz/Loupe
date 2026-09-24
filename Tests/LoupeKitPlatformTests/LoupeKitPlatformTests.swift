@@ -506,6 +506,90 @@ private func offMainActor<Value: Sendable>(
         #expect(summary?.properties.contains { $0.name == "mode" && $0.value == .string("Save") } == true)
     }
 
+    @Test func swiftUIPropertiesOnlyEvaluatePrivateReflectionForHosts() {
+        let expectedSummary = LoupeSwiftUIPrivateSummary(
+            rootTypeName: "ProfileView",
+            properties: [],
+            evidence: ["privateReflection"]
+        )
+        var reflectionCount = 0
+
+        let nonSwiftUI = loupeSwiftUIProperties(
+            backingTypeName: "UIView",
+            frameworkBundleIdentifier: nil,
+            privateSummary: {
+                reflectionCount += 1
+                return expectedSummary
+            }()
+        )
+        let probe = loupeSwiftUIProperties(
+            backingTypeName: "UIView",
+            frameworkBundleIdentifier: nil,
+            customMetadata: ["loupe.swiftUI": .bool(true)],
+            privateSummary: {
+                reflectionCount += 1
+                return expectedSummary
+            }()
+        )
+        let rendered = loupeSwiftUIProperties(
+            backingTypeName: "_TtC7SwiftUI12PlatformView",
+            frameworkBundleIdentifier: "com.apple.SwiftUI",
+            privateSummary: {
+                reflectionCount += 1
+                return expectedSummary
+            }()
+        )
+        let host = loupeSwiftUIProperties(
+            backingTypeName: "UIHostingView",
+            frameworkBundleIdentifier: nil,
+            privateSummary: {
+                reflectionCount += 1
+                return expectedSummary
+            }()
+        )
+
+        #expect(nonSwiftUI == nil)
+        #expect(probe?.origin == "probe")
+        #expect(rendered?.origin == "rendered")
+        #expect(host?.origin == "host")
+        #expect(host?.rootTypeName == "ProfileView")
+        #expect(reflectionCount == 1)
+    }
+
+    @Test func swiftUIPrivateReflectionStopsAfterFirstUserRoot() {
+        struct ProfileView {
+            var enabled = true
+            var mode = "Save"
+        }
+        final class ReflectionCounter {
+            var count = 0
+        }
+        struct LaterGraph: CustomReflectable {
+            let counter: ReflectionCounter
+
+            var customMirror: Mirror {
+                counter.count += 1
+                return Mirror(self, children: [:])
+            }
+        }
+        final class FixtureHost: NSObject {
+            let rootView = ProfileView()
+            let laterGraph: LaterGraph
+
+            init(counter: ReflectionCounter) {
+                laterGraph = LaterGraph(counter: counter)
+            }
+        }
+
+        let counter = ReflectionCounter()
+        let summary = loupeSwiftUIPrivateSummary(from: FixtureHost(counter: counter))
+
+        #expect(summary?.rootTypeName == "ProfileView")
+        #expect(summary?.properties.contains { $0.name == "enabled" && $0.value == .bool(true) } == true)
+        #expect(summary?.properties.contains { $0.name == "mode" && $0.value == .string("Save") } == true)
+        #expect(counter.count == 0)
+    }
+
     @MainActor
     @Test func runtimeReferenceEvidenceKeepsMostRecentFiveHundredEntries() {
         let runtime = LoupeRuntime()
