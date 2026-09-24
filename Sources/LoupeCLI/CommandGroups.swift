@@ -9,7 +9,7 @@ extension LoupeCLI {
             return [command]
         }
         if command == "debug",
-           subcommand == "trace",
+           ["trace", "objects"].contains(subcommand),
            arguments.count > 1,
            !arguments[1].hasPrefix("-") {
             return [command, subcommand, arguments[1]]
@@ -75,19 +75,13 @@ extension LoupeCLI {
             }
         case "tree":
             try await tree(rest)
-        case "text", "text-map":
-            try await tree(rest + ["--text"])
-        case "screen", "screen-map":
+        case "screen":
             try await screenMap(rest)
         case "accessibility":
             if let first = rest.first, !first.hasPrefix("-") {
                 try accessibility(rest)
             } else {
-                try await runtimeFetch(
-                    rest,
-                    path: "/accessibility",
-                    usage: "loupe ui accessibility [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--include-hidden] [--output <path>]"
-                )
+                try await liveAccessibility(rest)
             }
         case "screenshot":
             try screenshot(rest)
@@ -97,7 +91,7 @@ extension LoupeCLI {
             try await query(rest)
         case "subtree":
             try subtree(rest)
-        case "paint", "paint-stack":
+        case "paint":
             try await paintStack(rest)
         case "audit":
             try audit(rest)

@@ -11,13 +11,11 @@ extension LoupeCLI {
       network                 Fetch fixture and app-authored network evidence.
       refs                    Fetch app-authored object reference evidence.
       object-graph            Summarize app-authored owner -> target references.
-      heap                    Alias for object-graph evidence summary.
       objects classes|describe
                               Inspect Objective-C runtime class metadata.
       leaks                   Fetch weak lifetime probes registered by the app.
       keychain list           List current app keychain item metadata.
       defaults get|set|unset  Read or change UserDefaults.
-      flags get|set|unset     Alias for feature flags stored in UserDefaults.
       trace summary|diff|explore|cleanup
       scroll                  Dispatch a scroll gesture or runtime offset probe.
     """
@@ -50,8 +48,8 @@ extension LoupeCLI {
                 path: "/refs",
                 usage: "loupe debug refs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
-        case "heap", "object-graph":
-            try await referenceGraph(rest, commandName: subcommand)
+        case "object-graph":
+            try await referenceGraph(rest)
         case "objects":
             try await debugObjects(rest)
         case "leaks":
@@ -67,8 +65,6 @@ extension LoupeCLI {
             )
         case "defaults":
             try await stateDefaults(rest, path: "state/defaults", usagePrefix: "loupe debug defaults")
-        case "flags":
-            try await stateDefaults(rest, path: "state/flags", usagePrefix: "loupe debug flags")
         case "trace":
             try await debugTrace(rest)
         case "scroll":
@@ -204,7 +200,7 @@ extension LoupeCLI {
             let request = LoupeStateMutationRequest(key: key, value: value)
             let data = try await postRuntimeJSON(request, path: path, options: options)
             try write(data: data, outputURL: options.outputURL)
-        case "unset", "remove":
+        case "unset":
             guard let key = rest.first else {
                 throw CLIError("Usage: \(usagePrefix) unset <key> [--host <url>] [--output <path>]")
             }
@@ -221,7 +217,7 @@ extension LoupeCLI {
         var target: String?
         var runtimeOptions: DiagnosticRuntimeOptions
 
-        init(_ arguments: [String], commandName: String) throws {
+        init(_ arguments: [String]) throws {
             var runtimeArguments: [String] = []
             var target: String?
             var index = 0
@@ -249,7 +245,7 @@ extension LoupeCLI {
             self.target = target
             self.runtimeOptions = try DiagnosticRuntimeOptions(
                 runtimeArguments,
-                usage: "loupe debug \(commandName) [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
+                usage: "loupe debug object-graph [target|--target <name>] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
         }
 
@@ -397,8 +393,8 @@ extension LoupeCLI {
         }
     }
 
-    private static func referenceGraph(_ arguments: [String], commandName: String) async throws {
-        let options = try ReferenceGraphOptions(arguments, commandName: commandName)
+    private static func referenceGraph(_ arguments: [String]) async throws {
+        let options = try ReferenceGraphOptions(arguments)
         let data = try await runtimeData(path: "/refs", options: options.runtimeOptions.runtimeFetchOptions)
         let refs = try diagnosticJSONDecoder().decode([LoupeReferenceEvidence].self, from: data)
         let graph = makeReferenceGraph(from: refs, target: options.target)
@@ -413,7 +409,7 @@ extension LoupeCLI {
 
         let rest = Array(arguments.dropFirst())
         switch subcommand {
-        case "classes", "list":
+        case "classes":
             let options = try ObjectClassesOptions(rest)
             var query: [String] = []
             if let matching = options.matching {
@@ -428,7 +424,7 @@ extension LoupeCLI {
                 options: options.runtimeOptions.runtimeFetchOptions
             )
             try write(data: data, outputURL: options.runtimeOptions.outputURL)
-        case "describe", "class":
+        case "describe":
             let options = try ObjectDescriptionOptions(rest)
             let data = try await runtimeData(
                 path: "/objects/describe?class=\(urlEncode(options.className))",
@@ -550,7 +546,7 @@ extension LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -560,7 +556,7 @@ extension LoupeCLI {
         request.timeoutInterval = options.timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try diagnosticJSONEncoder().encode(body)
-        let (data, response) = try await httpData(for: request, timeout: options.timeout, label: "runtime post")
+        let (data, response) = try await RuntimeHTTPClient.shared.data(for: request, timeout: options.timeout, label: "runtime post")
         guard let httpResponse = response as? HTTPURLResponse else {
             throw CLIError("runtime post expected an HTTP response")
         }

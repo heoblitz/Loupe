@@ -5,6 +5,7 @@ package struct AccessibilityActionOptions {
     package var host = URL(string: "http://127.0.0.1:8765")!
     package var hostWasExplicit = false
     package var udid: String?
+    package var bundleID: String?
     package var udidWasExplicit = false
     package var timeout: TimeInterval = 8
     package var targetAlias: Int?
@@ -37,14 +38,16 @@ package struct AccessibilityActionOptions {
             case "--udid", "--device":
                 udid = try Self.value(after: argument, in: arguments, index: &index)
                 udidWasExplicit = true
+            case "--bundle-id":
+                bundleID = try Self.value(after: argument, in: arguments, index: &index)
             case "--timeout":
                 let raw = try Self.value(after: argument, in: arguments, index: &index)
                 guard let value = Double(raw), value > 0 else { throw CLIError("--timeout must be greater than 0") }
                 timeout = value
             case "--test-id":
-                selector = .testID(try Self.value(after: argument, in: arguments, index: &index))
+                try UniqueSelector.set(.testID(try Self.value(after: argument, in: arguments, index: &index)), on: &selector)
             case "--ref":
-                selector = .ref(try Self.value(after: argument, in: arguments, index: &index))
+                try UniqueSelector.set(.ref(try Self.value(after: argument, in: arguments, index: &index)), on: &selector)
             case "--action":
                 actionRaw = try Self.value(after: argument, in: arguments, index: &index)
             default:
@@ -121,7 +124,7 @@ package struct TargetedInputOptions {
                 targetArguments.append(contentsOf: [option, value])
             case "--text":
                 text = value
-            case "--host", "--udid", "--device", "--timeout":
+            case "--host", "--udid", "--device", "--bundle-id", "--timeout":
                 commonArguments.append(contentsOf: [option, value])
             default:
                 throw CLIError("Unknown input option: \(option)")

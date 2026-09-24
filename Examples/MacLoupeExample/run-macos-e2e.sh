@@ -133,8 +133,8 @@ done
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id mac.example.title > "$INSPECT_TITLE_PATH"
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id mac.example.emptyFeed > "$INSPECT_EMPTY_PATH"
 .build/debug/loupe ui accessibility --host "$HOST" --timeout 10 --output "$ACCESSIBILITY_PATH" >/dev/null
-.build/debug/loupe ui tree "$SNAPSHOT_PATH" --view --depth 6 > "$VIEW_TREE_PATH"
-.build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --depth 6 > "$ACCESSIBILITY_TREE_PATH"
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --view --depth 6 > "$VIEW_TREE_PATH"
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --accessibility --depth 6 > "$ACCESSIBILITY_TREE_PATH"
 .build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
 for _ in {1..40}; do
   .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
@@ -151,18 +151,18 @@ done
 .build/debug/loupe debug objects classes --matching DeviceActuationService --limit 20 --host "$HOST" --output "$OBJECT_CLASSES_PATH" >/dev/null
 .build/debug/loupe debug objects describe DeviceActuationService --host "$HOST" --output "$OBJECT_DESCRIPTION_PATH" >/dev/null
 .build/debug/loupe debug leaks --alive-only --host "$HOST" --output "$LEAKS_PATH" >/dev/null
-.build/debug/loupe debug flags get mac-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults get mac-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
 .build/debug/loupe act targets --host "$HOST" >/tmp/loupe-macos-action-targets.txt
 grep -E -q 'button "Refresh snapshot" \[tap\]' /tmp/loupe-macos-action-targets.txt
 .build/debug/loupe act perform --host "$HOST" --test-id mac.example.refresh --action press >/tmp/loupe-macos-perform-press.json
 grep -q '"action":"press"' /tmp/loupe-macos-perform-press.json
 .build/debug/loupe act wait value --host "$HOST" --test-id mac.example.status --key text --equals "Snapshot refreshed" --timeout 5 >/tmp/loupe-macos-wait-refresh.json
-.build/debug/loupe debug flags set mac-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug defaults set mac-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
 .build/debug/loupe act wait value --host "$HOST" --test-id mac.example.status --key text --equals "New nav active" --timeout 5 >/tmp/loupe-macos-wait-new-nav.json
 .build/debug/loupe debug logs --host "$HOST" --output "$NEW_NAV_LOGS_PATH" >/dev/null
-.build/debug/loupe debug flags get mac-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults get mac-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
 .build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
-.build/debug/loupe debug flags set mac-logout --bool true --host "$HOST" --output "$LOGOUT_FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug defaults set mac-logout --bool true --host "$HOST" --output "$LOGOUT_FLAG_SET_PATH" >/dev/null
 .build/debug/loupe act wait value --host "$HOST" --test-id mac.example.status --key text --equals "Logged out" --timeout 5 >/tmp/loupe-macos-wait-logout.json
 .build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_AFTER_LOGOUT_PATH" >/dev/null
 .build/debug/loupe debug logs --host "$HOST" --output "$LOGOUT_LOGS_PATH" >/dev/null
@@ -218,8 +218,8 @@ ruby -rjson -e '
 .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$DARK_SNAPSHOT_PATH" >/dev/null
 .build/debug/loupe ui audit "$DARK_SNAPSHOT_PATH" --kind lowTextContrast > "$AUDIT_PATH"
 .build/debug/loupe ui appearance system --host "$HOST" >/dev/null
-.build/debug/loupe debug flags get mac-error-route --host "$HOST" --output "$ERROR_FLAG_PATH" >/dev/null
-.build/debug/loupe debug flags set mac-error-route --bool true --host "$HOST" --output "$ERROR_FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug defaults get mac-error-route --host "$HOST" --output "$ERROR_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults set mac-error-route --bool true --host "$HOST" --output "$ERROR_FLAG_SET_PATH" >/dev/null
 .build/debug/loupe act wait visible --host "$HOST" --test-id mac.example.error --timeout 5 >/tmp/loupe-macos-wait-error-route.json
 .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$ERROR_SNAPSHOT_PATH" >/dev/null
 .build/debug/loupe ui node "$ERROR_SNAPSHOT_PATH" --test-id mac.example.error > "$ERROR_INSPECT_PATH"

@@ -60,19 +60,22 @@ struct PaintStackOptions {
             case "--timeout":
                 timeout = try Self.double(after: "--timeout", in: arguments, index: &index)
             default:
-                throw CLIError("Unknown paint-stack option: \(arguments[index])")
+                throw CLIError("Unknown ui paint option: \(arguments[index])")
             }
             index += 1
         }
 
         if point == nil && ref == nil {
-            throw CLIError("paint-stack requires --point x,y or --ref <ref>")
+            throw CLIError("ui paint requires --point x,y or --ref <ref>")
         }
         if point != nil && ref != nil {
-            throw CLIError("paint-stack accepts only one of --point or --ref")
+            throw CLIError("ui paint accepts only one of --point or --ref")
         }
         guard timeout > 0 else {
             throw CLIError("--timeout must be greater than 0")
+        }
+        if snapshotURL != nil, hostWasExplicit || udid != nil || bundleID != nil {
+            throw CLIError("snapshot.json cannot be combined with --host, --udid, or --bundle-id")
         }
     }
 

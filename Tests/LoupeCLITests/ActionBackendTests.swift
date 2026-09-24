@@ -5,7 +5,7 @@ import LoupeCore
 import Testing
 
 struct ActionBackendTests {
-    @Test func autoTapUsesRuntimeForExplicitNonSimulatorHost() {
+    @Test func autoTapUsesRuntimeForNonSimulatorIdentity() {
         let identity = LoupeRuntimeIdentity(
             platform: "macOS",
             processIdentifier: 1234
@@ -14,7 +14,6 @@ struct ActionBackendTests {
         let backend = LoupeCLI.resolvedActionBackend(
             requested: "auto",
             command: "tap",
-            hostWasExplicit: true,
             runtimeIdentity: identity
         )
 
@@ -32,7 +31,6 @@ struct ActionBackendTests {
         let backend = LoupeCLI.resolvedActionBackend(
             requested: "auto",
             command: "tap",
-            hostWasExplicit: true,
             runtimeIdentity: identity
         )
 
@@ -49,7 +47,6 @@ struct ActionBackendTests {
             LoupeCLI.resolvedActionBackend(
                 requested: "native",
                 command: "tap",
-                hostWasExplicit: true,
                 runtimeIdentity: identity
             ) == "native"
         )
@@ -57,7 +54,6 @@ struct ActionBackendTests {
             LoupeCLI.resolvedActionBackend(
                 requested: "auto",
                 command: "swipe",
-                hostWasExplicit: true,
                 runtimeIdentity: identity
             ) == "auto"
         )

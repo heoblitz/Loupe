@@ -85,7 +85,7 @@ struct LoupeCLI {
                 requestedHost: options.host,
                 hostWasExplicit: options.hostWasExplicit,
                 udid: options.udid,
-                bundleID: options.bundleID
+                bundleID: options.bundleID, timeout: options.timeout
             )
             if let udid = options.udid {
                 try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -115,7 +115,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -272,7 +272,7 @@ struct LoupeCLI {
                 requestedHost: options.host,
                 hostWasExplicit: options.hostWasExplicit,
                 udid: options.udid,
-                bundleID: options.bundleID
+                bundleID: options.bundleID, timeout: options.timeout
             )
             if let udid = options.udid {
                 try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -294,7 +294,7 @@ struct LoupeCLI {
                 maxEntries: options.maxEntries
             )
         } else {
-            throw CLIError("paint-stack requires --point x,y or --ref <ref>")
+            throw CLIError("ui paint requires --point x,y or --ref <ref>")
         }
 
         if options.json {
@@ -324,7 +324,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -334,26 +334,40 @@ struct LoupeCLI {
             let fetchTimeout = options.waitForMatch
                 ? min(3, max(0.1, deadline.timeIntervalSinceNow))
                 : options.timeout
-            let snapshot = try await fetchSnapshot(host: host, timeout: fetchTimeout)
-            let result = try queryResultData(snapshot: snapshot, options: options)
-            if !options.waitForMatch || result.count > 0 || Date() >= deadline {
+            let result: (data: Data, count: Int)
+            switch options.tree {
+            case .view:
+                let snapshot = try await fetchSnapshot(host: host, timeout: fetchTimeout)
+                result = try queryResultData(snapshot: snapshot, options: options)
+            case .accessibility:
+                let tree = try await fetchAccessibilityTree(
+                    host: host, timeout: fetchTimeout, includeHidden: options.includeHidden
+                )
+                result = try queryResultData(snapshot: nil, options: options, accessibilityTree: tree)
+            }
+            if !options.waitForMatch || result.count > 0 {
                 FileHandle.standardOutput.write(result.data)
                 FileHandle.standardOutput.write(Data("\n".utf8))
                 return
+            }
+            guard Date() < deadline else {
+                throw CLIError("Query timed out after \(options.timeout)s without a matching node")
             }
             try await sleep(seconds: min(0.25, max(0.01, deadline.timeIntervalSinceNow)))
         }
     }
 
-    private static func queryResultData(
-        snapshot: LoupeSnapshot,
-        options: QueryOptions
+    static func queryResultData(
+        snapshot: LoupeSnapshot?,
+        options: QueryOptions,
+        accessibilityTree: LoupeAccessibilityTree? = nil
     ) throws -> (data: Data, count: Int) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let context = LoupeSnapshotContext(snapshot: snapshot)
         switch options.tree {
         case .view:
+            guard let snapshot else { throw CLIError("View queries require a snapshot") }
+            let context = LoupeSnapshotContext(snapshot: snapshot)
             let results = LoupeSnapshotQuery.find(
                 options.selector,
                 in: context,
@@ -365,7 +379,14 @@ struct LoupeCLI {
             )
             return (try encoder.encode(results), results.count)
         case .accessibility:
-            let tree = LoupeAccessibilityTree.build(from: context, includeHidden: options.includeHidden)
+            let tree: LoupeAccessibilityTree
+            if let accessibilityTree {
+                tree = accessibilityTree
+            } else if let snapshot {
+                tree = LoupeAccessibilityTree.build(from: snapshot, includeHidden: options.includeHidden)
+            } else {
+                throw CLIError("Accessibility queries require a live tree or saved snapshot")
+            }
             let results = LoupeAccessibilityTreeQuery.find(
                 options.selector,
                 in: tree,
@@ -446,57 +467,45 @@ struct LoupeCLI {
 
     static func tree(_ arguments: [String]) async throws {
         let options = try TreeOptions(arguments)
-        let snapshot: LoupeSnapshot
+        let snapshot: LoupeSnapshot?
         let accessibilityTree: LoupeAccessibilityTree?
-
         if let snapshotURL = options.snapshotURL {
-            let data = try Data(contentsOf: snapshotURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            snapshot = try decoder.decode(LoupeSnapshot.self, from: data)
-            let context = LoupeSnapshotContext(snapshot: snapshot)
+            let saved = try decodeSnapshot(from: snapshotURL)
+            snapshot = saved
             accessibilityTree = options.tree == .accessibility
-                ? LoupeAccessibilityTree.build(from: context, includeHidden: options.includeHidden, visibilityMode: .occlusion)
+                ? LoupeAccessibilityTree.build(from: saved, includeHidden: options.includeHidden, visibilityMode: .occlusion)
                 : nil
         } else {
             let host = try await resolvedRuntimeHost(
-                requestedHost: options.host,
-                hostWasExplicit: options.hostWasExplicit,
-                udid: options.udid,
-                bundleID: options.bundleID
+                requestedHost: options.host, hostWasExplicit: options.hostWasExplicit,
+                udid: options.udid, bundleID: options.bundleID, timeout: options.timeout
             )
             if let udid = options.udid {
                 try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
             }
-            snapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
-            accessibilityTree = options.tree == .accessibility
-                ? try await fetchAccessibilityTree(host: host, fallbackSnapshot: snapshot, timeout: options.timeout)
-                : nil
+            switch options.tree {
+            case .view:
+                snapshot = try await fetchSnapshot(host: host, timeout: options.timeout)
+                accessibilityTree = nil
+            case .accessibility:
+                snapshot = nil
+                accessibilityTree = try await fetchAccessibilityTree(
+                    host: host, timeout: options.timeout, includeHidden: options.includeHidden
+                )
+            }
         }
-
         let output: String
         switch options.tree {
         case .view:
-            output = renderViewTree(
-                snapshot,
-                selector: options.selector,
-                depth: options.depth,
-                includeHidden: options.includeHidden,
-                presentation: options.presentation
-            )
+            guard let snapshot else { throw CLIError("View tree requires a snapshot") }
+            output = renderViewTree(snapshot, selector: options.selector, depth: options.depth,
+                                    includeHidden: options.includeHidden, presentation: options.presentation)
         case .accessibility:
-            output = renderAccessibilityTree(
-                accessibilityTree ?? LoupeAccessibilityTree.build(
-                    from: LoupeSnapshotContext(snapshot: snapshot),
-                    includeHidden: options.includeHidden
-                ),
-                selector: options.selector,
-                depth: options.depth,
-                includeHidden: options.includeHidden,
-                presentation: options.presentation
-            )
+            guard let accessibilityTree else { throw CLIError("Accessibility tree is unavailable") }
+            output = renderAccessibilityTree(accessibilityTree, selector: options.selector, depth: options.depth,
+                                             includeHidden: options.includeHidden, presentation: options.presentation)
         }
-        print(output)
+        print(TreeOutput.bounded(output, limit: options.limit))
     }
 
     static func audit(_ arguments: [String]) throws {
@@ -678,7 +687,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -1465,7 +1474,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -1502,7 +1511,7 @@ struct LoupeCLI {
                 requestedHost: options.host,
                 hostWasExplicit: options.hostWasExplicit,
                 udid: options.udid,
-                bundleID: options.bundleID
+                bundleID: options.bundleID, timeout: options.timeout
             )
             if let udid = options.udid {
                 try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -1540,21 +1549,12 @@ struct LoupeCLI {
     }
 
     static func set(_ arguments: [String]) async throws {
-        if arguments.contains("--list") {
-            try await runtimeFetch(
-                arguments.filter { $0 != "--list" },
-                path: "/mutations",
-                usage: "loupe ui set --list [--host <url>] [--udid <sim>] [--output <path>]"
-            )
-            return
-        }
-
         let options = try MutationSetOptions(arguments)
         let host = try await resolvedRuntimeHost(
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -1582,7 +1582,7 @@ struct LoupeCLI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        let (data, response) = try await httpData(for: request, timeout: options.timeout, label: "mutation")
+        let (data, response) = try await RuntimeHTTPClient.shared.data(for: request, timeout: options.timeout, label: "mutation")
         guard let httpResponse = response as? HTTPURLResponse else {
             throw CLIError("mutation expected an HTTP response")
         }
@@ -1707,7 +1707,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -1793,7 +1793,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -1808,7 +1808,7 @@ struct LoupeCLI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        let (data, response) = try await httpData(for: request, timeout: options.timeout, label: "constraint mutation")
+        let (data, response) = try await RuntimeHTTPClient.shared.data(for: request, timeout: options.timeout, label: "constraint mutation")
         guard let httpResponse = response as? HTTPURLResponse else {
             throw CLIError("constraint mutation expected an HTTP response")
         }
@@ -1931,7 +1931,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -2220,6 +2220,7 @@ struct LoupeCLI {
                options.screen.height > 0,
                options.traceDirectory == nil,
                !options.hostWasExplicit,
+               options.bundleID == nil,
                options.expectVisibleSelector == nil {
                 let coordinateTarget = ActionTarget(point: point, screen: options.screen, screenScale: 1, source: .coordinates)
                 target = coordinateTarget
@@ -2230,9 +2231,16 @@ struct LoupeCLI {
             options.host = try await resolvedRuntimeHost(
                 requestedHost: options.host,
                 hostWasExplicit: options.hostWasExplicit,
-                udid: options.udid
+                udid: options.udidWasExplicit ? options.udid : nil,
+                bundleID: options.bundleID, timeout: options.timeout
             )
             let runtimeState = try await fetchRuntimeState(host: options.host, timeout: options.timeout)
+            try validateBundleIdentity(state: runtimeState, expectedBundleID: options.bundleID)
+            if !options.udidWasExplicit,
+               let device = runtimeState.identity.deviceIdentifier ?? runtimeState.identity.simulatorUDID,
+               !device.isEmpty {
+                options.udid = device
+            }
             if let alias = options.targetAlias {
                 let cache = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: options.host)).load()
                 try cache.validate(host: options.host, runtimeIdentity: runtimeState.identity)
@@ -2250,7 +2258,6 @@ struct LoupeCLI {
             options.backend = resolvedActionBackend(
                 requested: options.backend,
                 command: command,
-                hostWasExplicit: options.hostWasExplicit,
                 runtimeIdentity: runtimeState.identity
             )
             let usesRuntimeActivation = options.backend == "runtime"
@@ -2267,7 +2274,7 @@ struct LoupeCLI {
             let resolvedTarget: ActionTarget
             if let alias = options.targetAlias, let aliasCache {
                 resolvedTarget = try await freshActionTarget(
-                    alias: alias, cache: aliasCache, runtimeIdentity: runtimeState.identity,
+                    alias: alias, cache: aliasCache,
                     host: options.host, timeout: options.timeout
                 )
             } else {
@@ -2341,28 +2348,15 @@ struct LoupeCLI {
     /// Saved aliases are only a short-lived intent. Resolve them in a fresh native
     /// action tree so HID never uses a coordinate captured before a relayout.
     private static func freshActionTarget(
-        alias: Int, cache: ActionTargetAliasCache, runtimeIdentity: LoupeRuntimeIdentity,
+        alias: Int, cache: ActionTargetAliasCache,
         host: URL, timeout: TimeInterval
     ) async throws -> ActionTarget {
         let saved = try cache.target(at: alias)
-        let snapshot = try await fetchSnapshot(host: host, timeout: timeout)
-        let tree = try await fetchAccessibilityActionTree(host: host, timeout: timeout)
-        guard let bundleIdentifier = runtimeIdentity.bundleIdentifier else {
-            throw CLIError("Runtime identity is missing its bundle identifier. Rerun `loupe act targets`")
-        }
-        let fresh = ActionTargetAliasPlanner.makeCache(
-            snapshot: snapshot, accessibilityTree: tree, runtimeIdentity: runtimeIdentity,
-            bundleIdentifier: bundleIdentifier, host: host
-        ).targets.filter { candidate in
-            candidate.actions.contains(where: { $0 == .activate || $0 == .press })
-                && candidate.role == saved.role
-                && candidate.text == saved.text
-                && (saved.testID == nil || candidate.testID == saved.testID)
-        }
-        guard fresh.count == 1, let target = fresh.first else {
-            throw CLIError("Saved action target '#\(alias)' no longer resolves uniquely. Rerun `loupe act targets`")
-        }
-        return actionTarget(entry: target, screen: tree.screen)
+        let observation = try await fetchAccessibilityActionObservation(host: host, timeout: timeout)
+        let target = try ActionTargetAliasPlanner.resolveTapTarget(
+            saved, snapshot: observation.snapshot, accessibilityTree: observation.tree
+        )
+        return actionTarget(entry: target, screen: observation.tree.screen)
     }
 
     private static func scrollVerificationBaseline(
@@ -2395,7 +2389,7 @@ struct LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -2593,22 +2587,26 @@ struct LoupeCLI {
         }
 
         let snapshot: LoupeSnapshot
-        if let snapshotURL = options.snapshotURL {
-            snapshot = try decodeSnapshot(from: snapshotURL)
-        } else {
-            snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
-        }
         let accessibilityTree: LoupeAccessibilityTree
-        if options.command == "tap", options.backend == "runtime" {
-            accessibilityTree = try await fetchAccessibilityActionTree(host: options.host, timeout: options.timeout)
-        } else if options.snapshotURL != nil {
-            accessibilityTree = LoupeAccessibilityTree.build(from: snapshot)
+        if options.command == "tap", options.backend == "runtime", options.snapshotURL == nil {
+            let observation = try await fetchAccessibilityActionObservation(host: options.host, timeout: options.timeout)
+            snapshot = observation.snapshot
+            accessibilityTree = observation.tree
         } else {
-            accessibilityTree = try await fetchAccessibilityTree(
-                host: options.host,
-                fallbackSnapshot: snapshot,
-                timeout: options.timeout
-            )
+            if let snapshotURL = options.snapshotURL {
+                snapshot = try decodeSnapshot(from: snapshotURL)
+            } else {
+                snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
+            }
+            if options.command == "tap", options.backend == "runtime" {
+                accessibilityTree = try await fetchAccessibilityActionTree(host: options.host, timeout: options.timeout)
+            } else if options.snapshotURL != nil {
+                accessibilityTree = LoupeAccessibilityTree.build(from: snapshot)
+            } else {
+                accessibilityTree = try await fetchAccessibilityTree(
+                    host: options.host, fallbackSnapshot: snapshot, timeout: options.timeout
+                )
+            }
         }
         let accessibilityMatches = preferPlatformBackedActionMatches(
             uniqueActionMatches(
@@ -2808,17 +2806,6 @@ struct LoupeCLI {
             .joined(separator: ", ")
     }
 
-    static func fetchSnapshot(host: URL, timeout: TimeInterval = 5) async throws -> LoupeSnapshot {
-        let url = host.appendingPathComponent("snapshot")
-        let (data, response) = try await httpData(from: url, timeout: timeout, label: "snapshot fetch")
-        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-            throw CLIError("snapshot fetch failed")
-        }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(LoupeSnapshot.self, from: data)
-    }
-
     private static func postMutation(
         _ mutation: LoupeMutationRequest,
         host: URL,
@@ -2831,7 +2818,7 @@ struct LoupeCLI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        let (data, response) = try await httpData(for: request, timeout: timeout, label: "mutation")
+        let (data, response) = try await RuntimeHTTPClient.shared.data(for: request, timeout: timeout, label: "mutation")
         guard let httpResponse = response as? HTTPURLResponse else {
             throw CLIError("mutation expected an HTTP response")
         }
@@ -2854,7 +2841,7 @@ struct LoupeCLI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        let (data, response) = try await httpData(for: request, timeout: timeout, label: "activation")
+        let (data, response) = try await RuntimeHTTPClient.shared.data(for: request, timeout: timeout, label: "activation")
         guard let httpResponse = response as? HTTPURLResponse else {
             throw CLIError("activation expected an HTTP response")
         }
@@ -2963,69 +2950,12 @@ struct LoupeCLI {
             .filter { $0.isLetter || $0.isNumber }
     }
 
-    static func fetchAccessibilityTree(
-        host: URL,
-        fallbackSnapshot: LoupeSnapshot,
-        timeout: TimeInterval = 5
-    ) async throws -> LoupeAccessibilityTree {
-        let url = host.appendingPathComponent("accessibility")
-        do {
-            let (data, response) = try await httpData(from: url, timeout: timeout, label: "accessibility fetch")
-            guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-                return LoupeAccessibilityTree.build(from: fallbackSnapshot)
-            }
-            return try JSONDecoder().decode(LoupeAccessibilityTree.self, from: data)
-        } catch {
-            return LoupeAccessibilityTree.build(from: fallbackSnapshot)
-        }
-    }
-
-    /// Action discovery intentionally has no snapshot fallback: aliases must be backed
-    /// by a currently executable native accessibility action, not a plausible view.
-    static func fetchAccessibilityActionTree(
-        host: URL,
-        timeout: TimeInterval = 5
-    ) async throws -> LoupeAccessibilityTree {
-        let url = host.appendingPathComponent("accessibility/actions")
-        let (data, response) = try await httpData(from: url, timeout: timeout, label: "accessibility action fetch")
-        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-            throw CLIError("Runtime does not expose native accessibility actions. Relaunch with the current LoupeInjector.")
-        }
-        return try JSONDecoder().decode(LoupeAccessibilityTree.self, from: data)
-    }
-
-    static func fetchRuntimeState(host: URL, timeout: TimeInterval = 5) async throws -> LoupeRuntimeState {
-        let statusURL = host.appendingPathComponent("status")
-        let (statusData, statusResponse) = try await httpData(from: statusURL, timeout: timeout, label: "runtime status fetch")
-        guard let httpResponse = statusResponse as? HTTPURLResponse else {
-            throw CLIError("runtime status fetch failed")
-        }
-        if (200..<300).contains(httpResponse.statusCode) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let status = try decoder.decode(LoupeRuntimeStatus.self, from: statusData)
-            return LoupeRuntimeState(identity: status.identity)
-        }
-        guard httpResponse.statusCode == 404 else {
-            throw CLIError("runtime status fetch failed")
-        }
-        let url = host.appendingPathComponent("runtime")
-        let (data, response) = try await httpData(from: url, timeout: timeout, label: "runtime fetch")
-        guard let legacyResponse = response as? HTTPURLResponse, (200..<300).contains(legacyResponse.statusCode) else {
-            throw CLIError("runtime fetch failed")
-        }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(LoupeRuntimeState.self, from: data)
-    }
-
     static func resolvedActionBackend(
         requested: String,
         command: String,
-        hostWasExplicit: Bool,
         runtimeIdentity: LoupeRuntimeIdentity
     ) -> String {
-        guard requested == "auto", command == "tap", hostWasExplicit else {
+        guard requested == "auto", command == "tap" else {
             return requested
         }
         if let simulatorUDID = runtimeIdentity.simulatorUDID, !simulatorUDID.isEmpty {
@@ -3470,7 +3400,7 @@ struct LoupeCLI {
 
     private static func writeRuntimeTracePayload(host: URL, path: String, to url: URL) async throws {
         let endpoint = host.appendingPathComponent(path)
-        let (data, response) = try await httpData(from: endpoint, timeout: 5, label: "runtime trace fetch")
+        let (data, response) = try await RuntimeHTTPClient.shared.data(from: endpoint, timeout: 5, label: "runtime trace fetch")
         guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
             throw CLIError("runtime trace fetch failed for /\(path)")
         }
@@ -3837,65 +3767,6 @@ struct LoupeCLI {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return path.isEmpty ? nil : path
-    }
-
-    static func httpData(
-        from url: URL,
-        timeout: TimeInterval,
-        label: String
-    ) async throws -> (Data, URLResponse) {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = timeout
-        return try await httpData(for: request, timeout: timeout, label: label)
-    }
-
-    static func httpData(
-        for request: URLRequest,
-        timeout: TimeInterval,
-        label: String
-    ) async throws -> (Data, URLResponse) {
-        var request = request
-        request.timeoutInterval = timeout
-        let timedRequest = request
-        let requestURL = request.url?.absoluteString ?? "unknown-url"
-        do {
-            return try await withExplicitTimeout(seconds: timeout) {
-                try await URLSession.shared.data(for: timedRequest)
-            }
-        } catch let error as CLIError {
-            throw error
-        } catch {
-            throw CLIError("\(label) timed out or failed for \(requestURL): \(error.localizedDescription)")
-        }
-    }
-
-    private static func withExplicitTimeout<Value: Sendable>(
-        seconds: TimeInterval,
-        operation: @escaping @Sendable () async throws -> Value
-    ) async throws -> Value {
-        try await withThrowingTaskGroup(of: Value.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds(seconds))
-                throw CLIError("request timed out after \(format(seconds))s")
-            }
-
-            defer {
-                group.cancelAll()
-            }
-
-            guard let value = try await group.next() else {
-                throw CLIError("request timed out after \(format(seconds))s")
-            }
-            return value
-        }
-    }
-
-    private static func timeoutNanoseconds(_ seconds: TimeInterval) -> UInt64 {
-        let capped = min(max(seconds, 0), Double(UInt64.max) / 1_000_000_000)
-        return UInt64((capped * 1_000_000_000).rounded(.up))
     }
 
     private static func run(_ process: Process, label: String, timeout: TimeInterval = 10) throws {

@@ -2,7 +2,7 @@ import Foundation
 import LoupeCLIModel
 
 struct CompactOptions {
-    static let usage = "Usage: loupe ui compact <snapshot.json> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]"
+    static let usage = "Usage: loupe ui compact <snapshot.json> [--output <path>]"
 
     var snapshotURL: URL
     var host: URL
@@ -53,6 +53,9 @@ struct CompactOptions {
 
         guard timeout > 0 else {
             throw CLIError("--timeout must be greater than 0")
+        }
+        if hostWasExplicit || udid != nil || bundleID != nil {
+            throw CLIError("snapshot.json cannot be combined with --host, --udid, or --bundle-id")
         }
     }
 

@@ -18,6 +18,10 @@ extension LoupeCLI {
         let record: LoupeRuntimeHostRecord
         if let host = options.host {
             let state = try await fetchRuntimeState(host: host, timeout: options.timeout)
+            try validateBundleIdentity(state: state, expectedBundleID: options.bundleID)
+            if let udid = options.udid {
+                try validateRuntimeIdentity(state: state, expectedUDID: udid, host: host)
+            }
             record = runtimeHostRecord(
                 state: state,
                 host: host,
@@ -69,7 +73,7 @@ extension LoupeCLI {
             requestedHost: options.host,
             hostWasExplicit: options.hostWasExplicit,
             udid: options.udid,
-            bundleID: options.bundleID
+            bundleID: options.bundleID, timeout: options.timeout
         )
         if let udid = options.udid {
             try await validateRuntimeIdentity(host: host, expectedUDID: udid, timeout: options.timeout)
@@ -82,7 +86,7 @@ extension LoupeCLI {
         } else {
             url = host.appendingPathComponent(normalizedPath)
         }
-        let (data, response) = try await httpData(from: url, timeout: options.timeout, label: "runtime fetch")
+        let (data, response) = try await RuntimeHTTPClient.shared.data(from: url, timeout: options.timeout, label: "runtime fetch")
         guard let httpResponse = response as? HTTPURLResponse else {
             throw CLIError("runtime fetch expected an HTTP response")
         }
@@ -100,23 +104,22 @@ extension LoupeCLI {
             }
         }
         guard let bundleIdentifier = state.identity.bundleIdentifier else {
-            return true
+            return false
         }
         return bundleIdentifier == record.bundleID
     }
 
     static func resolvedRuntimeHost(
         requestedHost: URL?,
-        udid: String?
+        udid: String?,
+        bundleID: String? = nil,
+        timeout: TimeInterval = 5
     ) async throws -> URL {
-        if let requestedHost {
-            return requestedHost
-        }
-
         return try await resolvedRuntimeHost(
-            requestedHost: URL(string: "http://127.0.0.1:8765")!,
-            hostWasExplicit: false,
-            udid: udid
+            requestedHost: requestedHost ?? URL(string: "http://127.0.0.1:8765")!,
+            hostWasExplicit: requestedHost != nil,
+            udid: udid,
+            bundleID: bundleID, timeout: timeout
         )
     }
 
@@ -124,14 +127,19 @@ extension LoupeCLI {
         requestedHost: URL,
         hostWasExplicit: Bool,
         udid: String?,
-        bundleID: String? = nil
+        bundleID: String? = nil,
+        timeout: TimeInterval = 5
     ) async throws -> URL {
         guard !hostWasExplicit else {
+            if let bundleID {
+                let state = try await fetchRuntimeState(host: requestedHost, timeout: timeout)
+                try validateBundleIdentity(state: state, expectedBundleID: bundleID)
+            }
             return requestedHost
         }
 
         if let bundleID {
-            let record = try await runtimeHostRecord(bundleID: bundleID, udid: udid, timeout: 1)
+            let record = try await runtimeHostRecord(bundleID: bundleID, udid: udid, timeout: min(1, timeout))
             guard let url = URL(string: record.host), !record.host.isEmpty else {
                 throw CLIError("Stored Loupe runtime for \(bundleID) has an invalid host.")
             }
@@ -176,16 +184,23 @@ extension LoupeCLI {
         guard !records.isEmpty else {
             throw CLIError("No stored Loupe app runtime for bundle \(bundleID). Run `loupe app list` or launch with `loupe app launch --bundle-id \(bundleID)`.")
         }
+        var matches: [LoupeRuntimeHostRecord] = []
         for record in records {
             guard let host = URL(string: record.host) else {
                 continue
             }
             if let state = try? await fetchRuntimeState(host: host, timeout: timeout),
                runtimeState(state, matches: record) {
-                return record
+                matches.append(record)
             }
         }
-        return records[0]
+        guard !matches.isEmpty else {
+            throw CLIError("No live matching runtime for bundle \(bundleID). Run `loupe app list` or `loupe app launch --bundle-id \(bundleID)`.")
+        }
+        guard matches.count == 1 else {
+            throw CLIError("Multiple live runtimes for bundle \(bundleID). Select one with --udid or --host; run `loupe app list`.")
+        }
+        return matches[0]
     }
 
     static func runtimeHostDirectory() -> URL {

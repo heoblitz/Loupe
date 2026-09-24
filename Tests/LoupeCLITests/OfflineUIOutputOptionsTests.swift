@@ -3,6 +3,16 @@ import Testing
 @testable import LoupeCLI
 
 struct OfflineUIOutputOptionsTests {
+    @Test func liveAccessibilityAcceptsHiddenNodesAndOutputWithoutLosingRuntimeSelection() throws {
+        let options = try LiveAccessibilityOptions([
+            "--host", "http://127.0.0.1:9000", "--bundle-id", "test.app",
+            "--include-hidden", "--output", "/tmp/accessibility.json",
+        ])
+        #expect(options.includeHidden)
+        #expect(options.runtime.bundleID == "test.app")
+        #expect(options.runtime.host.absoluteString == "http://127.0.0.1:9000")
+        #expect(options.runtime.outputURL?.path == "/tmp/accessibility.json")
+    }
     @Test func compactSnapshotModeAcceptsOutputPath() throws {
         let options = try CompactOptions([
             "/tmp/loupe-snapshot.json",
@@ -13,21 +23,13 @@ struct OfflineUIOutputOptionsTests {
         #expect(options.outputURL?.path == "/tmp/loupe-compact.json")
     }
 
-    @Test func compactSnapshotModeAcceptsRuntimeSelectionOptionsFromHelp() throws {
-        let options = try CompactOptions([
-            "/tmp/loupe-snapshot.json",
-            "--host", "http://127.0.0.1:28823",
-            "--udid", "SIM-UDID",
-            "--bundle-id", "com.example.App",
-            "--timeout", "10",
-        ])
-
-        #expect(options.snapshotURL.path == "/tmp/loupe-snapshot.json")
-        #expect(options.host.absoluteString == "http://127.0.0.1:28823")
-        #expect(options.hostWasExplicit)
-        #expect(options.udid == "SIM-UDID")
-        #expect(options.bundleID == "com.example.App")
-        #expect(options.timeout == 10)
+    @Test func compactSnapshotModeRejectsRuntimeSelection() {
+        #expect(throws: (any Error).self) {
+            try CompactOptions([
+                "/tmp/loupe-snapshot.json",
+                "--host", "http://127.0.0.1:28823",
+            ])
+        }
     }
 
     @Test func accessibilitySnapshotModeAcceptsOutputPathAndIncludeHidden() throws {

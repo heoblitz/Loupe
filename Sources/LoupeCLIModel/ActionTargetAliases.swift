@@ -157,6 +157,56 @@ package enum ActionTargetAliasPlanner {
         cacheID: String = UUID().uuidString,
         capturedAt: Date = Date()
     ) -> ActionTargetAliasCache {
+        let results = candidates(snapshot: snapshot, accessibilityTree: accessibilityTree,
+                                 search: search, includeAll: includeAll)
+        let totalTargetCount = results.count
+        let boundedLimit = min(max(1, limit), maximumTargetCount)
+        let targets = results.prefix(boundedLimit).enumerated().map { offset, result in
+            entry(result, index: offset + 1, accessibilityTree: accessibilityTree)
+        }
+
+        return ActionTargetAliasCache(
+            cacheID: cacheID,
+            capturedAt: capturedAt,
+            launchID: runtimeIdentity.launchID,
+            deviceIdentifier: runtimeIdentity.deviceIdentifier ?? runtimeIdentity.simulatorUDID,
+            bundleIdentifier: bundleIdentifier,
+            host: host.absoluteString,
+            snapshotID: accessibilityTree.snapshotID,
+            screen: accessibilityTree.screen,
+            totalTargetCount: totalTargetCount,
+            targets: targets
+        )
+    }
+
+    /// Revalidation considers every actionable candidate, independent of display filters.
+    /// Otherwise a searched target outside the first page can disappear, or an ambiguous
+    /// target beyond the display limit can be mistaken for a unique match.
+    package static func resolveTapTarget(
+        _ saved: ActionTargetAliasEntry,
+        snapshot: LoupeSnapshot,
+        accessibilityTree: LoupeAccessibilityTree
+    ) throws -> ActionTargetAliasEntry {
+        let matches = candidates(snapshot: snapshot, accessibilityTree: accessibilityTree,
+                                 search: nil, includeAll: true).filter { candidate in
+            let actions = accessibilityTree.nodes[candidate.ref]?.actions ?? []
+            return actions.contains(where: { $0 == .activate || $0 == .press })
+                && candidate.role == saved.role
+                && candidate.text == saved.text
+                && (saved.testID == nil || candidate.testID == saved.testID)
+        }
+        guard matches.count == 1, let match = matches.first else {
+            throw CLIError("Saved action target '#\(saved.index)' no longer resolves uniquely. Rerun `loupe act targets`")
+        }
+        return entry(match, index: saved.index, accessibilityTree: accessibilityTree)
+    }
+
+    private static func candidates(
+        snapshot: LoupeSnapshot,
+        accessibilityTree: LoupeAccessibilityTree,
+        search: String?,
+        includeAll: Bool
+    ) -> [LoupeAccessibilityQueryResult] {
         var results = accessibilityTree.nodes.values
             .filter(isActionTarget)
             .filter { includeAll || isPrimaryActionTarget($0) }
@@ -174,37 +224,28 @@ package enum ActionTargetAliasPlanner {
             }
         }
 
-        let totalTargetCount = results.count
-        let boundedLimit = min(max(1, limit), maximumTargetCount)
-        let targets = results.prefix(boundedLimit).enumerated().map { offset, result in
-            ActionTargetAliasEntry(
-                index: offset + 1,
-                ref: result.ref,
-                sourceRef: result.sourceRef,
-                role: result.role,
-                text: result.text,
-                testID: result.testID,
-                frame: result.frame,
-                activationPoint: result.activationPoint,
-                point: actionPoint(for: result, screen: accessibilityTree.screen)!,
-                isVisible: result.isVisible,
-                isEnabled: result.isEnabled,
-                isInteractive: result.isInteractive,
-                actions: accessibilityTree.nodes[result.ref]?.actions ?? []
-            )
-        }
+        return results
+    }
 
-        return ActionTargetAliasCache(
-            cacheID: cacheID,
-            capturedAt: capturedAt,
-            launchID: runtimeIdentity.launchID,
-            deviceIdentifier: runtimeIdentity.deviceIdentifier ?? runtimeIdentity.simulatorUDID,
-            bundleIdentifier: bundleIdentifier,
-            host: host.absoluteString,
-            snapshotID: accessibilityTree.snapshotID,
-            screen: accessibilityTree.screen,
-            totalTargetCount: totalTargetCount,
-            targets: targets
+    private static func entry(
+        _ result: LoupeAccessibilityQueryResult,
+        index: Int,
+        accessibilityTree: LoupeAccessibilityTree
+    ) -> ActionTargetAliasEntry {
+        ActionTargetAliasEntry(
+            index: index,
+            ref: result.ref,
+            sourceRef: result.sourceRef,
+            role: result.role,
+            text: result.text,
+            testID: result.testID,
+            frame: result.frame,
+            activationPoint: result.activationPoint,
+            point: actionPoint(for: result, screen: accessibilityTree.screen)!,
+            isVisible: result.isVisible,
+            isEnabled: result.isEnabled,
+            isInteractive: result.isInteractive,
+            actions: accessibilityTree.nodes[result.ref]?.actions ?? []
         )
     }
 

@@ -14,6 +14,7 @@ struct TreeOptions {
     var timeout: TimeInterval
     var tree: QueryTree
     var presentation: TreePresentation
+    var limit: Int?
 
     init(_ arguments: [String]) throws {
         snapshotURL = nil
@@ -27,6 +28,9 @@ struct TreeOptions {
         timeout = 5
         tree = .view
         presentation = .outline
+        limit = 80
+        var limitWasExplicit = false
+        var includeAll = false
 
         var index = 0
         if let first = arguments.first, !first.hasPrefix("--") {
@@ -65,25 +69,34 @@ struct TreeOptions {
                 }
                 tree = value
             case "--test-id":
-                selector = .testID(try Self.value(after: "--test-id", in: arguments, index: &index))
+                try UniqueSelector.set(.testID(try Self.value(after: "--test-id", in: arguments, index: &index)), on: &selector)
             case "--text":
                 if index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") {
-                    selector = .text(try Self.value(after: "--text", in: arguments, index: &index), exact: false)
+                    try UniqueSelector.set(.text(try Self.value(after: "--text", in: arguments, index: &index), exact: false), on: &selector)
                 } else {
                     presentation = .text
                 }
             case "--exact-text":
-                selector = .text(try Self.value(after: "--exact-text", in: arguments, index: &index), exact: true)
+                try UniqueSelector.set(.text(try Self.value(after: "--exact-text", in: arguments, index: &index), exact: true), on: &selector)
             case "--role":
-                selector = .role(try Self.value(after: "--role", in: arguments, index: &index))
+                try UniqueSelector.set(.role(try Self.value(after: "--role", in: arguments, index: &index)), on: &selector)
             case "--ref":
-                selector = .ref(try Self.value(after: "--ref", in: arguments, index: &index))
+                try UniqueSelector.set(.ref(try Self.value(after: "--ref", in: arguments, index: &index)), on: &selector)
             case "--depth":
                 let raw = try Self.value(after: "--depth", in: arguments, index: &index)
                 guard let value = Int(raw), value >= 0 else {
                     throw CLIError("--depth expects a non-negative integer")
                 }
                 depth = value
+            case "--limit":
+                let raw = try Self.value(after: "--limit", in: arguments, index: &index)
+                guard let value = Int(raw), (1...500).contains(value) else {
+                    throw CLIError("--limit expects an integer between 1 and 500")
+                }
+                limit = value
+                limitWasExplicit = true
+            case "--all":
+                includeAll = true
             case "--include-hidden":
                 includeHidden = true
             case "--timeout":
@@ -97,6 +110,13 @@ struct TreeOptions {
         guard timeout > 0 else {
             throw CLIError("--timeout must be greater than 0")
         }
+        guard !includeAll || !limitWasExplicit else {
+            throw CLIError("Use either --limit or --all")
+        }
+        if snapshotURL != nil, hostWasExplicit || udid != nil || bundleID != nil {
+            throw CLIError("snapshot.json cannot be combined with --host, --udid, or --bundle-id")
+        }
+        if includeAll { limit = nil }
     }
 
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {

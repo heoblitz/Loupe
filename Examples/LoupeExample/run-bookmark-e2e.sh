@@ -146,9 +146,9 @@ assert_query bookmark.tabs /tmp/loupe-bookmark-tabs-query.json
 assert_query bookmark.tabbar /tmp/loupe-bookmark-tabbar-query.json
 assert_query bookmark.list /tmp/loupe-bookmark-list-query.json
 assert_query bookmark.item.swift /tmp/loupe-bookmark-first-query.json
-.build/debug/loupe ui tree "$SNAPSHOT_PATH" --test-id bookmark.tabs --depth 2 >/tmp/loupe-bookmark-view-tree.txt
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --test-id bookmark.tabs --depth 2 >/tmp/loupe-bookmark-view-tree.txt
 grep -q "bookmark.tabs" /tmp/loupe-bookmark-view-tree.txt
-.build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --test-id bookmark.tabbar --depth 1 >/tmp/loupe-bookmark-accessibility-tree.txt
+.build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --accessibility --test-id bookmark.tabbar --depth 1 >/tmp/loupe-bookmark-accessibility-tree.txt
 grep -q "bookmark.tabbar" /tmp/loupe-bookmark-accessibility-tree.txt
 .build/debug/loupe ui compact "$SNAPSHOT_PATH" >/tmp/loupe-bookmark-compact.json
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id bookmark.tabbar > "$INSPECT_PATH"
