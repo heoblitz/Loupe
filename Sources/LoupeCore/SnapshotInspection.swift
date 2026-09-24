@@ -1,6 +1,6 @@
 import Foundation
 
-public struct LoupeNodeSummary: Codable, Equatable {
+public struct LoupeNodeSummary: Codable, Equatable, Sendable {
     public var ref: String
     public var typeName: String
     public var className: String?
@@ -24,7 +24,7 @@ public struct LoupeNodeSummary: Codable, Equatable {
     }
 }
 
-public struct LoupeNodeInspection: Codable, Equatable {
+public struct LoupeNodeInspection: Codable, Equatable, Sendable {
     public var node: LoupeNode
     public var parent: LoupeNodeSummary?
     public var siblings: [LoupeNodeSummary]
@@ -43,7 +43,7 @@ public struct LoupeNodeInspection: Codable, Equatable {
     }
 }
 
-public struct LoupeSubtree: Codable, Equatable {
+public struct LoupeSubtree: Codable, Equatable, Sendable {
     public var root: LoupeNode
     public var maxDepth: Int
     public var nodes: [String: LoupeNode]

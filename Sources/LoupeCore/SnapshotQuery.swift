@@ -1,6 +1,6 @@
 import Foundation
 
-public enum LoupeSelector: Equatable {
+public enum LoupeSelector: Equatable, Sendable {
     case testID(String)
     case text(String, exact: Bool = true)
     case role(String)
@@ -8,13 +8,13 @@ public enum LoupeSelector: Equatable {
     case ref(String)
 }
 
-public enum LoupeQueryVisibilityMode: Equatable {
+public enum LoupeQueryVisibilityMode: Equatable, Sendable {
     case surface
     case occlusion
     case raw
 }
 
-public struct LoupeQueryOptions: Equatable {
+public struct LoupeQueryOptions: Equatable, Sendable {
     public var includeHidden: Bool
     public var includeDisabled: Bool
     public var maxResults: Int
@@ -33,7 +33,7 @@ public struct LoupeQueryOptions: Equatable {
     }
 }
 
-public struct LoupeQueryResult: Codable, Equatable {
+public struct LoupeQueryResult: Codable, Equatable, Sendable {
     public var ref: String
     public var role: String?
     public var text: String?

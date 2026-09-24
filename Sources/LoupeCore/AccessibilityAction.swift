@@ -52,7 +52,7 @@ public struct LoupeAccessibilityAction: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-public struct LoupeAccessibilityTargetIdentity: Codable, Equatable {
+public struct LoupeAccessibilityTargetIdentity: Codable, Equatable, Sendable {
     public var ref: String
     public var sourceRef: String
     public var testID: String?

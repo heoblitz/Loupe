@@ -1,6 +1,6 @@
 import Foundation
 
-public enum LoupeMutationSelectorKind: String, Codable, Equatable {
+public enum LoupeMutationSelectorKind: String, Codable, Equatable, Sendable {
     case testID
     case ref
     case role
@@ -8,7 +8,7 @@ public enum LoupeMutationSelectorKind: String, Codable, Equatable {
     case roleAndText
 }
 
-public struct LoupeMutationSelector: Codable, Equatable {
+public struct LoupeMutationSelector: Codable, Equatable, Sendable {
     public var kind: LoupeMutationSelectorKind
     public var value: String
     public var role: String?
@@ -22,7 +22,7 @@ public struct LoupeMutationSelector: Codable, Equatable {
     }
 }
 
-public enum LoupeMutationValue: Codable, Equatable {
+public enum LoupeMutationValue: Codable, Equatable, Sendable {
     case bool(Bool)
     case int(Int)
     case double(Double)
@@ -104,7 +104,7 @@ public enum LoupeMutationValue: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationRequest: Codable, Equatable {
+public struct LoupeMutationRequest: Codable, Equatable, Sendable {
     public var selector: LoupeMutationSelector
     public var property: String
     public var value: LoupeMutationValue
@@ -153,7 +153,7 @@ public struct LoupeMutationRequest: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationAnimation: Codable, Equatable {
+public struct LoupeMutationAnimation: Codable, Equatable, Sendable {
     public var duration: Double
     public var delay: Double
     public var curve: String
@@ -165,7 +165,7 @@ public struct LoupeMutationAnimation: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationResponse: Codable, Equatable {
+public struct LoupeMutationResponse: Codable, Equatable, Sendable {
     public var property: String
     public var selector: LoupeMutationSelector
     public var value: LoupeMutationValue
@@ -214,7 +214,7 @@ public struct LoupeMutationResponse: Codable, Equatable {
     }
 }
 
-public struct LoupeListSizingContext: Codable, Equatable {
+public struct LoupeListSizingContext: Codable, Equatable, Sendable {
     public var containerRef: String?
     public var containerTestID: String?
     public var containerKind: String
@@ -257,7 +257,7 @@ public struct LoupeListSizingContext: Codable, Equatable {
     }
 }
 
-public struct LoupeSelfSizingProbeResult: Codable, Equatable {
+public struct LoupeSelfSizingProbeResult: Codable, Equatable, Sendable {
     public var requested: Bool
     public var attempted: Bool
     public var applied: Bool
@@ -297,7 +297,7 @@ public struct LoupeSelfSizingProbeResult: Codable, Equatable {
     }
 }
 
-public struct LoupeConstraintMutationRequest: Codable, Equatable {
+public struct LoupeConstraintMutationRequest: Codable, Equatable, Sendable {
     public var id: String
     public var constant: Double?
     public var priority: Double?
@@ -319,7 +319,7 @@ public struct LoupeConstraintMutationRequest: Codable, Equatable {
     }
 }
 
-public struct LoupeConstraintMutationResponse: Codable, Equatable {
+public struct LoupeConstraintMutationResponse: Codable, Equatable, Sendable {
     public var id: String
     public var before: LoupeUILayoutConstraintProperties
     public var after: LoupeUILayoutConstraintProperties
@@ -350,7 +350,7 @@ public struct LoupeConstraintMutationResponse: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationCapability: Codable, Equatable {
+public struct LoupeMutationCapability: Codable, Equatable, Sendable {
     public var property: String
     public var aliases: [String]
 
@@ -360,7 +360,7 @@ public struct LoupeMutationCapability: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationSourceCandidate: Codable, Equatable {
+public struct LoupeMutationSourceCandidate: Codable, Equatable, Sendable {
     public var path: String
     public var line: Int
     public var text: String
@@ -372,7 +372,7 @@ public struct LoupeMutationSourceCandidate: Codable, Equatable {
     }
 }
 
-public struct LoupeActivationRequest: Codable, Equatable {
+public struct LoupeActivationRequest: Codable, Equatable, Sendable {
     public var selector: LoupeMutationSelector
     public var action: LoupeAccessibilityAction?
     public var accessibilityTarget: LoupeAccessibilityTargetIdentity?
@@ -388,7 +388,7 @@ public struct LoupeActivationRequest: Codable, Equatable {
     }
 }
 
-public struct LoupeActivationResponse: Codable, Equatable {
+public struct LoupeActivationResponse: Codable, Equatable, Sendable {
     public var selector: LoupeMutationSelector
     public var target: LoupeQueryResult
     public var before: LoupeNode
@@ -419,7 +419,7 @@ public struct LoupeActivationResponse: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationNodeSummary: Codable, Equatable {
+public struct LoupeMutationNodeSummary: Codable, Equatable, Sendable {
     public var ref: String
     public var typeName: String
     public var role: String?
@@ -444,7 +444,7 @@ public struct LoupeMutationNodeSummary: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationHierarchyContext: Codable, Equatable {
+public struct LoupeMutationHierarchyContext: Codable, Equatable, Sendable {
     public var target: LoupeMutationNodeSummary
     public var parent: LoupeMutationNodeSummary?
     public var ancestors: [LoupeMutationNodeSummary]?
@@ -466,7 +466,7 @@ public struct LoupeMutationHierarchyContext: Codable, Equatable {
     }
 }
 
-public struct LoupeMutationReflection: Codable, Equatable {
+public struct LoupeMutationReflection: Codable, Equatable, Sendable {
     public var selector: LoupeMutationSelector
     public var property: String
     public var value: LoupeMutationValue

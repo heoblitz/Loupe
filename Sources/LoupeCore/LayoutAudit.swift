@@ -1,6 +1,6 @@
 import Foundation
 
-public enum LoupeLayoutIssueKind: String, Codable, Equatable, CaseIterable {
+public enum LoupeLayoutIssueKind: String, Codable, Equatable, Sendable, CaseIterable {
     case overlappingSiblings
     case childOutsideParent
     case duplicateTestID
@@ -9,7 +9,7 @@ public enum LoupeLayoutIssueKind: String, Codable, Equatable, CaseIterable {
     case lowTextContrast
 }
 
-public struct LoupeLayoutIssue: Codable, Equatable {
+public struct LoupeLayoutIssue: Codable, Equatable, Sendable {
     public var kind: LoupeLayoutIssueKind
     public var ref: String
     public var otherRef: String?
@@ -49,7 +49,7 @@ public struct LoupeLayoutIssue: Codable, Equatable {
     }
 }
 
-public struct LoupeLayoutAuditOptions: Equatable {
+public struct LoupeLayoutAuditOptions: Equatable, Sendable {
     public var tolerance: Double
     public var minOverlapArea: Double
     public var minOverlapRatio: Double
@@ -74,7 +74,7 @@ public struct LoupeLayoutAuditOptions: Equatable {
     }
 }
 
-public struct LoupeLayoutAudit: Codable, Equatable {
+public struct LoupeLayoutAudit: Codable, Equatable, Sendable {
     public var snapshotID: String
     public var issueCount: Int
     public var issues: [LoupeLayoutIssue]

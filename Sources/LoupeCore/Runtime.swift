@@ -1,6 +1,6 @@
 import Foundation
 
-public struct LoupeRuntimeLog: Codable, Equatable {
+public struct LoupeRuntimeLog: Codable, Equatable, Sendable {
     public var id: String
     public var timestamp: Date
     public var level: String
@@ -22,7 +22,7 @@ public struct LoupeRuntimeLog: Codable, Equatable {
     }
 }
 
-public struct LoupeRuntimeIdentity: Codable, Equatable {
+public struct LoupeRuntimeIdentity: Codable, Equatable, Sendable {
     public var launchID: String
     public var startedAt: Date
     public var platform: String?
@@ -56,7 +56,7 @@ public struct LoupeRuntimeIdentity: Codable, Equatable {
     }
 }
 
-public struct LoupeRuntimeState: Codable, Equatable {
+public struct LoupeRuntimeState: Codable, Equatable, Sendable {
     public var identity: LoupeRuntimeIdentity
     public var logs: [LoupeRuntimeLog]
 
@@ -71,7 +71,7 @@ public struct LoupeRuntimeState: Codable, Equatable {
 
 /// Small, stable liveness payload.  Logs deliberately stay on `/logs` so an
 /// ordinary identity check does not copy an ever-growing diagnostic buffer.
-public struct LoupeRuntimeStatus: Codable, Equatable {
+public struct LoupeRuntimeStatus: Codable, Equatable, Sendable {
     public var identity: LoupeRuntimeIdentity
     public var runtimeVersion: String?
     public var retainedLogCount: Int

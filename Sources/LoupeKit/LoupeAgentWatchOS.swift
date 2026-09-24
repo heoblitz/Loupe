@@ -92,8 +92,14 @@ public final class LoupeAgent {
         )
     }
 
-    public func captureAccessibilityTree() -> LoupeAccessibilityTree {
-        LoupeAccessibilityTree.build(from: captureSnapshot())
+    public func captureAccessibilityTree(includeHidden: Bool = false) -> LoupeAccessibilityTree {
+        LoupeAccessibilityTree.build(from: captureSnapshot(), includeHidden: includeHidden)
+    }
+
+    public func captureAccessibilityActionObservation() -> LoupeAccessibilityActionObservation {
+        let snapshot = captureSnapshot()
+        let tree = LoupeAccessibilityTree(snapshotID: snapshot.id, screen: snapshot.screen, rootRefs: [], nodes: [:])
+        return LoupeAccessibilityActionObservation(snapshot: snapshot, tree: tree)
     }
 
     public func captureAccessibilityActionTree() -> LoupeAccessibilityTree {
