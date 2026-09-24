@@ -38,7 +38,7 @@ extension LoupeCLI {
         case "info":
             try await runtimeFetch(
                 rest,
-                path: "/runtime",
+                path: "/status",
                 usage: "loupe app info [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]"
             )
         case "cleanup":

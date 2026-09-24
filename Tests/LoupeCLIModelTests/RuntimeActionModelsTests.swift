@@ -62,7 +62,7 @@ struct RuntimeActionModelsTests {
                 "ax-a-duplicate": axNode(ref: "ax-a-duplicate", sourceRef: "dup", text: "First", frame: LoupeRect(x: 20, y: 100, width: 80, height: 44)),
                 "ax-hidden": axNode(ref: "ax-hidden", sourceRef: "hidden", text: "Hidden", frame: LoupeRect(x: 20, y: 10, width: 80, height: 44), visible: false),
                 "ax-disabled": axNode(ref: "ax-disabled", sourceRef: "disabled", text: "Disabled", frame: LoupeRect(x: 20, y: 20, width: 80, height: 44), enabled: false),
-                "ax-static": axNode(ref: "ax-static", sourceRef: "static", text: "Static", frame: LoupeRect(x: 20, y: 30, width: 80, height: 44), interactive: false),
+                "ax-static": axNode(ref: "ax-static", sourceRef: "static", text: "Static", frame: LoupeRect(x: 20, y: 30, width: 80, height: 44), interactive: false, actions: []),
                 "ax-offscreen": axNode(ref: "ax-offscreen", sourceRef: "offscreen", text: "Offscreen", frame: LoupeRect(x: 450, y: 40, width: 80, height: 44)),
                 "ax-window": LoupeAccessibilityNode(
                     ref: "ax-window",
@@ -126,17 +126,76 @@ struct RuntimeActionModelsTests {
                     isVisible: true,
                     isEnabled: true,
                     isInteractive: true,
-                    actions: [.activate, .custom("Copy link")]
+                    actions: [.activate, .press, .custom("Copy link")]
                 ),
             ]
         )
 
         #expect(
             ActionTargetAliasText.render(cache)
-                == "App: com.example.checkout\n\n#1 button \"Pay \\\"now\\\"\\nplease\" [tap,activate,\"custom:Copy link\"]"
+                == "App: com.example.checkout\n\n#1 button \"Pay \\\"now\\\"\\nplease\" [tap,\"custom:Copy link\"]"
         )
         #expect(!ActionTargetAliasText.render(cache).contains("checkout.pay"))
         #expect(!ActionTargetAliasText.render(cache).contains("frame"))
+    }
+
+    @Test func actionTargetPlannerKeepsControlsAndHidesAuxiliaryTargetsByDefault() {
+        let screen = LoupeScreen(size: LoupeSize(width: 400, height: 800), scale: 3)
+        let snapshot = LoupeSnapshot(
+            id: "snapshot", capturedAt: Date(timeIntervalSince1970: 0), screen: screen,
+            rootRefs: [], nodes: [:]
+        )
+        let tree = LoupeAccessibilityTree(
+            snapshotID: "ax-snapshot", screen: screen, rootRefs: [], nodes: [
+                "button": axNode(ref: "button", sourceRef: "button", text: "Done", frame: LoupeRect(x: 10, y: 10, width: 80, height: 44)),
+                "generic": LoupeAccessibilityNode(
+                    ref: "generic", sourceRef: "generic", role: "element", label: "Done",
+                    frame: LoupeRect(x: 10, y: 60, width: 80, height: 44), isVisible: true,
+                    isEnabled: true, isInteractive: true, actions: [.activate]
+                ),
+                "scroll": LoupeAccessibilityNode(
+                    ref: "scroll", sourceRef: "scroll", role: "scrollView", label: "Long screen content",
+                    frame: LoupeRect(x: 10, y: 110, width: 200, height: 300), isVisible: true,
+                    isEnabled: true, isInteractive: true, actions: [.scrollDown, .scrollUp]
+                ),
+                "custom": LoupeAccessibilityNode(
+                    ref: "custom", sourceRef: "custom", role: "element", label: "Reset",
+                    frame: LoupeRect(x: 10, y: 420, width: 80, height: 44), isVisible: true,
+                    isEnabled: true, isInteractive: true, actions: [.custom("Reset")]
+                ),
+            ]
+        )
+        let identity = LoupeRuntimeIdentity(
+            launchID: "launch", deviceIdentifier: "SIM-1",
+            bundleIdentifier: "com.example.checkout", processIdentifier: 42
+        )
+        let host = URL(string: "http://127.0.0.1:8765")!
+        let primary = ActionTargetAliasPlanner.makeCache(
+            snapshot: snapshot, accessibilityTree: tree, runtimeIdentity: identity,
+            bundleIdentifier: "com.example.checkout", host: host
+        )
+        let all = ActionTargetAliasPlanner.makeCache(
+            snapshot: snapshot, accessibilityTree: tree, runtimeIdentity: identity,
+            bundleIdentifier: "com.example.checkout", host: host, includeAll: true
+        )
+        #expect(primary.targets.map(\.sourceRef) == ["button", "custom"])
+        #expect(all.targets.count == 4)
+    }
+
+    @Test func actionTargetTextShortensContainerLabels() {
+        let cache = aliasCache(targets: [
+            ActionTargetAliasEntry(
+                index: 1, ref: "ax-scroll", sourceRef: "n1", role: "scrollView",
+                text: String(repeating: "a", count: 120), testID: nil,
+                frame: LoupeRect(x: 0, y: 0, width: 200, height: 300),
+                activationPoint: nil, point: LoupePoint(x: 100, y: 150),
+                isVisible: true, isEnabled: true, isInteractive: true,
+                actions: [.scrollDown]
+            ),
+        ])
+        let rendered = ActionTargetAliasText.render(cache)
+        #expect(rendered.contains(String(repeating: "a", count: 80) + "…"))
+        #expect(!rendered.contains(String(repeating: "a", count: 81)))
     }
 
     @Test func performParsesAliasAndCustomAccessibilityAction() throws {
@@ -178,7 +237,8 @@ struct RuntimeActionModelsTests {
             point: LoupePoint(x: 900, y: 900),
             isVisible: true,
             isEnabled: true,
-            isInteractive: true
+            isInteractive: true,
+            actions: [.activate]
         )
 
         #expect(throws: CLIError.self) {
@@ -512,7 +572,8 @@ struct RuntimeActionModelsTests {
         frame: LoupeRect,
         visible: Bool = true,
         enabled: Bool = true,
-        interactive: Bool = true
+        interactive: Bool = true,
+        actions: [LoupeAccessibilityAction] = [.activate]
     ) -> LoupeAccessibilityNode {
         LoupeAccessibilityNode(
             ref: ref,
@@ -523,7 +584,8 @@ struct RuntimeActionModelsTests {
             frame: frame,
             isVisible: visible,
             isEnabled: enabled,
-            isInteractive: interactive
+            isInteractive: interactive,
+            actions: actions
         )
     }
 

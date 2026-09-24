@@ -359,7 +359,8 @@ Current benchmark status:
   `loupe ui accessibility <snapshot.json>`, `loupe ui query --tree accessibility`,
   and `/accessibility`.
 - Accessibility action discovery and execution:
-  `loupe act targets` lists native action capabilities, `loupe act perform`
+  `loupe act targets` lists primary controls; `loupe act targets --all` includes
+  auxiliary accessibility actions such as scroll containers. `loupe act perform`
   executes UIKit/AppKit semantic and custom actions, and `loupe act input`
   focuses a saved or stable text target before entering text.
 - Runtime `/accessibility` returns Loupe's view-derived accessibility tree by

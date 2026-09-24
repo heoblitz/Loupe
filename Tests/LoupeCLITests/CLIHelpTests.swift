@@ -197,6 +197,7 @@ import Testing
 
         #expect(act.contains("targets"))
         #expect(targets.contains("loupe act targets"))
+        #expect(targets.contains("--all"))
         #expect(tap.contains("loupe act tap '#2'"))
         #expect(tap.contains("'#N'"))
     }

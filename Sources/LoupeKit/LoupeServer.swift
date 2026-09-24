@@ -39,6 +39,8 @@ private enum LoupeSocketAddress {
 
 public final class LoupeServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 8765
+    private static let maximumHeaderBytes = 16 * 1024
+    private static let maximumBodyBytes = 4 * 1024 * 1024
 
     private let queue = DispatchQueue(label: "dev.loupe.server")
     private var socketFD: Int32 = -1
@@ -65,6 +67,12 @@ public final class LoupeServer: @unchecked Sendable {
             &reuse,
             socklen_t(MemoryLayout<Int32>.size)
         )
+        var noSigPipe: Int32 = 1
+        Darwin.setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        var readTimeout = timeval(tv_sec: 5, tv_usec: 0)
+        var writeTimeout = timeval(tv_sec: 10, tv_usec: 0)
+        Darwin.setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &readTimeout, socklen_t(MemoryLayout<timeval>.size))
+        Darwin.setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &writeTimeout, socklen_t(MemoryLayout<timeval>.size))
 
         if socketAddress.family == AF_INET6 {
             var v6Only: Int32 = 0
@@ -150,12 +158,23 @@ public final class LoupeServer: @unchecked Sendable {
             Darwin.close(clientFD)
         }
 
-        guard let requestData = readHTTPRequest(from: clientFD) else {
+        let request: HTTPRequest
+        switch readHTTPRequest(from: clientFD) {
+        case let .success(data):
+            do { request = try HTTPRequest(data: data) }
+            catch let error as HTTPRequestError {
+                writeResponse(ResponsePayload(status: error.status, body: #"{"error":"invalid_request"}"#), to: clientFD)
+                return
+            } catch { return }
+        case .failure:
+            writeResponse(ResponsePayload(status: 400, body: #"{"error":"invalid_request"}"#), to: clientFD)
             return
         }
-
-        let request = HTTPRequest(data: requestData)
         let payload = responsePayload(for: request)
+        writeResponse(payload, to: clientFD)
+    }
+
+    private func writeResponse(_ payload: ResponsePayload, to clientFD: Int32) {
         let responseText = """
         HTTP/1.1 \(payload.status) \(reasonPhrase(for: payload.status))\r
         Content-Type: application/json; charset=utf-8\r
@@ -167,39 +186,56 @@ public final class LoupeServer: @unchecked Sendable {
         write(Data(responseText.utf8), to: clientFD)
     }
 
-    private func readHTTPRequest(from clientFD: Int32) -> Data? {
+    private func readHTTPRequest(from clientFD: Int32) -> Result<Data, HTTPRequestError> {
         var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+        var buffer = [UInt8](repeating: 0, count: Self.maximumHeaderBytes)
 
         while true {
             let bytesRead = Darwin.read(clientFD, &buffer, buffer.count)
             guard bytesRead > 0 else {
-                return data.isEmpty ? nil : data
+                return .failure(.malformed)
             }
             data.append(buffer, count: Int(bytesRead))
 
             guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
+                if data.count > Self.maximumHeaderBytes { return .failure(.headerTooLarge) }
                 continue
             }
 
+            guard headerEnd.lowerBound <= Self.maximumHeaderBytes else { return .failure(.headerTooLarge) }
+
             let headerText = String(decoding: data[..<headerEnd.lowerBound], as: UTF8.self)
-            let contentLength = contentLength(from: headerText)
+            let expectedBodyLength: Int
+            do { expectedBodyLength = try contentLength(from: headerText) }
+            catch let error as HTTPRequestError { return .failure(error) }
+            catch { return .failure(.malformed) }
             let bodyStart = headerEnd.upperBound
-            if data.count >= bodyStart + contentLength {
-                return data
+            if data.count >= bodyStart + expectedBodyLength {
+                return .success(data)
             }
         }
     }
 
-    private func contentLength(from headerText: String) -> Int {
-        for line in headerText.split(separator: "\r\n") {
-            guard let separator = line.firstIndex(of: ":") else { continue }
-            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard key == "content-length" else { continue }
-            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
-            return Int(value) ?? 0
+    private func contentLength(from headerText: String) throws -> Int {
+        var seen = Set<String>()
+        var length = 0
+        let lines = headerText.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first,
+              requestLine.split(separator: " ", omittingEmptySubsequences: true).count == 3 else {
+            throw HTTPRequestError.malformed
         }
-        return 0
+        for line in lines.dropFirst() {
+            guard let separator = line.firstIndex(of: ":"), separator != line.startIndex else { throw HTTPRequestError.malformed }
+            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard seen.insert(key).inserted else { throw HTTPRequestError.malformed }
+            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if key == "transfer-encoding" { throw HTTPRequestError.unsupportedTransferEncoding }
+            if key == "content-length" {
+                guard let parsed = Int(value), parsed >= 0, parsed <= Self.maximumBodyBytes else { throw HTTPRequestError.bodyTooLarge }
+                length = parsed
+            }
+        }
+        return length
     }
 
     private func responsePayload(for request: HTTPRequest) -> ResponsePayload {
@@ -209,16 +245,21 @@ public final class LoupeServer: @unchecked Sendable {
 
         let box = ResponseBox()
         let semaphore = DispatchSemaphore(value: 0)
-
-        DispatchQueue.main.async {
+        var work: DispatchWorkItem!
+        work = DispatchWorkItem {
+            guard !work.isCancelled else { return }
+            box.markStarted()
             MainActor.assumeIsolated {
                 box.payload = self.response(for: request)
             }
             semaphore.signal()
         }
+        DispatchQueue.main.async(execute: work)
 
         guard semaphore.wait(timeout: .now() + 10) == .success else {
-            return ResponsePayload(status: 503, body: #"{"error":"main_actor_timeout"}"#)
+            work.cancel()
+            let code = box.started ? "main_actor_timeout_action_may_have_run" : "main_actor_timeout"
+            return ResponsePayload(status: 503, body: #"{"error":"\#(code)"}"#)
         }
         return box.payload ?? ResponsePayload(status: 500, body: #"{"error":"empty_response"}"#)
     }
@@ -230,10 +271,28 @@ public final class LoupeServer: @unchecked Sendable {
             return ResponsePayload(status: 200, body: #"{"status":"ok","name":"LoupeKit"}"#)
         case "/runtime":
             do {
-                let data = try makeLoupeJSONEncoder().encode(LoupeRuntime.shared.runtimeState())
+                let state = LoupeRuntime.shared.runtimeState()
+                let response = request.queryItems["includeLogs"] == "true"
+                    ? state
+                    : LoupeRuntimeState(identity: state.identity)
+                let data = try makeLoupeJSONEncoder().encode(response)
                 return ResponsePayload(status: 200, body: String(decoding: data, as: UTF8.self))
             } catch {
                 return ResponsePayload(status: 500, body: errorBody("runtime_encoding_failed", error: error))
+            }
+        case "/status":
+            do {
+                let data = try makeLoupeJSONEncoder().encode(LoupeRuntime.shared.runtimeStatus())
+                return ResponsePayload(status: 200, body: String(decoding: data, as: UTF8.self))
+            } catch {
+                return ResponsePayload(status: 500, body: errorBody("status_encoding_failed", error: error))
+            }
+        case "/accessibility/actions":
+            do {
+                let data = try makeLoupeJSONEncoder().encode(LoupeAgent().captureAccessibilityActionTree())
+                return ResponsePayload(status: 200, body: String(decoding: data, as: UTF8.self))
+            } catch {
+                return ResponsePayload(status: 500, body: errorBody("accessibility_actions_encoding_failed", error: error))
             }
         case "/logs":
             do {
@@ -560,12 +619,21 @@ public enum LoupeServerError: Error, Equatable {
 }
 
 private final class ResponseBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didStart = false
     var payload: ResponsePayload?
+    var started: Bool { lock.lock(); defer { lock.unlock() }; return didStart }
+    func markStarted() { lock.lock(); didStart = true; lock.unlock() }
 }
 
 private struct ResponsePayload: Sendable {
     var status: Int
     var body: String
+}
+
+private enum HTTPRequestError: Error {
+    case malformed, headerTooLarge, bodyTooLarge, unsupportedTransferEncoding
+    var status: Int { self == .headerTooLarge || self == .bodyTooLarge ? 413 : 400 }
 }
 
 private struct HTTPRequest: Sendable {
@@ -574,7 +642,7 @@ private struct HTTPRequest: Sendable {
     var queryItems: [String: String]
     var body: Data
 
-    init(data: Data) {
+    init(data: Data) throws {
         let text = String(decoding: data, as: UTF8.self)
         let headerEnd = data.range(of: Data("\r\n\r\n".utf8))
         let headerText: String
@@ -588,17 +656,16 @@ private struct HTTPRequest: Sendable {
 
         let headerLines = headerText.split(separator: "\r\n", omittingEmptySubsequences: false)
         let requestLine = headerLines.first ?? ""
-        let parts = requestLine.split(separator: " ")
-        method = parts.indices.contains(0) ? String(parts[0]) : "GET"
-        let rawPath = parts.indices.contains(1) ? String(parts[1]) : "/"
+        let parts = requestLine.split(separator: " ", omittingEmptySubsequences: true)
+        guard parts.count == 3, parts[2].hasPrefix("HTTP/") else { throw HTTPRequestError.malformed }
+        method = String(parts[0])
+        let rawPath = String(parts[1])
 
         if let components = URLComponents(string: rawPath) {
             path = components.path
-            queryItems = Dictionary(
-                uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
-                    item.value.map { (item.name, $0) }
-                }
-            )
+            let pairs = (components.queryItems ?? []).compactMap { item in item.value.map { (item.name, $0) } }
+            guard Set(pairs.map(\.0)).count == pairs.count else { throw HTTPRequestError.malformed }
+            queryItems = Dictionary(uniqueKeysWithValues: pairs)
         } else {
             path = rawPath
             queryItems = [:]

@@ -126,7 +126,8 @@ struct ActionBackendTests {
             point: LoupePoint(x: 60, y: 122),
             isVisible: true,
             isEnabled: true,
-            isInteractive: true
+            isInteractive: true,
+            actions: [.activate]
         )
         let cache = ActionTargetAliasCache(
             launchID: "launch-1",

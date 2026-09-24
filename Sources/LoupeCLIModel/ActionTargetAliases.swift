@@ -16,6 +16,26 @@ package struct ActionTargetAliasEntry: Codable, Equatable {
     package var isInteractive: Bool
     package var actions: [LoupeAccessibilityAction] = []
 
+    package init(
+        index: Int, ref: String, sourceRef: String, role: String?, text: String?, testID: String?,
+        frame: LoupeRect?, activationPoint: LoupePoint?, point: LoupePoint, isVisible: Bool,
+        isEnabled: Bool, isInteractive: Bool, actions: [LoupeAccessibilityAction] = []
+    ) {
+        self.index = index
+        self.ref = ref
+        self.sourceRef = sourceRef
+        self.role = role
+        self.text = text
+        self.testID = testID
+        self.frame = frame
+        self.activationPoint = activationPoint
+        self.point = point
+        self.isVisible = isVisible
+        self.isEnabled = isEnabled
+        self.isInteractive = isInteractive
+        self.actions = actions
+    }
+
     package var queryResult: LoupeAccessibilityQueryResult {
         LoupeAccessibilityQueryResult(
             node: LoupeAccessibilityNode(
@@ -36,7 +56,7 @@ package struct ActionTargetAliasEntry: Codable, Equatable {
 }
 
 package struct ActionTargetAliasCache: Codable, Equatable {
-    package static let currentSchemaVersion = 2
+    package static let currentSchemaVersion = 3
 
     package var schemaVersion: Int
     package var cacheID: String
@@ -82,7 +102,7 @@ package struct ActionTargetAliasCache: Codable, Equatable {
         }
         guard target.isVisible,
               target.isEnabled,
-              (target.isInteractive || !target.actions.isEmpty),
+              !target.actions.isEmpty,
               target.point.x.isFinite,
               target.point.y.isFinite,
               target.point.x >= 0,
@@ -131,20 +151,32 @@ package enum ActionTargetAliasPlanner {
         runtimeIdentity: LoupeRuntimeIdentity,
         bundleIdentifier: String,
         host: URL,
+        search: String? = nil,
+        limit: Int = maximumTargetCount,
+        includeAll: Bool = false,
         cacheID: String = UUID().uuidString,
         capturedAt: Date = Date()
     ) -> ActionTargetAliasCache {
         var results = accessibilityTree.nodes.values
             .filter(isActionTarget)
+            .filter { includeAll || isPrimaryActionTarget($0) }
             .map(LoupeAccessibilityQueryResult.init)
             .filter { actionPoint(for: $0, screen: accessibilityTree.screen) != nil }
             .sorted(by: visualOrder)
 
         results = preferPlatformBacked(results, snapshot: snapshot)
         results = exactDedupe(results)
+        if let search = nonEmpty(search)?.lowercased() {
+            results = results.filter { result in
+                [result.text, result.testID, result.role]
+                    .compactMap { $0?.lowercased() }
+                    .contains { $0.contains(search) }
+            }
+        }
 
         let totalTargetCount = results.count
-        let targets = results.prefix(maximumTargetCount).enumerated().map { offset, result in
+        let boundedLimit = min(max(1, limit), maximumTargetCount)
+        let targets = results.prefix(boundedLimit).enumerated().map { offset, result in
             ActionTargetAliasEntry(
                 index: offset + 1,
                 ref: result.ref,
@@ -200,23 +232,27 @@ package enum ActionTargetAliasPlanner {
 
     private static func isActionTarget(_ node: LoupeAccessibilityNode) -> Bool {
         guard node.isVisible, node.isEnabled else { return false }
-        if !(node.actions?.isEmpty ?? true) { return true }
-        guard node.isInteractive else { return false }
+        return !(node.actions?.isEmpty ?? true)
+    }
 
-        switch node.role {
-        case "application", "scene", "window":
-            return false
-        case nil, "element":
-            return nonEmpty(node.label) != nil || nonEmpty(node.testID) != nil
-        default:
+    private static func isPrimaryActionTarget(_ node: LoupeAccessibilityNode) -> Bool {
+        let actions = node.actions ?? []
+        // Keep explicit control actions. Scrolling and global accessibility
+        // gestures remain available through `act targets --all` or `act perform`.
+        if actions.contains(where: {
+            !["activate", "press", "scroll-right", "scroll-left", "scroll-up", "scroll-down",
+              "scroll-next", "scroll-previous", "escape", "magic-tap", "scroll-to-visible"]
+                .contains($0.name)
+        }) {
             return true
         }
+        guard actions.contains(.activate) || actions.contains(.press) else { return false }
+        let role = nonEmpty(node.role)?.lowercased()
+        return (role != nil && role != "element" && role != "group") || nonEmpty(node.testID) != nil
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
         return value
     }
 
@@ -285,12 +321,17 @@ package enum ActionTargetAliasText {
         var lines = ["App: \(cache.bundleIdentifier)", ""]
         lines.append(contentsOf: cache.targets.map { target in
             let role = nonEmpty(target.role) ?? "element"
-            let text = escaped(nonEmpty(target.text) ?? "")
-            var actions = ["tap"]
-            if ["textField", "textView", "searchField"].contains(role) {
+            let label = nonEmpty(target.text) ?? ""
+            let text = escaped(label.count > 80 ? String(label.prefix(80)) + "…" : label)
+            var actions = target.actions
+                .filter { $0 != .activate && $0 != .press }
+                .map(\.commandName)
+            if target.actions.contains(.activate) || target.actions.contains(.press) {
+                actions.insert("tap", at: 0)
+            }
+            if (target.actions.contains(.activate) || target.actions.contains(.press)), ["textField", "textView", "searchField"].contains(role) {
                 actions.append("input")
             }
-            actions.append(contentsOf: target.actions.map(\.commandName))
             var seen = Set<String>()
             let actionList = actions
                 .filter { seen.insert($0).inserted }
@@ -332,10 +373,17 @@ package struct ActionTargetAliasCacheStore {
         self.url = url
     }
 
-    package static func defaultURL() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
+    package static func defaultURL(host: URL? = nil) -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        let session = environment["LOUPE_SESSION_ID"] ?? environment["CODEX_THREAD_ID"] ?? "default"
+        let safeSession = session.map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        let hostValue = host.map { ($0.host ?? "host") + "-" + ($0.port.map(String.init) ?? "default") } ?? "unbound"
+        let safeHost = hostValue.map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".loupe", isDirectory: true)
             .appendingPathComponent("act-targets", isDirectory: true)
+            .appendingPathComponent(String(safeSession), isDirectory: true)
+            .appendingPathComponent(String(safeHost), isDirectory: true)
             .appendingPathComponent("current.json")
     }
 

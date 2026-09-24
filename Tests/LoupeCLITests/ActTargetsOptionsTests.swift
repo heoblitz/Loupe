@@ -7,6 +7,11 @@ import Testing
         let options = try ActTargetsOptions([])
 
         #expect(options.host == nil)
+        #expect(!options.includeAll)
+    }
+
+    @Test func allIncludesAuxiliaryTargets() throws {
+        #expect(try ActTargetsOptions(["--all"]).includeAll)
     }
 
     @Test func parsesExplicitHost() throws {

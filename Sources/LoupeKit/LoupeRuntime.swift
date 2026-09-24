@@ -40,6 +40,14 @@ public final class LoupeRuntime {
         LoupeRuntimeState(identity: identity, logs: logs)
     }
 
+    public func runtimeStatus() -> LoupeRuntimeStatus {
+        LoupeRuntimeStatus(
+            identity: identity,
+            runtimeVersion: Bundle(for: LoupeRuntime.self).object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            retainedLogCount: logs.count
+        )
+    }
+
     public func runtimeLogs() -> [LoupeRuntimeLog] {
         logs
     }

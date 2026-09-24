@@ -45,7 +45,7 @@ extension LoupeCLI {
     Usage: loupe act <subcommand>
 
     SUBCOMMANDS:
-      targets                 List lightweight accessibility action targets.
+      targets                 List verified accessibility action targets (--search, --limit, --include-unverified).
       perform                 Perform an Apple accessibility action on a target.
       tap                     Tap a selector, ref, or coordinate.
       swipe                   Dispatch a one-finger swipe.
@@ -147,7 +147,7 @@ extension LoupeCLI {
         case "ui apply-design-suggestions":
             return ApplyDesignSuggestionsOptions.usage
         case "act targets":
-            return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]\n\nExample: loupe act targets"
+            return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]\nOptions: [--search <text>] [--limit <n>] [--all]\n\nExample: loupe act targets"
         case "act perform":
             return "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--udid <sim>] [--timeout <seconds>]\n\nExample: loupe act perform '#4' increment"
         case "act tap":

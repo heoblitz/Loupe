@@ -68,3 +68,17 @@ public struct LoupeRuntimeState: Codable, Equatable {
         self.logs = logs
     }
 }
+
+/// Small, stable liveness payload.  Logs deliberately stay on `/logs` so an
+/// ordinary identity check does not copy an ever-growing diagnostic buffer.
+public struct LoupeRuntimeStatus: Codable, Equatable {
+    public var identity: LoupeRuntimeIdentity
+    public var runtimeVersion: String?
+    public var retainedLogCount: Int
+
+    public init(identity: LoupeRuntimeIdentity, runtimeVersion: String? = nil, retainedLogCount: Int) {
+        self.identity = identity
+        self.runtimeVersion = runtimeVersion
+        self.retainedLogCount = retainedLogCount
+    }
+}

@@ -153,7 +153,7 @@ done
 .build/debug/loupe debug leaks --alive-only --host "$HOST" --output "$LEAKS_PATH" >/dev/null
 .build/debug/loupe debug flags get mac-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
 .build/debug/loupe act targets --host "$HOST" >/tmp/loupe-macos-action-targets.txt
-grep -E -q 'button "Refresh snapshot" \[.*press' /tmp/loupe-macos-action-targets.txt
+grep -E -q 'button "Refresh snapshot" \[tap\]' /tmp/loupe-macos-action-targets.txt
 .build/debug/loupe act perform --host "$HOST" --test-id mac.example.refresh --action press >/tmp/loupe-macos-perform-press.json
 grep -q '"action":"press"' /tmp/loupe-macos-perform-press.json
 .build/debug/loupe act wait value --host "$HOST" --test-id mac.example.status --key text --equals "Snapshot refreshed" --timeout 5 >/tmp/loupe-macos-wait-refresh.json

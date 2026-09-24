@@ -109,7 +109,11 @@ clipping, and UIKit metadata.
 - Native `UIAccessibility` container traversal is opt-in with
   `LOUPE_NATIVE_ACCESSIBILITY=1`; the default runtime path uses Loupe's
   view-derived accessibility tree. `act perform` does a bounded live traversal
-  to revalidate and execute the selected accessibility action.
+  to revalidate and execute the selected accessibility action. On iOS, Loupe
+  enables process-local accessibility before observation so native action
+  discovery includes SwiftUI elements alongside UIKit controls. This uses
+  dynamically loaded, private Apple accessibility symbols and may vary across
+  iOS versions; if unavailable, observation continues without that preparation.
 - SwiftUI movement/input selectors depend on elements exposed through the
   accessibility tree. Loupe does not synthesize private SwiftUI view selectors.
   Snapshots may include a bounded `swiftui` summary, but not raw private
