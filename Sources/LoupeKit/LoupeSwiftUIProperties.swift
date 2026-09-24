@@ -6,7 +6,7 @@ func loupeSwiftUIProperties(
     frameworkBundleIdentifier: String?,
     viewController: String? = nil,
     customMetadata: [String: LoupeMetadataValue] = [:],
-    privateSummary: LoupeSwiftUIPrivateSummary? = nil
+    privateSummary: @autoclosure () -> LoupeSwiftUIPrivateSummary? = nil
 ) -> LoupeSwiftUIProperties? {
     var evidence: [String] = []
 
@@ -40,7 +40,13 @@ func loupeSwiftUIProperties(
         viewController: viewController,
         isSwiftUIFramework: isSwiftUIFramework
     )
-    let hostSummary = origin == "host" ? privateSummary : nil
+    let hostSummary: LoupeSwiftUIPrivateSummary?
+    if origin == "host" {
+        // A snapshot visits every native view, so private reflection belongs only to confirmed hosts.
+        hostSummary = privateSummary()
+    } else {
+        hostSummary = nil
+    }
 
     if hostSummary != nil {
         evidence.append("privateReflection")

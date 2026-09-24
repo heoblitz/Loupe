@@ -16,6 +16,18 @@ identity = {'launchID': 'cli-contract', 'startedAt': '2026-01-01T00:00:00Z',
 requests = []
 ax_status = 200
 status_delay = 0
+snapshot_delay = 0
+wait_snapshot = {
+    'id': 'wait-snapshot', 'capturedAt': '2026-01-01T00:00:00Z',
+    'screen': screen, 'rootRefs': ['wait-node'],
+    'nodes': {
+        'wait-node': {
+            'ref': 'wait-node', 'kind': 'view', 'typeName': 'FixtureView',
+            'testID': 'wait.node', 'isVisible': True, 'isEnabled': True,
+            'isInteractive': False, 'children': []
+        }
+    }
+}
 
 
 class Runtime(http.server.BaseHTTPRequestHandler):
@@ -29,6 +41,9 @@ class Runtime(http.server.BaseHTTPRequestHandler):
         if url.path == '/status':
             time.sleep(status_delay)
             status, body = 200, {'identity': identity, 'retainedLogCount': 0}
+        elif url.path == '/snapshot':
+            time.sleep(snapshot_delay)
+            status, body = 200, wait_snapshot
         elif url.path == '/observation':
             status, body = 200, {'fixture': 'compact'}
         elif url.path == '/accessibility':
@@ -105,6 +120,19 @@ try:
 
     result = run(['ui', 'query', '--tree', 'accessibility', '--test-id', 'never', '--wait', '--timeout', '0.3'])
     assert result.returncode != 0 and 'timed out' in result.stderr, result.stderr
+
+    snapshot_delay = 3.2
+    result = run(['act', 'wait', 'visible', '--test-id', 'wait.node', '--timeout', '5'])
+    assert result.returncode == 0 and 'wait-node' in result.stdout, result.stderr
+    assert requests == [('GET', '/snapshot')], requests
+
+    snapshot_delay = 0.8
+    started = time.monotonic()
+    result = run(['act', 'wait', 'visible', '--test-id', 'wait.node', '--timeout', '0.3'])
+    assert result.returncode != 0 and 'timed out' in result.stderr, result.stderr
+    assert time.monotonic() - started < 0.7, 'wait exceeded its overall timeout'
+    assert requests == [('GET', '/snapshot')], requests
+    snapshot_delay = 0
 
     result = run(['act', 'targets', '--search', 'native.button'])
     assert result.returncode == 0 and '#1' in result.stdout, result.stderr
