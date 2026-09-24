@@ -55,20 +55,20 @@ import Testing
             "ui": "Usage: loupe ui <subcommand>",
             "ui report": "Usage: loupe ui report [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <dir>] [--screen-map-limit <n>] [--timeout <seconds>]",
             "ui snapshot": "Usage: loupe ui snapshot [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]",
-            "ui tree": "Usage: loupe ui tree [snapshot.json] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--view|--accessibility] [--depth <n>]",
+            "ui tree": "Usage: loupe ui tree [snapshot.json | --host <url> | --bundle-id <id>] [--udid <sim>] [--view|--accessibility] [--depth <n>] [--limit <n>|--all]",
             "ui node": "Usage: loupe ui node <snapshot.json> (--test-id <id> | --text <text> | --role <role> | --ref <ref>) [--include-hidden] [--fields node,parent,children,siblings]",
-            "ui query": "Usage: loupe ui query [snapshot.json] (--test-id <id> | --text <text> | --exact-text <text> | --role <role> | --ref <ref>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--tree view|accessibility] [--include-hidden] [--max-results <n>] [--wait] [--timeout <seconds>]",
+            "ui query": "Usage: loupe ui query [snapshot.json | --host <url> | --bundle-id <id>] (--test-id <id> | --text <text> | --exact-text <text> | --role <role> | --ref <ref>) [--udid <sim>] [--tree view|accessibility] [--include-hidden] [--max-results <n>] [--wait] [--timeout <seconds>]",
             "ui compare-design": "Usage: loupe ui compare-design <snapshot.json> <design.json> [--json] [--suggest-mutations] [--host <url>] [--limit <n>] [--frame-tolerance <n>] [--color-tolerance <n>] [--corner-radius-tolerance <n>] [--font-size-tolerance <n>] [--max-match-distance <n>] [--no-unexpected]",
             "ui apply-design-suggestions": "Usage: loupe ui apply-design-suggestions <compare-design.json> [--host <url>] [--snapshot <snapshot.json>] [--output-dir <dir>] [--max <n>] [--properties <list>] [--dry-run]",
             "ui set": "Usage: loupe ui set (--test-id <id> | --ref <ref> | --role <role> | --text <text>) <property> <value> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--snapshot <snapshot.json>] [--include-hidden] [--output <path>]",
             "act": "Usage: loupe act <subcommand>",
-            "act targets": "Usage: loupe act targets [--udid <sim>] [--host <url>] [--timeout <seconds>]",
-            "act perform": "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--udid <sim>] [--timeout <seconds>]",
-            "act tap": "Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
-            "act swipe": "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]",
-            "act drag": "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]",
-            "act input": "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--timeout <seconds>]",
-            "act press": "Usage: loupe act press up|down|left|right|select|menu|playPause [--udid <sim>] [--host <url>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
+            "act targets": "Usage: loupe act targets [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]",
+            "act perform": "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--bundle-id <id>] [--udid <sim>] [--timeout <seconds>]",
+            "act tap": "Usage: loupe act tap ('#N' | --test-id <id> | --ref <view-or-ax-ref> | --x <n> --y <n>) [--udid <sim>] [--host <url>] [--bundle-id <id>] [--backend native|runtime|auto] [--snapshot <snapshot.json>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
+            "act swipe": "Usage: loupe act swipe --from x,y --to x,y [--udid <sim>] [--host <url>] [--bundle-id <id>] [--duration <seconds>] [--no-verify-scroll] [--trace-dir <path>] [--timeout <seconds>]",
+            "act drag": "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--bundle-id <id>] [--duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]",
+            "act input": "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]",
+            "act press": "Usage: loupe act press up|down|left|right|select|menu|playPause [--udid <sim>] [--host <url>] [--bundle-id <id>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]",
             "act wait": "Usage: loupe act wait visible|gone (--test-id <id> | --ref <ref> | --text <text> | --role <role>) [--host <url>] [--udid <sim>] [--bundle-id <id>] [--timeout <seconds>] [--output <path>]",
             "debug": "Usage: loupe debug <subcommand>",
             "debug logs": "Usage: loupe debug logs [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
@@ -79,7 +79,7 @@ import Testing
             "debug objects describe": "Usage: loupe debug objects describe <class|--class <name>> [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
             "debug leaks": "Usage: loupe debug leaks [--alive-only] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
             "debug keychain": "Usage: loupe debug keychain [list] [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>]",
-            "debug flags": "Usage: loupe debug flags get|set|unset <key> [value] [--bool true|false] [--number n] [--host <url>] [--output <path>]",
+            "debug defaults": "Usage: loupe debug defaults get|set|unset <key> [value] [--bool true|false] [--number n] [--host <url>] [--output <path>]",
             "debug trace summary": "Usage: loupe debug trace summary <trace-dir> [--json] [--limit <n>]",
             "debug scroll": "Usage: loupe debug scroll --from x,y --to x,y --udid <sim> [--host <url>] [--duration <seconds>] [--trace-dir <path>] [--output <path>]",
             "skills": "Usage: loupe skills <subcommand>",
@@ -160,14 +160,12 @@ import Testing
             "debug network",
             "debug refs",
             "debug object-graph",
-            "debug heap",
             "debug objects",
             "debug objects classes",
             "debug objects describe",
             "debug leaks",
             "debug keychain",
             "debug defaults",
-            "debug flags",
             "debug trace",
             "debug trace summary",
             "debug trace diff",
@@ -207,11 +205,52 @@ import Testing
             "target", "runtime", "observe", "capture", "inspect", "state", "env", "perf", "trace",
             "start", "launch", "tree", "tap", "set", "set-many", "constraints", "logs", "diff",
             "debug console", "act pinch",
+            "ui text", "ui text-map", "ui screen-map", "ui paint-stack",
+            "debug heap", "debug flags", "debug objects list", "debug objects class",
+            "debug defaults remove",
         ]
 
         for command in removedCommands {
             #expect(LoupeCLI.commandUsage(command) == nil)
         }
+    }
+
+    @Test(arguments: ["text", "text-map", "screen-map", "paint-stack"])
+    func removedUIAliasesFailBeforeFetchingRuntime(command: String) async {
+        do {
+            try await LoupeCLI.ui([command])
+            Issue.record("Removed command was accepted: \(command)")
+        } catch {
+            #expect(String(describing: error) == "Unknown ui command: \(command)")
+        }
+    }
+
+    @Test(arguments: [
+        ["heap"], ["flags"], ["objects", "list"],
+        ["objects", "class"], ["defaults", "remove", "example.key"],
+    ])
+    func removedDebugAliasesFailBeforeFetchingRuntime(arguments: [String]) async {
+        let expected: String
+        if arguments[0] == "objects" {
+            expected = "Unknown debug objects command: \(arguments[1])"
+        } else if arguments[0] == "defaults" {
+            expected = "Unknown loupe debug defaults command: remove"
+        } else {
+            expected = "Unknown debug command: \(arguments[0])"
+        }
+        do {
+            try await LoupeCLI.debug(arguments)
+            Issue.record("Removed command was accepted: \(arguments)")
+        } catch {
+            #expect(String(describing: error) == expected)
+        }
+    }
+
+    @Test func nestedObjectHelpUsesTheRequestedCommand() {
+        #expect(LoupeCLI.helpPath(command: "debug", arguments: ["objects", "classes", "--help"])
+            == ["debug", "objects", "classes"])
+        #expect(LoupeCLI.helpPath(command: "debug", arguments: ["objects", "list", "--help"])
+            == ["debug", "objects", "list"])
     }
 
     private func firstNonEmptyLine(from text: String?) throws -> String {

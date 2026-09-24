@@ -66,15 +66,15 @@ struct WaitForOptions {
             case "--bundle-id":
                 bundleID = try Self.value(after: "--bundle-id", in: arguments, index: &index)
             case "--test-id":
-                selector = .testID(try Self.value(after: "--test-id", in: arguments, index: &index))
+                try UniqueSelector.set(.testID(try Self.value(after: "--test-id", in: arguments, index: &index)), on: &selector)
             case "--text":
-                selector = .text(try Self.value(after: "--text", in: arguments, index: &index), exact: false)
+                try UniqueSelector.set(.text(try Self.value(after: "--text", in: arguments, index: &index), exact: false), on: &selector)
             case "--exact-text":
-                selector = .text(try Self.value(after: "--exact-text", in: arguments, index: &index), exact: true)
+                try UniqueSelector.set(.text(try Self.value(after: "--exact-text", in: arguments, index: &index), exact: true), on: &selector)
             case "--role":
-                selector = .role(try Self.value(after: "--role", in: arguments, index: &index))
+                try UniqueSelector.set(.role(try Self.value(after: "--role", in: arguments, index: &index)), on: &selector)
             case "--ref":
-                selector = .ref(try Self.value(after: "--ref", in: arguments, index: &index))
+                try UniqueSelector.set(.ref(try Self.value(after: "--ref", in: arguments, index: &index)), on: &selector)
             case "--timeout":
                 timeout = try Self.double(after: "--timeout", in: arguments, index: &index)
             case "--interval":

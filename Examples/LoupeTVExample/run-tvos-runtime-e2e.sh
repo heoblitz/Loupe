@@ -202,7 +202,7 @@ done
 .build/debug/loupe ui node "$SNAPSHOT_PATH" --test-id tv.example.emptyFeed > "$INSPECT_EMPTY_PATH"
 .build/debug/loupe ui accessibility --host "$HOST" --timeout 10 --output "$ACCESSIBILITY_PATH" >/dev/null
 for _ in {1..20}; do
-  .build/debug/loupe ui tree "$SNAPSHOT_PATH" --view --depth 30 > "$VIEW_TREE_PATH"
+  .build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --view --depth 30 > "$VIEW_TREE_PATH"
   if grep -q 'tv.example.collection' "$VIEW_TREE_PATH" && grep -q 'tv.example.swiftui.probe' "$VIEW_TREE_PATH"; then
     break
   fi
@@ -210,7 +210,7 @@ for _ in {1..20}; do
   sleep 0.25
 done
 for _ in {1..20}; do
-  .build/debug/loupe ui tree "$SNAPSHOT_PATH" --accessibility --depth 30 > "$ACCESSIBILITY_TREE_PATH"
+  .build/debug/loupe ui tree "$SNAPSHOT_PATH" --all --accessibility --depth 30 > "$ACCESSIBILITY_TREE_PATH"
   if grep -q 'tv.example.refresh' "$ACCESSIBILITY_TREE_PATH" && grep -q 'tv.example.swiftui.probe' "$ACCESSIBILITY_TREE_PATH"; then
     break
   fi
@@ -233,9 +233,9 @@ done
 .build/debug/loupe debug objects classes --matching DeviceActuationService --limit 20 --host "$HOST" --udid "$DEVICE" --output "$OBJECT_CLASSES_PATH" >/dev/null
 .build/debug/loupe debug objects describe DeviceActuationService --host "$HOST" --udid "$DEVICE" --output "$OBJECT_DESCRIPTION_PATH" >/dev/null
 .build/debug/loupe debug leaks --alive-only --host "$HOST" --udid "$DEVICE" --output "$LEAKS_PATH" >/dev/null
-.build/debug/loupe debug flags get tv-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
-.build/debug/loupe debug flags set tv-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
-.build/debug/loupe debug flags get tv-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults get tv-new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults set tv-new-nav --bool true --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug defaults get tv-empty-feed --host "$HOST" --output "$EMPTY_FLAG_PATH" >/dev/null
 .build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
 BUTTON_POINT="$(ruby -rjson -e '
   snapshot = JSON.parse(File.read(ARGV.fetch(0)))
@@ -258,7 +258,7 @@ BUTTON_POINT="$(ruby -rjson -e '
 .build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_NEW_NAV_TRACE_DIR" --expect-visible tv.example.status
 .build/debug/loupe act wait value --host "$HOST" --test-id tv.example.status --key text --equals "New nav active" --timeout 5 >/tmp/loupe-tvos-wait-new-nav.json
 .build/debug/loupe debug logs --host "$HOST" --output "$NEW_NAV_LOGS_PATH" >/dev/null
-.build/debug/loupe debug flags set tv-new-nav --bool false --host "$HOST" --output "$FLAG_DISABLED_PATH" >/dev/null
+.build/debug/loupe debug defaults set tv-new-nav --bool false --host "$HOST" --output "$FLAG_DISABLED_PATH" >/dev/null
 .build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_LEGACY_TRACE_DIR" --expect-visible tv.example.status
 .build/debug/loupe act wait value --host "$HOST" --test-id tv.example.status --key text --equals "Legacy flow active" --timeout 5 >/tmp/loupe-tvos-wait-legacy.json
 .build/debug/loupe debug logs --host "$HOST" --output "$LEGACY_LOGS_PATH" >/dev/null
@@ -285,8 +285,8 @@ BUTTON_POINT="$(ruby -rjson -e '
 .build/debug/loupe ui snapshot --host "$HOST" --timeout 10 --output "$LONG_LIST_SNAPSHOT_PATH" >/dev/null
 .build/debug/loupe debug scroll --host "$HOST" --udid "$DEVICE" --test-id tv.example.longList.scroll --delta 0,160 --output "$LONG_LIST_SCROLL_PATH" >/dev/null
 .build/debug/loupe act press select --host "$HOST" --udid "$DEVICE" --trace-dir "$PRESS_LONG_LIST_BACK_TRACE_DIR" --expect-visible tv.example.root
-.build/debug/loupe debug flags get tv-swiftui-route --host "$HOST" --output "$SWIFTUI_FLAG_PATH" >/dev/null
-.build/debug/loupe debug flags set tv-swiftui-route --bool true --host "$HOST" --output "$SWIFTUI_FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug defaults get tv-swiftui-route --host "$HOST" --output "$SWIFTUI_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults set tv-swiftui-route --bool true --host "$HOST" --output "$SWIFTUI_FLAG_SET_PATH" >/dev/null
 .build/debug/loupe act wait visible --host "$HOST" --test-id tv.example.refresh --timeout 5 >/tmp/loupe-tvos-wait-workbench-after-long-list.json
 .build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.secondary
 .build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.logout
@@ -313,10 +313,10 @@ ruby -rjson -e '
   abort "expected tvOS SwiftUI route probe label" unless probe["label"] == "tvOS SwiftUI route probe"
 ' "$SWIFTUI_SNAPSHOT_PATH"
 .build/debug/loupe act tap --backend runtime --host "$HOST" --udid "$DEVICE" --test-id tv.example.swiftuiRoute.back --trace-dir "$PRESS_SWIFTUI_BACK_TRACE_DIR" --expect-visible tv.example.root
-.build/debug/loupe debug flags set tv-swiftui-route --bool false --host "$HOST" --output "$SWIFTUI_FLAG_CLEAR_PATH" >/dev/null
+.build/debug/loupe debug defaults set tv-swiftui-route --bool false --host "$HOST" --output "$SWIFTUI_FLAG_CLEAR_PATH" >/dev/null
 .build/debug/loupe debug logs --host "$HOST" --output "$ROUTE_LOGS_PATH" >/dev/null
-.build/debug/loupe debug flags get tv-error-route --host "$HOST" --output "$ERROR_FLAG_PATH" >/dev/null
-.build/debug/loupe debug flags set tv-error-route --bool true --host "$HOST" --output "$ERROR_FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug defaults get tv-error-route --host "$HOST" --output "$ERROR_FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults set tv-error-route --bool true --host "$HOST" --output "$ERROR_FLAG_SET_PATH" >/dev/null
 .build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.secondary
 .build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.logout
 .build/debug/loupe act press down --host "$HOST" --udid "$DEVICE" --expect-visible tv.example.legacyFlow

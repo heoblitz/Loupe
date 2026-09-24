@@ -72,8 +72,8 @@ curl -sS "$HOST/snapshot" > "$SNAPSHOT_PATH"
 .build/debug/loupe debug logs --host "$HOST" --output "$LOGS_PATH" >/dev/null
 .build/debug/loupe debug network --host "$HOST" --output "$NETWORK_PATH" >/dev/null
 .build/debug/loupe debug refs --host "$HOST" --output "$REFS_PATH" >/dev/null
-.build/debug/loupe debug flags get new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
-.build/debug/loupe debug flags set new-nav --bool false --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
+.build/debug/loupe debug defaults get new-nav --host "$HOST" --output "$FLAG_PATH" >/dev/null
+.build/debug/loupe debug defaults set new-nav --bool false --host "$HOST" --output "$FLAG_SET_PATH" >/dev/null
 .build/debug/loupe debug keychain list --host "$HOST" --output "$KEYCHAIN_PATH" >/dev/null
 .build/debug/loupe ui hit-test --host "$HOST" --point 201,437 --output "$HIT_TEST_PATH" >/dev/null
 .build/debug/loupe ui responder-chain --host "$HOST" --test-id example.customerList --output "$RESPONDER_PATH" >/dev/null

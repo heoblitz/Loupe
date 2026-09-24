@@ -55,13 +55,16 @@ struct ScreenMapOptions {
             case "--timeout":
                 timeout = try Self.double(after: "--timeout", in: arguments, index: &index)
             default:
-                throw CLIError("Unknown screen-map option: \(arguments[index])")
+                throw CLIError("Unknown ui screen option: \(arguments[index])")
             }
             index += 1
         }
 
         guard timeout > 0 else {
             throw CLIError("--timeout must be greater than 0")
+        }
+        if snapshotURL != nil, hostWasExplicit || udid != nil || bundleID != nil {
+            throw CLIError("snapshot.json cannot be combined with --host, --udid, or --bundle-id")
         }
     }
 

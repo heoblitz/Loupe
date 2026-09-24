@@ -2,6 +2,33 @@ import Foundation
 import LoupeCLIModel
 import LoupeCore
 
+struct LiveAccessibilityOptions {
+    var runtime: RuntimeFetchOptions
+    var includeHidden: Bool
+
+    init(_ arguments: [String]) throws {
+        var runtimeArguments: [String] = []
+        includeHidden = false
+        var index = 0
+        while index < arguments.count {
+            let option = arguments[index]
+            if option == "--include-hidden" {
+                includeHidden = true
+            } else {
+                runtimeArguments.append(option)
+                // Preserve option values verbatim, even when they look like flags.
+                if ["--host", "--udid", "--device", "--bundle-id", "--output", "--timeout"].contains(option),
+                   index + 1 < arguments.count {
+                    index += 1
+                    runtimeArguments.append(arguments[index])
+                }
+            }
+            index += 1
+        }
+        runtime = try RuntimeFetchOptions(runtimeArguments, usage: "loupe ui accessibility [--host <url>] [--bundle-id <id>] [--include-hidden] [--output <path>]")
+    }
+}
+
 struct AccessibilityOptions {
     var snapshotURL: URL
     var includeHidden: Bool

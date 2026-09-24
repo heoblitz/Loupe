@@ -51,13 +51,13 @@ struct MutationSetOptions {
             case "--snapshot":
                 snapshotURL = URL(fileURLWithPath: try Self.value(after: "--snapshot", in: arguments, index: &index))
             case "--test-id", "--testID":
-                selector = LoupeMutationSelector(kind: .testID, value: try Self.value(after: arguments[index], in: arguments, index: &index))
+                try UniqueSelector.set(LoupeMutationSelector(kind: .testID, value: try Self.value(after: arguments[index], in: arguments, index: &index)), on: &selector)
             case "--ref":
-                selector = LoupeMutationSelector(kind: .ref, value: try Self.value(after: "--ref", in: arguments, index: &index))
+                try UniqueSelector.set(LoupeMutationSelector(kind: .ref, value: try Self.value(after: "--ref", in: arguments, index: &index)), on: &selector)
             case "--role":
-                selector = LoupeMutationSelector(kind: .role, value: try Self.value(after: "--role", in: arguments, index: &index))
+                try UniqueSelector.set(LoupeMutationSelector(kind: .role, value: try Self.value(after: "--role", in: arguments, index: &index)), on: &selector)
             case "--text":
-                selector = LoupeMutationSelector(kind: .text, value: try Self.value(after: "--text", in: arguments, index: &index), exact: false)
+                try UniqueSelector.set(LoupeMutationSelector(kind: .text, value: try Self.value(after: "--text", in: arguments, index: &index), exact: false), on: &selector)
             case "--property", "--key":
                 property = try Self.value(after: arguments[index], in: arguments, index: &index)
             case "--value":
