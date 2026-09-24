@@ -2403,7 +2403,7 @@ struct LoupeCLI {
         let deadline = Date().addingTimeInterval(options.timeout)
 
         while true {
-            let snapshot = try await fetchSnapshot(host: host, timeout: min(3, options.timeout))
+            let snapshot = try await fetchSnapshotForWait(host: host, deadline: deadline)
             let viewResult = LoupeSnapshotQuery.first(
                 options.selector,
                 in: snapshot,
@@ -2418,10 +2418,14 @@ struct LoupeCLI {
             }
             var accessibilityResult: LoupeAccessibilityQueryResult?
             if needsAccessibilityTree {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    throw CLIError("Timed out waiting for Loupe node")
+                }
                 let accessibilityTree = try await fetchAccessibilityTree(
                     host: host,
                     fallbackSnapshot: snapshot,
-                    timeout: min(3, options.timeout)
+                    timeout: min(3, remaining)
                 )
                 accessibilityResult = LoupeAccessibilityTreeQuery.first(
                     options.selector,
@@ -2495,7 +2499,24 @@ struct LoupeCLI {
                 }
             }
 
-            try await Task.sleep(nanoseconds: UInt64(options.interval * 1_000_000_000))
+            let pause = min(options.interval, max(0, deadline.timeIntervalSinceNow))
+            try await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000))
+        }
+    }
+
+    private static func fetchSnapshotForWait(host: URL, deadline: Date) async throws -> LoupeSnapshot {
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError("Timed out waiting for a Loupe snapshot")
+            }
+            do {
+                return try await fetchSnapshot(host: host, timeout: min(3, remaining))
+            } catch {
+                let pause = min(0.1, max(0, deadline.timeIntervalSinceNow))
+                guard pause > 0 else { throw error }
+                try await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000))
+            }
         }
     }
 
@@ -2512,7 +2533,7 @@ struct LoupeCLI {
         let deadline = Date().addingTimeInterval(timeout)
 
         while true {
-            let snapshot = try await fetchSnapshot(host: options.host, timeout: min(3, options.timeout))
+            let snapshot = try await fetchSnapshotForWait(host: options.host, deadline: deadline)
             if LoupeSnapshotQuery.first(
                 options.selector,
                 in: snapshot,
@@ -2520,10 +2541,14 @@ struct LoupeCLI {
             ) != nil {
                 return
             }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError("Timed out waiting for expected visible Loupe node: \(selectorDescription(selector))")
+            }
             let accessibilityTree = try await fetchAccessibilityTree(
                 host: options.host,
                 fallbackSnapshot: snapshot,
-                timeout: min(3, options.timeout)
+                timeout: min(3, remaining)
             )
             if LoupeAccessibilityTreeQuery.first(
                 options.selector,
@@ -2535,7 +2560,8 @@ struct LoupeCLI {
             guard Date() < deadline else {
                 throw CLIError("Timed out waiting for expected visible Loupe node: \(selectorDescription(selector))")
             }
-            try await Task.sleep(nanoseconds: UInt64(options.interval * 1_000_000_000))
+            let pause = min(options.interval, max(0, deadline.timeIntervalSinceNow))
+            try await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000))
         }
     }
 
