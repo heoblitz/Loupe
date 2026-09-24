@@ -1,8 +1,8 @@
 class Loupe < Formula
   desc "CLI giving LLM agents runtime UI context from running Apple-platform apps"
   homepage "https://github.com/heoblitz/Loupe"
-  url "https://github.com/heoblitz/Loupe/archive/refs/tags/v0.2.3.tar.gz"
-  sha256 "9edba8c3d9b8b8383233c8c24a781c22e75d7cf3fb40c7376aaffb70f349c259"
+  url "https://github.com/heoblitz/Loupe/archive/refs/tags/v0.3.0.tar.gz"
+  sha256 "90a1fcb637dcd3492f2ed60e026e7b15596a51d9ab03e8f262ba13250945225c"
   license "MIT"
   head "https://github.com/heoblitz/Loupe.git", branch: "main"
 
