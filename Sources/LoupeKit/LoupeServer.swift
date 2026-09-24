@@ -287,6 +287,18 @@ public final class LoupeServer: @unchecked Sendable {
             } catch {
                 return ResponsePayload(status: 500, body: errorBody("status_encoding_failed", error: error))
             }
+        case "/input/focus":
+            #if canImport(UIKit) && !os(watchOS)
+            guard let testID = request.queryItems["testID"], !testID.isEmpty else {
+                return ResponsePayload(status: 400, body: #"{"error":"missing_test_id"}"#)
+            }
+            guard let focused = LoupeAgent().inputFocus(testID: testID) else {
+                return ResponsePayload(status: 404, body: #"{"error":"input_not_found"}"#)
+            }
+            return ResponsePayload(status: 200, body: #"{"focused":\#(focused)}"#)
+            #else
+            return ResponsePayload(status: 404, body: #"{"error":"not_found"}"#)
+            #endif
         case "/accessibility/actions":
             do {
                 let data = try makeLoupeJSONEncoder().encode(LoupeAgent().captureAccessibilityActionTree())

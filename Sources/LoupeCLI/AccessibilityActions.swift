@@ -111,6 +111,18 @@ extension LoupeCLI {
             guard remaining > 0 else {
                 return false
             }
+            if case let .testID(testID) = selector {
+                do {
+                    if let focused = try await fetchInputFocus(testID: testID, host: host, timeout: remaining) {
+                        if focused { return true }
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        continue
+                    }
+                } catch {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    continue
+                }
+            }
             let snapshot: LoupeSnapshot
             do {
                 snapshot = try await fetchSnapshot(host: host, timeout: remaining)
@@ -134,6 +146,27 @@ extension LoupeCLI {
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
+    }
+
+    private struct InputFocusResponse: Decodable {
+        var focused: Bool
+    }
+
+    /// Returns nil when an older runtime has no focused-input endpoint.
+    private static func fetchInputFocus(testID: String, host: URL, timeout: TimeInterval) async throws -> Bool? {
+        var components = URLComponents(url: host.appendingPathComponent("input/focus"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "testID", value: testID)]
+        let (data, response) = try await httpData(
+            from: components.url!, timeout: min(1, timeout), label: "input focus fetch"
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw CLIError("input focus fetch expected an HTTP response")
+        }
+        if http.statusCode == 404 { return nil }
+        guard (200..<300).contains(http.statusCode) else {
+            throw CLIError("input focus fetch failed with HTTP \(http.statusCode)")
+        }
+        return try JSONDecoder().decode(InputFocusResponse.self, from: data).focused
     }
 
     private static func inputRetryTargetArguments(_ selector: LoupeSelector) throws -> [String] {

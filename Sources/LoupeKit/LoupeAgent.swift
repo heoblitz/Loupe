@@ -28,6 +28,38 @@ public final class LoupeAgent {
         captureSnapshotWithViewRefs().snapshot
     }
 
+    /// Checks a live input view without capturing the full view and accessibility trees.
+    /// A missing view returns nil so callers can fall back to snapshot-based lookup.
+    func inputFocus(testID: String) -> Bool? {
+        var found = false
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows {
+                let result = inputFocus(in: window, testID: testID)
+                if result.focused { return true }
+                found = found || result.found
+            }
+        }
+        return found ? false : nil
+    }
+
+    private func inputFocus(
+        in view: UIView,
+        testID: String,
+        withinTarget: Bool = false
+    ) -> (found: Bool, focused: Bool) {
+        let matches = view.accessibilityIdentifier == testID
+            || stringMetadata("id", from: view.loupeMetadata) == testID
+        let withinTarget = withinTarget || matches
+        if withinTarget && view.isFirstResponder { return (true, true) }
+        var found = matches
+        for child in view.subviews {
+            let result = inputFocus(in: child, testID: testID, withinTarget: withinTarget)
+            if result.focused { return (true, true) }
+            found = found || result.found
+        }
+        return (found, false)
+    }
+
     public func captureAccessibilityTree() -> LoupeAccessibilityTree {
         #if os(iOS)
         if ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" {
