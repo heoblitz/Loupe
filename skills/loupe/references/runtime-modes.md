@@ -73,7 +73,8 @@ defaults, and fresh screenshots/reports for proof.
 
 ```bash
 $LOUPE app list
-$LOUPE app use <bundle-id-or-host>
+$LOUPE app use <bundle-id>
+$LOUPE app use --host <runtime-host>
 $LOUPE app current
 $LOUPE app info --host <runtime-host>
 ```

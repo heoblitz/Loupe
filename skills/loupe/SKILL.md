@@ -1,79 +1,56 @@
 ---
 name: loupe
-description: Use this skill when implementing, inspecting, or verifying native app interfaces on Apple platforms with Loupe runtime evidence, simulator injection, linked LoupeInjector runtimes, view/accessibility trees, design comparison, mutation probes, or CLI-driven actions.
+description: Inspect, act on, and verify native Apple-platform app interfaces using Loupe runtime snapshots, accessibility, screenshots, and action traces. Use for runtime UI diagnosis, design comparison, simulator injection, or linked LoupeInjector workflows.
 ---
 
 # Loupe
 
-Use Loupe to observe, query, act on, mutate, and diagnose Apple-platform app
-runtimes through the in-process server.
+## Choose The Runtime
 
-## Workflow Configuration
+- Identify the platform and attachment mode. Prefer the host printed by
+  `loupe app launch`; `app current` may refer to another app.
+- Keep the same `--host <url>` or `--bundle-id <id>` across live commands.
+  Add `--udid <id>` when the same bundle runs on multiple simulators.
+- Simulator injection needs no app source change or `import LoupeKit`.
+  Physical devices need a debug-only linked and embedded LoupeInjector.
+- Read [runtime-modes](references/runtime-modes.md) for launch and platform setup.
 
-### Command Route
+## Short Working Loop
 
-- Use grouped commands from current help: `app`, `ui`, `act`, and `debug`.
-  These are the only public routes for runtime commands.
-- Check subcommand help before adding unfamiliar flags; options are not shared
-  globally. Do not re-open help for exact command recipes already provided by
-  the task or this skill.
-- Keep the attachment mode explicit: simulator injection, debug-only
-  physical-device LoupeInjector dependency, macOS host runtime, watchOS, or
-  visionOS.
+```bash
+loupe act targets --host <host> --search <label-or-id>
+loupe act tap '#1' --host <host>
+loupe ui query --host <host> --tree accessibility --test-id <expected-id>
+```
 
-### Evidence And Context
+- Aliases are quoted, one-shot intents. List targets again after an alias action.
+  If the app-owned testID is known, use `act tap --test-id <id>` directly.
+- Discover through accessibility; inspect layout/style through the view tree.
+  Zero matches means not found; multiple matches require a more precise target.
+- Refs belong to a snapshot/session. Use `--snapshot <file>` for saved-ref
+  actions and mutations. Text is for discovery, not tap targeting.
+- Verify the expected change with a focused query, wait, value, screenshot,
+  or trace. Successful dispatch alone does not prove the intended result.
+  If dispatch may already have occurred, inspect state before retrying.
 
-- Keep full reports, snapshots, and traces on disk; use compact observations
-  in chat, then query or inspect refs as needed.
-- Keep verbose build logs and large JSON on disk. Print a short path/status,
-  and inspect only the focused node, summary, or failing log tail needed for the
-  next decision.
-- Prefer accessibility for discovery/action intent; prefer the view tree for
-  layout, style, mutations, and visual diagnostics.
-- For screen movement, use `act targets` then `act tap '#N'`. For view
-  analysis, use `ui report`.
-- Command success alone is not proof. Verify with fresh reports, traces,
-  screenshots, hit-tests, logs, defaults, or effective state.
+## Keep Context Small
 
-### Targeting
+- For layout/design work, capture `ui report --host <host> --output <dir>`.
+  Keep the snapshot and images on disk, then use `ui query <snapshot.json>`
+  or `ui node <snapshot.json> --ref <ref> --fields node`.
+- `ui tree` defaults to 80 lines with bounded line lengths. Focus with `--ref`
+  or `--limit`; use `--all` only when full output is needed as an artifact.
+- Use `ui tree --text`, `ui screen`, `ui paint`, `debug object-graph`, and
+  `debug defaults` (also for feature flags). Check subcommand help only for
+  unfamiliar options; avoid repeatedly loading help or full JSON/build logs.
+- For design iteration, review one report/screenshot, compare with the design,
+  try a small mutation if useful, then patch source and verify after relaunch.
 
-- Discover with accessibility, role, or text; act with app-owned `testID`,
-  current `ref`, or coordinates. Do not use tap-by-text as a public contract.
-- For action, mutation, and wait, fresh-resolve the current screen: zero
-  matches means not found; multiple actionable matches means ambiguous.
-- Treat `ref` as a snapshot/session handle, not a durable selector.
-- Suggest missing `testID`s only as hints. Prefer the nearest route/root prefix;
-  avoid index, coordinate, or deep hierarchy names.
+## Task-Specific References
 
-### Runtime Boundaries
+Read only the reference relevant to the next operation:
 
-- Simulator injection uses the Loupe CLI/injector outside the app. It should
-  not require changing the app source or adding `import LoupeKit`.
-- Physical devices are different: the debug app must link and embed the
-  dynamic LoupeInjector runtime. Do not include it in App Store release builds.
-
-## Reference Map
-
-- `references/runtime-modes.md`: attaching, launching, platform boundaries.
-- `references/evidence-workflow.md`: reports, visibility, design
-  implementation evidence, SwiftUI, probes, logs, diagnostics.
-- `references/actions-and-mutations.md`: actions, waits, scrolls, mutations,
-  self-sizing, `reflect`.
-
-## Workflow
-
-1. Identify the runtime mode and host. Prefer the host printed by `app launch`;
-   `app current` can be stale.
-2. Use `act targets` then `act tap '#N'` for lightweight screen movement. The
-   quoted alias is one-shot; list targets again before the next alias action.
-3. Use `ui report` for view analysis. Keep `snapshot.json`, then query or
-   inspect only the relevant nodes.
-4. For design checks, capture one report, review the screenshot and audit
-   summary, then run `ui compare-design` when a design fixture exists.
-5. Keep each design iteration bounded: report, screenshot/audit judgment,
-   compare, optional one small mutation batch, after-proof, then source
-   patch/relaunch. Avoid broad diagnostics unless the scenario requires them.
-6. For overlays, alerts, reused cells, or stale refs, recapture and use
-   hit-test, responder-chain, screenshot, or trace proof.
-7. Act or mutate with a fresh output/trace path, then prove the result with a
-   fresh report, query, node, trace, or effective-state check.
+- [actions-and-mutations](references/actions-and-mutations.md): input, waits,
+  traces, mutation, self-sizing, and source reflection.
+- [evidence-workflow](references/evidence-workflow.md): visibility/occlusion,
+  design comparison, SwiftUI/probes, and focused diagnostics.
