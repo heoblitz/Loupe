@@ -113,9 +113,11 @@ clipping, and UIKit metadata.
   that links and embeds the dynamic `LoupeInjector` product and is selected by
   `--host`. macOS launch-time injection is for local debug/development builds;
   Hardened Runtime or library-validation settings can reject dynamic injection.
-- The new Debug touch path has simulator E2E coverage. Physical iOS gesture
-  verification remains pending; it must be checked on a connected device before
-  claiming device-specific compatibility.
+- The Debug touch path has simulator E2E coverage and physical-device coverage
+  on iPhone 15 with iOS 26.2.1, verified on 2026-09-30. Both `auto` and explicit
+  `touch` passed gesture-only tap, long press, held drag, and scroll. Explicit
+  accessibility activation failure, invalid geometry rejection, concurrent-touch
+  rejection, and subsequent successful input were also checked on that device.
 - Native `UIAccessibility` container traversal is opt-in with
   `LOUPE_NATIVE_ACCESSIBILITY=1`; the default runtime path uses Loupe's
   view-derived accessibility tree. `act perform` does a bounded live traversal
