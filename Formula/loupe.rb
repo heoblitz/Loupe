@@ -10,8 +10,14 @@ class Loupe < Formula
 
   def swift_build(*args)
     build_args = ["build", "--configuration", "release", "--disable-sandbox", *args]
-    system "swift", *build_args
-    Pathname(Utils.safe_popen_read("swift", *build_args, "--show-bin-path").strip)
+    swift = Utils.safe_popen_read("xcrun", "--find", "swift").strip
+    compiler_environment = ENV.remove_cc_etc
+    begin
+      system swift, *build_args
+      Pathname(Utils.safe_popen_read(swift, *build_args, "--show-bin-path").strip)
+    ensure
+      ENV.update(compiler_environment)
+    end
   end
 
   def install
