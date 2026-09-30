@@ -118,6 +118,7 @@ struct HTTPRequest: Sendable {
             "/state/flags",
             "/mutate",
             "/activate",
+            "/input/touch",
             "/constraint",
         ].contains(path)
     }

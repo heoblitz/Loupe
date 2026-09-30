@@ -1538,3 +1538,98 @@ private func upsertLoupeKeychainFixture() {
         SecItemAdd(item as CFDictionary, nil)
     }
 }
+
+// Gesture-only controls intentionally do not implement accessibilityActivate().
+final class TouchFixtureViewController: UIViewController {
+    private let tapStatus = UILabel()
+    private let holdStatus = UILabel()
+    private let dragStatus = UILabel()
+    private var taps = 0
+    private var holds = 0
+    private var dragStart = CGPoint.zero
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Touch fixtures"
+        view.backgroundColor = .systemBackground
+        let tap = card(id: "touch.tap", label: "Gesture tap", color: .systemBlue)
+        tap.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        let hold = card(id: "touch.hold", label: "Long press", color: .systemIndigo)
+        let holdRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        holdRecognizer.minimumPressDuration = 0.3
+        hold.addGestureRecognizer(holdRecognizer)
+        let drag = card(id: "touch.drag", label: "Hold then drag", color: .systemOrange)
+        let dragRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(dragged(_:)))
+        dragRecognizer.minimumPressDuration = 0.3
+        drag.addGestureRecognizer(dragRecognizer)
+        for (status, id, text) in [(tapStatus, "touch.tap.status", "Taps 0"), (holdStatus, "touch.hold.status", "Holds 0"), (dragStatus, "touch.drag.status", "Drag waiting")] {
+            status.accessibilityIdentifier = id
+            status.text = text
+        }
+        let scroll = UIScrollView()
+        scroll.accessibilityIdentifier = "touch.scroll"
+        scroll.backgroundColor = .secondarySystemBackground
+        scroll.contentSize = CGSize(width: 300, height: 800)
+        let content = UILabel(frame: CGRect(x: 15, y: 15, width: 280, height: 760))
+        content.numberOfLines = 0
+        content.text = (1...20).map { "Scroll row \($0)" }.joined(separator: "\n\n")
+        scroll.addSubview(content)
+        let stack = UIStackView(arrangedSubviews: [tap, tapStatus, hold, holdStatus, drag, dragStatus, scroll])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            tap.heightAnchor.constraint(equalToConstant: 70),
+            hold.heightAnchor.constraint(equalToConstant: 70),
+            drag.heightAnchor.constraint(equalToConstant: 90),
+            scroll.heightAnchor.constraint(equalToConstant: 160),
+        ])
+    }
+
+    private func card(id: String, label: String, color: UIColor) -> UIView {
+        let card = UIView()
+        card.backgroundColor = color
+        card.layer.cornerRadius = 12
+        card.accessibilityIdentifier = id
+        card.accessibilityLabel = label
+        card.isAccessibilityElement = true
+        card.accessibilityTraits = .button
+        let title = UILabel()
+        title.text = label
+        title.textColor = .white
+        title.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(title)
+        NSLayoutConstraint.activate([title.centerXAnchor.constraint(equalTo: card.centerXAnchor), title.centerYAnchor.constraint(equalTo: card.centerYAnchor)])
+        return card
+    }
+
+    @objc private func tapped() {
+        taps += 1
+        tapStatus.text = "Taps \(taps)"
+    }
+
+    @objc private func held(_ recognizer: UILongPressGestureRecognizer) {
+        if recognizer.state == .began {
+            holds += 1
+            holdStatus.text = "Holds \(holds)"
+        }
+    }
+
+    @objc private func dragged(_ recognizer: UILongPressGestureRecognizer) {
+        let point = recognizer.location(in: view)
+        if recognizer.state == .began {
+            dragStart = point
+            dragStatus.text = "Drag held"
+        } else if recognizer.state == .changed {
+            dragStatus.text = "Drag moved \(Int(point.x - dragStart.x))"
+        } else if recognizer.state == .ended {
+            dragStatus.text = "Drag completed \(Int(point.x - dragStart.x))"
+        } else if recognizer.state == .cancelled {
+            dragStatus.text = "Drag cancelled"
+        }
+    }
+}

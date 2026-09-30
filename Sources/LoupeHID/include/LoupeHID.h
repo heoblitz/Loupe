@@ -15,6 +15,7 @@ int LoupeHIDDrag(
     double width,
     double height,
     double duration,
+    double holdDuration,
     char **errorMessage
 );
 int LoupeHIDType(const char *udid, const char *text, char **errorMessage);

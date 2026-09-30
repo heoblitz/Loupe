@@ -6,9 +6,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-BOOL LoupeSyntheticTap(CGPoint point, NSError **error);
-BOOL LoupeSyntheticDrag(CGPoint startPoint, CGPoint endPoint, NSTimeInterval duration, NSError **error);
+NSObject * _Nullable LoupeSyntheticTouchBegin(CGPoint point, CGSize screenSize, NSError * _Nullable * _Nullable error);
+BOOL LoupeSyntheticTouchMove(NSObject *session, CGPoint point, NSError * _Nullable * _Nullable error);
+BOOL LoupeSyntheticTouchEnd(NSObject *session, NSError * _Nullable * _Nullable error);
+void LoupeSyntheticTouchCancel(NSObject *session);
 
 NS_ASSUME_NONNULL_END
-
 #endif

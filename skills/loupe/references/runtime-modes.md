@@ -36,7 +36,8 @@ Loupe automatically when loaded. Do not include it in App Store release builds.
 
 Use `ui`, `debug`, and `act` with the selected host. On physical iOS devices,
 omit `--udid`; Loupe auto-routes tap, swipe, and drag through the linked
-runtime.
+runtime. `--backend runtime` stays accessibility activation; gesture-only
+views use the automatic touch path. Keep private touch APIs in Debug builds.
 
 ## macOS Host Runtime
 

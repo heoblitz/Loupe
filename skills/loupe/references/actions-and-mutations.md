@@ -45,8 +45,17 @@ next alias action.
 - `act wait`, `act drag`, and `debug scroll` need explicit postconditions:
   selector, key or coordinates, output/trace path, expected state, and fresh
   after-proof.
-- iOS/tvOS simulators use native HID; physical iOS linked runtimes use runtime
-  touch for tap/swipe/drag. macOS tap is AppKit activation. watchOS, visionOS,
+- iOS/tvOS simulators use native HID by default; physical iOS debug runtimes
+  use `touch` for tap/swipe/drag. Explicit `--backend touch` also exercises the
+  same runtime path in an iOS simulator. `--backend runtime` and `act perform`
+  keep their declared accessibility actions.
+- Use `act tap --test-id <id> --hold-duration 0.7` for a long press, or
+  `act drag --from x,y --to x,y --hold-duration 0.7 --duration 0.4` to hold
+  before moving. These timings also work with simulator HID. Touch requests
+  validate coordinates, screen size, timing, foreground state, and private API
+  availability. Failed/partial touches are cancelled and never retried through
+  a different backend. Runtime touch requires a Debug injector.
+- macOS tap is AppKit activation. watchOS, visionOS,
   and custom SwiftUI surfaces may correctly fail without stronger evidence.
 
 ## Mutations

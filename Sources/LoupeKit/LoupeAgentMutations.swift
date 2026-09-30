@@ -2,65 +2,9 @@ import Foundation
 import LoupeCore
 
 #if canImport(UIKit) && !os(watchOS)
-import LoupeSyntheticEvents
 import UIKit
 
 public extension LoupeAgent {
-    func performTouchAction(_ request: LoupeRuntimeTouchActionRequest) throws -> LoupeRuntimeTouchActionResponse {
-        let before = captureSnapshotWithViewRefs().snapshot
-        let startedAt = Date()
-
-        var error: NSError?
-        let succeeded: Bool
-        switch request.command {
-        case .tap:
-            succeeded = LoupeSyntheticTap(CGPoint(x: request.start.x, y: request.start.y), &error)
-        case .drag, .swipe:
-            guard let end = request.end else {
-                throw LoupeMutationError(
-                    code: "missing_end_point",
-                    message: "\(request.command.rawValue) requires an end point."
-                )
-            }
-            succeeded = LoupeSyntheticDrag(
-                CGPoint(x: request.start.x, y: request.start.y),
-                CGPoint(x: end.x, y: end.y),
-                request.duration ?? 0.6,
-                &error
-            )
-        }
-
-        guard succeeded else {
-            throw LoupeMutationError(
-                code: "synthetic_touch_failed",
-                message: error?.localizedDescription ?? "Synthetic touch delivery failed."
-            )
-        }
-
-        layoutRuntimeWindows()
-        let elapsed = Date().timeIntervalSince(startedAt)
-        let after = captureSnapshotWithViewRefs().snapshot
-
-        LoupeRuntime.shared.log(
-            level: "info",
-            "touch_action_applied",
-            metadata: [
-                "command": .string(request.command.rawValue),
-                "x": .double(request.start.x),
-                "y": .double(request.start.y),
-            ]
-        )
-
-        return LoupeRuntimeTouchActionResponse(
-            command: request.command,
-            start: request.start,
-            end: request.end,
-            actionElapsed: elapsed,
-            beforeSnapshotID: before.id,
-            afterSnapshotID: after.id
-        )
-    }
-
     func activate(_ request: LoupeActivationRequest) throws -> LoupeActivationResponse {
         if request.action != nil {
             return try performAccessibilityAction(request)

@@ -57,6 +57,7 @@ let package = Package(
         .target(
             name: "LoupeSyntheticEvents",
             publicHeadersPath: "include",
+            cSettings: [.define("DEBUG", .when(configuration: .debug))],
             linkerSettings: [
                 .linkedFramework("UIKit", .when(platforms: [.iOS])),
                 .linkedFramework("QuartzCore", .when(platforms: [.iOS])),

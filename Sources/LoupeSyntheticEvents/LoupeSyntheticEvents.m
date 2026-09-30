@@ -2,7 +2,7 @@
 
 #import <TargetConditionals.h>
 
-#if TARGET_OS_IOS && !TARGET_OS_TV && !TARGET_OS_VISION && !TARGET_OS_WATCH
+#if DEBUG && TARGET_OS_IOS && !TARGET_OS_TV && !TARGET_OS_VISION && !TARGET_OS_WATCH
 
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
@@ -15,10 +15,6 @@ typedef uint32_t IOHIDDigitizerTransducerType;
 typedef uint32_t IOHIDEventField;
 typedef uint32_t IOHIDEventOptionBits;
 typedef struct __IOHIDEvent *IOHIDEventRef;
-typedef struct {
-    unsigned char _firstTouchForView : 1;
-} LoupeUITouchFlags;
-
 enum {
     LoupeIOHIDDigitizerTransducerTypeHand = 3,
     LoupeIOHIDDigitizerEventRange = 0x00000001,
@@ -29,7 +25,7 @@ enum {
         (LoupeIOHIDEventTypeDigitizer << 16) + 25,
 };
 
-IOHIDEventRef IOHIDEventCreateDigitizerEvent(
+IOHIDEventRef __attribute__((weak_import)) IOHIDEventCreateDigitizerEvent(
     CFAllocatorRef allocator,
     uint64_t timestamp,
     IOHIDDigitizerTransducerType transducerType,
@@ -46,7 +42,7 @@ IOHIDEventRef IOHIDEventCreateDigitizerEvent(
     boolean_t touch,
     IOHIDEventOptionBits options
 );
-IOHIDEventRef IOHIDEventCreateDigitizerFingerEvent(
+IOHIDEventRef __attribute__((weak_import)) IOHIDEventCreateDigitizerFingerEvent(
     CFAllocatorRef allocator,
     uint64_t timestamp,
     uint32_t index,
@@ -61,8 +57,8 @@ IOHIDEventRef IOHIDEventCreateDigitizerFingerEvent(
     boolean_t touch,
     IOHIDEventOptionBits options
 );
-void IOHIDEventAppendEvent(IOHIDEventRef event, IOHIDEventRef childEvent, IOHIDEventOptionBits options);
-void IOHIDEventSetIntegerValue(IOHIDEventRef event, IOHIDEventField field, CFIndex value);
+void __attribute__((weak_import)) IOHIDEventAppendEvent(IOHIDEventRef event, IOHIDEventRef childEvent, IOHIDEventOptionBits options);
+void __attribute__((weak_import)) IOHIDEventSetIntegerValue(IOHIDEventRef event, IOHIDEventField field, CFIndex value);
 
 @interface UIApplication (LoupeSyntheticPrivate)
 - (UIEvent *)_touchesEvent;
@@ -112,31 +108,13 @@ static uint64_t LoupeMachTimeFromSeconds(CFTimeInterval seconds)
 
 static UIWindow *LoupeKeyWindow(void)
 {
-    if (@available(iOS 13.0, tvOS 13.0, *)) {
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (![scene isKindOfClass:UIWindowScene.class]) {
-                continue;
-            }
-            UIWindowScene *windowScene = (UIWindowScene *)scene;
-            if (windowScene.activationState != UISceneActivationStateForegroundActive) {
-                continue;
-            }
-            for (UIWindow *window in windowScene.windows) {
-                if (window.isKeyWindow) {
-                    return window;
-                }
-            }
-            if (windowScene.windows.count > 0) {
-                return windowScene.windows.firstObject;
-            }
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window.isKeyWindow && !window.hidden && window.alpha > 0) return window;
         }
     }
-
-    UIWindow *keyWindow = UIApplication.sharedApplication.keyWindow;
-    if (keyWindow) {
-        return keyWindow;
-    }
-    return UIApplication.sharedApplication.windows.firstObject;
+    return nil;
 }
 
 static void LoupeSetFirstTouchFlag(UITouch *touch)
@@ -146,21 +124,6 @@ static void LoupeSetFirstTouchFlag(UITouch *touch)
     } else if ([touch respondsToSelector:@selector(setIsTap:)]) {
         [touch setIsTap:YES];
     }
-
-    Ivar flagsIvar = class_getInstanceVariable(UITouch.class, "_touchFlags");
-    if (!flagsIvar) {
-        return;
-    }
-    typedef LoupeUITouchFlags (*LoupeUITouchFlagsGetFunction)(id object, Ivar ivar);
-    typedef void (*LoupeUITouchFlagsSetFunction)(id object, Ivar ivar, LoupeUITouchFlags flags);
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
-    LoupeUITouchFlagsGetFunction getFlags = (LoupeUITouchFlagsGetFunction)object_getIvar;
-    LoupeUITouchFlagsSetFunction setFlags = (LoupeUITouchFlagsSetFunction)(void *)object_setIvar;
-#pragma clang diagnostic pop
-    LoupeUITouchFlags flags = getFlags(touch, flagsIvar);
-    flags._firstTouchForView = 1;
-    setFlags(touch, flagsIvar, flags);
 }
 
 static IOHIDDigitizerEventMask LoupeEventMask(UITouchPhase phase)
@@ -209,7 +172,7 @@ static UITouch *LoupeTouchForPoint(CGPoint point, UIWindow *window, UIEvent *eve
         [touch _setSenderID:0x0acefade00000002];
     }
     UIView *view = [window hitTest:point withEvent:event];
-    [touch setView:view ?: window];
+    [touch setView:view];
     LoupeSetFirstTouchFlag(touch);
     return touch;
 }
@@ -232,9 +195,6 @@ static BOOL LoupeSendTouch(UITouch *touch, CGPoint point, UITouchPhase phase, UI
     [touch setPhase:phase];
     [touch setTimestamp:timestamp];
     [touch _setLocationInWindow:point resetPrevious:(phase == UITouchPhaseBegan)];
-    if (!touch.view) {
-        [touch setView:[window hitTest:point withEvent:event] ?: window];
-    }
 
     IOHIDEventRef hidEvent = IOHIDEventCreateDigitizerEvent(
         kCFAllocatorDefault,
@@ -253,6 +213,10 @@ static BOOL LoupeSendTouch(UITouch *touch, CGPoint point, UITouchPhase phase, UI
         touching,
         0
     );
+    if (!hidEvent) {
+        if (error) *error = LoupeSyntheticError(@"Could not allocate a digitizer event.");
+        return NO;
+    }
     LoupeMarkIntegratedDisplay(hidEvent);
 
     IOHIDEventRef fingerEvent = IOHIDEventCreateDigitizerFingerEvent(
@@ -270,106 +234,158 @@ static BOOL LoupeSendTouch(UITouch *touch, CGPoint point, UITouchPhase phase, UI
         touching,
         0
     );
+    if (!fingerEvent) {
+        CFRelease(hidEvent);
+        if (error) *error = LoupeSyntheticError(@"Could not allocate a finger event.");
+        return NO;
+    }
     LoupeMarkIntegratedDisplay(fingerEvent);
     IOHIDEventAppendEvent(hidEvent, fingerEvent, 0);
     if ([touch respondsToSelector:@selector(_setHidEvent:)]) {
         [touch _setHidEvent:fingerEvent];
     }
 
-    [event _clearTouches];
-    [event _addTouch:touch forDelayedDelivery:NO];
-    [event _setHIDEvent:hidEvent];
-
+    BOOL succeeded = NO;
     @try {
-        @autoreleasepool {
-            [UIApplication.sharedApplication sendEvent:event];
-        }
+        [event _clearTouches];
+        [event _addTouch:touch forDelayedDelivery:NO];
+        [event _setHIDEvent:hidEvent];
+        [UIApplication.sharedApplication sendEvent:event];
+        succeeded = YES;
     } @catch (NSException *exception) {
-        if (error) {
-            *error = LoupeSyntheticError([NSString stringWithFormat:@"Synthetic touch delivery failed: %@", exception.reason]);
-        }
+        if (error) *error = LoupeSyntheticError([NSString stringWithFormat:@"Synthetic touch delivery failed: %@", exception.reason]);
+    } @finally {
+        [event _setHIDEvent:NULL];
         CFRelease(fingerEvent);
         CFRelease(hidEvent);
-        return NO;
     }
-
-    [event _setHIDEvent:NULL];
-    CFRelease(fingerEvent);
-    CFRelease(hidEvent);
-    return YES;
+    return succeeded;
 }
 
-BOOL LoupeSyntheticTap(CGPoint point, NSError **error)
+@interface LoupeTouchSession : NSObject
+@property(nonatomic, strong) UIWindow *window;
+@property(nonatomic, strong) UITouch *touch;
+@property(nonatomic) CGPoint point;
+@property(nonatomic) BOOL active;
+@end
+@implementation LoupeTouchSession
+@end
+
+static BOOL LoupeTouchAPIsAvailable(void)
 {
-    UIWindow *window = LoupeKeyWindow();
-    if (!window) {
-        if (error) {
-            *error = LoupeSyntheticError(@"No active UIWindow found for synthetic tap.");
-        }
-        return NO;
-    }
-    UIEvent *seedEvent = [UIApplication.sharedApplication _touchesEvent];
-    UITouch *touch = LoupeTouchForPoint(point, window, seedEvent);
-    return LoupeSendTouch(touch, point, UITouchPhaseBegan, window, error)
-        && LoupeSendTouch(touch, point, UITouchPhaseEnded, window, error);
+    if (!IOHIDEventCreateDigitizerEvent || !IOHIDEventCreateDigitizerFingerEvent ||
+        !IOHIDEventAppendEvent || !IOHIDEventSetIntegerValue) return NO;
+    UIApplication *app = UIApplication.sharedApplication;
+    if (![app respondsToSelector:@selector(_touchesEvent)]) return NO;
+    UIEvent *event = [app _touchesEvent];
+    UITouch *touch = [[UITouch alloc] init];
+    return event && [event respondsToSelector:@selector(_addTouch:forDelayedDelivery:)] &&
+        [event respondsToSelector:@selector(_clearTouches)] && [event respondsToSelector:@selector(_setHIDEvent:)] &&
+        [touch respondsToSelector:@selector(setWindow:)] && [touch respondsToSelector:@selector(setView:)] &&
+        [touch respondsToSelector:@selector(setTapCount:)] && [touch respondsToSelector:@selector(setPhase:)] &&
+        [touch respondsToSelector:@selector(setTimestamp:)] && [touch respondsToSelector:@selector(_setLocationInWindow:resetPrevious:)];
 }
 
-BOOL LoupeSyntheticDrag(CGPoint startPoint, CGPoint endPoint, NSTimeInterval duration, NSError **error)
+NSObject *LoupeSyntheticTouchBegin(CGPoint point, CGSize screenSize, NSError **error)
 {
-    UIWindow *window = LoupeKeyWindow();
-    if (!window) {
-        if (error) {
-            *error = LoupeSyntheticError(@"No active UIWindow found for synthetic drag.");
+    NSCAssert(NSThread.isMainThread, @"Touch delivery requires the main thread");
+    @try {
+        UIWindow *window = LoupeKeyWindow();
+        if (!window || !LoupeTouchAPIsAvailable()) {
+            if (error) *error = LoupeSyntheticError(@"A foreground key window and supported private touch APIs are required.");
+            return nil;
         }
-        return NO;
+        CGSize actual = window.screen.bounds.size;
+        if (fabs(actual.width - screenSize.width) > 0.5 || fabs(actual.height - screenSize.height) > 0.5) {
+            if (error) *error = LoupeSyntheticError(@"Screen size changed; resolve the target again before touching.");
+            return nil;
+        }
+        CGPoint local = [window convertPoint:point fromCoordinateSpace:window.screen.coordinateSpace];
+        if (!CGRectContainsPoint(window.bounds, local) || ![window hitTest:local withEvent:nil]) {
+            if (error) *error = LoupeSyntheticError(@"Touch point does not hit the foreground window.");
+            return nil;
+        }
+        LoupeTouchSession *session = [LoupeTouchSession new];
+        session.window = window;
+        session.point = local;
+        session.touch = LoupeTouchForPoint(local, window, [UIApplication.sharedApplication _touchesEvent]);
+        session.active = YES;
+        if (!LoupeSendTouch(session.touch, local, UITouchPhaseBegan, window, error)) {
+            LoupeSyntheticTouchCancel(session);
+            return nil;
+        }
+        return session;
+    } @catch (NSException *exception) {
+        if (error) *error = LoupeSyntheticError([NSString stringWithFormat:@"Touch setup failed: %@", exception.reason]);
+        return nil;
     }
-    UIEvent *seedEvent = [UIApplication.sharedApplication _touchesEvent];
-    UITouch *touch = LoupeTouchForPoint(startPoint, window, seedEvent);
-    if (!LoupeSendTouch(touch, startPoint, UITouchPhaseBegan, window, error)) {
-        return NO;
-    }
+}
 
-    NSInteger steps = MAX(1, (NSInteger)ceil(hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y) / 20.0));
-    NSTimeInterval stepDelay = MAX(0.001, duration / (NSTimeInterval)steps);
-    for (NSInteger index = 1; index <= steps; index += 1) {
-        CGFloat progress = (CGFloat)index / (CGFloat)steps;
-        CGPoint point = CGPointMake(
-            startPoint.x + (endPoint.x - startPoint.x) * progress,
-            startPoint.y + (endPoint.y - startPoint.y) * progress
-        );
-        if (!LoupeSendTouch(touch, point, UITouchPhaseMoved, window, error)) {
+BOOL LoupeSyntheticTouchMove(NSObject *object, CGPoint point, NSError **error)
+{
+    LoupeTouchSession *session = (LoupeTouchSession *)object;
+    @try {
+        if (!session.active || LoupeKeyWindow() != session.window) {
+            if (error) *error = LoupeSyntheticError(@"Foreground window changed during touch delivery.");
             return NO;
         }
-        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:stepDelay]];
+        session.point = [session.window convertPoint:point fromCoordinateSpace:session.window.screen.coordinateSpace];
+        return LoupeSendTouch(session.touch, session.point, UITouchPhaseMoved, session.window, error);
+    } @catch (NSException *exception) {
+        if (error) *error = LoupeSyntheticError([NSString stringWithFormat:@"Touch movement failed: %@", exception.reason]);
+        return NO;
     }
+}
 
-    return LoupeSendTouch(touch, endPoint, UITouchPhaseEnded, window, error);
+BOOL LoupeSyntheticTouchEnd(NSObject *object, NSError **error)
+{
+    LoupeTouchSession *session = (LoupeTouchSession *)object;
+    @try {
+        if (!session.active || LoupeKeyWindow() != session.window) {
+            if (error) *error = LoupeSyntheticError(@"Foreground window changed during touch delivery.");
+            return NO;
+        }
+        BOOL result = LoupeSendTouch(session.touch, session.point, UITouchPhaseEnded, session.window, error);
+        if (result) session.active = NO;
+        return result;
+    } @catch (NSException *exception) {
+        if (error) *error = LoupeSyntheticError([NSString stringWithFormat:@"Touch ending failed: %@", exception.reason]);
+        return NO;
+    }
+}
+
+void LoupeSyntheticTouchCancel(NSObject *object)
+{
+    LoupeTouchSession *session = (LoupeTouchSession *)object;
+    if (!session.active) return;
+    @try {
+        LoupeSendTouch(session.touch, session.point, UITouchPhaseCancelled, session.window, nil);
+    } @catch (__unused NSException *exception) {
+    }
+    session.active = NO;
 }
 
 #else
 
-BOOL LoupeSyntheticTap(CGPoint point, NSError **error)
+static void LoupeUnavailable(NSError **error)
 {
-    (void)point;
-    if (error) {
-        *error = [NSError errorWithDomain:@"dev.loupe.synthetic-events"
-                                     code:1
-                                 userInfo:@{NSLocalizedDescriptionKey: @"Synthetic UIKit touch events are unavailable on this platform."}];
-    }
+    if (error) *error = [NSError errorWithDomain:@"dev.loupe.synthetic-events" code:1
+        userInfo:@{NSLocalizedDescriptionKey: @"Touch input requires an iOS Debug build of LoupeInjector."}];
+}
+NSObject *LoupeSyntheticTouchBegin(CGPoint point, CGSize screenSize, NSError **error)
+{
+    LoupeUnavailable(error);
+    return nil;
+}
+BOOL LoupeSyntheticTouchMove(NSObject *session, CGPoint point, NSError **error)
+{
+    LoupeUnavailable(error);
     return NO;
 }
-
-BOOL LoupeSyntheticDrag(CGPoint startPoint, CGPoint endPoint, NSTimeInterval duration, NSError **error)
+BOOL LoupeSyntheticTouchEnd(NSObject *session, NSError **error)
 {
-    (void)startPoint;
-    (void)endPoint;
-    (void)duration;
-    if (error) {
-        *error = [NSError errorWithDomain:@"dev.loupe.synthetic-events"
-                                     code:1
-                                 userInfo:@{NSLocalizedDescriptionKey: @"Synthetic UIKit touch events are unavailable on this platform."}];
-    }
+    LoupeUnavailable(error);
     return NO;
 }
-
+void LoupeSyntheticTouchCancel(NSObject *session) {}
 #endif

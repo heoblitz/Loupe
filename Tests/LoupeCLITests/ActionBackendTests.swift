@@ -5,7 +5,7 @@ import LoupeCore
 import Testing
 
 struct ActionBackendTests {
-    @Test func autoTapUsesRuntimeForPhysicalIOSRuntime() {
+    @Test func autoTapUsesTouchForPhysicalIOSRuntime() {
         let identity = LoupeRuntimeIdentity(
             platform: "iOS",
             deviceIdentifier: "DEVICE-1",
@@ -18,7 +18,7 @@ struct ActionBackendTests {
             runtimeIdentity: identity
         )
 
-        #expect(backend == "runtime")
+        #expect(backend == "touch")
     }
 
     @Test func autoTapUsesSimulationForSimulatorRuntime() {
@@ -35,10 +35,10 @@ struct ActionBackendTests {
             runtimeIdentity: identity
         )
 
-        #expect(backend == "simulation")
+        #expect(backend == "auto")
     }
 
-    @Test func autoTapUsesSimulationForMacRuntime() {
+    @Test func autoTapUsesRuntimeForMacIdentity() {
         let identity = LoupeRuntimeIdentity(
             platform: "macOS",
             processIdentifier: 1234
@@ -50,10 +50,10 @@ struct ActionBackendTests {
             runtimeIdentity: identity
         )
 
-        #expect(backend == "simulation")
+        #expect(backend == "runtime")
     }
 
-    @Test func autoTapUsesSimulationForNonIOSDeviceRuntime() {
+    @Test func autoTapUsesRuntimeForNonIOSDeviceIdentity() {
         let identity = LoupeRuntimeIdentity(
             platform: "tvOS",
             deviceIdentifier: "TV-1",
@@ -66,7 +66,7 @@ struct ActionBackendTests {
             runtimeIdentity: identity
         )
 
-        #expect(backend == "simulation")
+        #expect(backend == "runtime")
         #expect(!LoupeCLI.runtimeSupportsTouchActions(identity))
     }
 
@@ -104,11 +104,11 @@ struct ActionBackendTests {
                 requested: "auto",
                 command: "type",
                 runtimeIdentity: identity
-            ) == "simulation"
+            ) == "auto"
         )
     }
 
-    @Test func autoIgnoresHostExplicitnessAndUsesIdentity() {
+    @Test func autoUsesRuntimeIdentity() {
         let identity = LoupeRuntimeIdentity(
             platform: "iOS",
             deviceIdentifier: "DEVICE-1",
@@ -123,7 +123,7 @@ struct ActionBackendTests {
             runtimeIdentity: identity
         )
 
-        #expect(backend == "runtime")
+        #expect(backend == "touch")
     }
 
     @Test func actionResolutionPrefersPlatformBackedViewOverSyntheticProbe() {
