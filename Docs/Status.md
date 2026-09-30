@@ -25,7 +25,7 @@ runtime servers.
   platform supports it.
 - Dispatch `tap`, `swipe`, and `drag` through the linked runtime's UIKit touch
   dispatcher on physical iOS devices, selected automatically from the runtime
-  identity. `--hold-duration` supports long press and held drag. The touch
+  identity, using the existing CLI commands and options. The touch
   dispatcher yields between phases, validates screen/foreground state, and
   cancels failed gestures without backend retries. It is Debug-only.
 - Dispatch `tap --backend runtime` against runtime-backed targets to activate
@@ -72,8 +72,9 @@ It runs:
 - release CLI build
 - runtime injection smoke E2E
 - native HID and UIKit scenario E2E
-- gesture-only tap, long press, held drag, and scroll with simulator HID and
-  Debug runtime touch, including failed activation and concurrent-touch checks
+- gesture-only tap, long press, drag, and scroll using the existing CLI, plus
+  held drag through internal Debug touch requests, failed activation, and
+  concurrent-touch checks
 - bookmark app-style E2E
 - platform build checks for iOS, macOS, tvOS, visionOS Simulator, and watchOS
   Simulator targets
@@ -114,9 +115,10 @@ clipping, and UIKit metadata.
   `--host`. macOS launch-time injection is for local debug/development builds;
   Hardened Runtime or library-validation settings can reject dynamic injection.
 - The Debug touch path has simulator E2E coverage and physical-device coverage
-  on iPhone 15 with iOS 26.2.1, verified on 2026-09-30. Both `auto` and explicit
-  `touch` passed gesture-only tap, long press, held drag, and scroll. Explicit
-  accessibility activation failure, invalid geometry rejection, concurrent-touch
+  on iPhone 15 with iOS 26.2.1, verified on 2026-09-30. CLI input selected the
+  touch path internally; gesture-only tap, long press, held drag, and scroll
+  passed through the touch dispatcher. Explicit accessibility activation
+  failure, invalid geometry rejection, concurrent-touch
   rejection, and subsequent successful input were also checked on that device.
 - Native `UIAccessibility` container traversal is opt-in with
   `LOUPE_NATIVE_ACCESSIBILITY=1`; the default runtime path uses Loupe's

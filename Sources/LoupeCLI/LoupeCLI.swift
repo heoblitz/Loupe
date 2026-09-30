@@ -2263,13 +2263,10 @@ struct LoupeCLI {
             )
             let usesRuntimeBackend = ["runtime", "touch"].contains(options.backend)
             if options.backend == "runtime", command != "tap" {
-                throw CLIError("runtime activation supports tap; use --backend touch for physical iOS gestures")
+                throw CLIError("runtime action backend currently supports tap only")
             }
             if options.backend == "touch", runtimeState.identity.platform != "iOS" {
                 throw CLIError("touch backend requires a linked iOS debug runtime")
-            }
-            if options.backend == "runtime", options.holdDuration > 0 {
-                throw CLIError("--hold-duration requires touch input; accessibility activation cannot hold a touch")
             }
             if options.backend == "touch", options.udidWasExplicit,
                runtimeState.identity.deviceIdentifier != options.udid {
@@ -3372,7 +3369,6 @@ struct LoupeCLI {
             point: options.point,
             endPoint: options.endPoint,
             duration: options.duration,
-            holdDuration: options.holdDuration,
             text: ActionTraceText.recordable(command: command, text: options.text),
             press: options.press,
             resolvedPoint: target?.point,
@@ -3576,9 +3572,9 @@ struct LoupeCLI {
         let status: Int32
         switch command {
         case "tap":
-            if options.holdDuration > 0 {
+            if let duration = options.duration {
                 status = LoupeHIDDrag(udid, mappedPoint.x, mappedPoint.y, mappedPoint.x, mappedPoint.y,
-                    target.screen.width, target.screen.height, options.duration ?? 0.05, options.holdDuration, &errorMessage)
+                    target.screen.width, target.screen.height, duration, &errorMessage)
             } else {
                 status = LoupeHIDTap(udid, mappedPoint.x, mappedPoint.y, target.screen.width, target.screen.height, &errorMessage)
             }
@@ -3594,7 +3590,6 @@ struct LoupeCLI {
                 target.screen.width,
                 target.screen.height,
                 options.duration ?? 0.6,
-                options.holdDuration,
                 &errorMessage
             )
         case "type":
@@ -3668,7 +3663,6 @@ struct LoupeCLI {
             start: target.point,
             end: endPoint,
             duration: options.duration,
-            holdDuration: options.holdDuration,
             screen: target.screen
         )
         _ = try await postRuntimeTouchAction(request, host: options.host, timeout: options.timeout)
@@ -3728,12 +3722,12 @@ struct LoupeCLI {
 
     private static func normalizedActionBackend(_ requested: String) throws -> String {
         switch requested {
-        case "auto", "simulation", "runtime", "touch":
+        case "auto", "simulation", "runtime":
             return requested
         case "native":
             return "simulation"
         default:
-            throw CLIError("Unsupported action backend: \(requested). Loupe currently supports native, runtime, or touch.")
+            throw CLIError("Unsupported action backend: \(requested). Loupe currently supports simulation or runtime.")
         }
     }
 

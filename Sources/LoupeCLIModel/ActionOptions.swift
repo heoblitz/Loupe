@@ -16,7 +16,6 @@ package struct ActionOptions: ActionDispatchOptions {
     package var point: LoupePoint?
     package var endPoint: LoupePoint?
     package var screen: LoupeSize
-    package var holdDuration: Double
     package var duration: Double?
     package var text: String?
     package var press: String?
@@ -42,7 +41,6 @@ package struct ActionOptions: ActionDispatchOptions {
         var snapshotURL: URL?
         var point: LoupePoint?
         var endPoint: LoupePoint?
-        var holdDuration = 0.0
         var duration: Double?
         var text: String?
         var press: String?
@@ -128,8 +126,6 @@ package struct ActionOptions: ActionDispatchOptions {
                 screenWidth = try Self.double(after: argument, in: arguments, index: &index)
             case "--height":
                 screenHeight = try Self.double(after: argument, in: arguments, index: &index)
-            case "--hold-duration":
-                holdDuration = try Self.double(after: argument, in: arguments, index: &index)
             case "--duration":
                 duration = try Self.double(after: argument, in: arguments, index: &index)
             case "--timeout":
@@ -196,19 +192,9 @@ package struct ActionOptions: ActionDispatchOptions {
         self.snapshotURL = snapshotURL
         self.point = point
         self.endPoint = endPoint
-        guard holdDuration.isFinite, holdDuration >= 0, holdDuration <= 10 else {
-            throw CLIError("--hold-duration must be finite and between 0 and 10 seconds")
-        }
-        if holdDuration > 0, !["tap", "drag"].contains(command) {
-            throw CLIError("--hold-duration is supported only for tap and drag")
-        }
         if let duration, (!duration.isFinite || duration <= 0 || duration > 10) {
             throw CLIError("--duration must be finite and greater than 0, up to 10 seconds")
         }
-        guard holdDuration + (duration ?? (command == "tap" ? 0.05 : 0.6)) <= 10 else {
-            throw CLIError("Total touch duration must not exceed 10 seconds")
-        }
-        self.holdDuration = holdDuration
         self.duration = duration
         self.text = text
         self.press = press

@@ -303,7 +303,6 @@ int LoupeHIDDrag(
     double width,
     double height,
     double duration,
-    double holdDuration,
     char **errorMessage
 )
 {
@@ -318,7 +317,6 @@ int LoupeHIDDrag(
         useconds_t stepDelay = (useconds_t)MAX(1, duration / (double)steps * 1000000.0);
         CGPoint startRatio = LoupeHIDRatio(startX, startY, width, height);
         LoupeHIDSendMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, startRatio, LoupeHIDDirectionDown));
-        if (holdDuration > 0) usleep((useconds_t)(holdDuration * 1000000.0));
         for (int index = 1; index <= steps; index += 1) {
             usleep(stepDelay);
             double progress = (double)index / (double)steps;

@@ -12,16 +12,22 @@ struct TouchOptionsTests {
         #expect(LoupeCLI.resolvedActionBackend(requested: "runtime", command: "tap", runtimeIdentity: identity) == "runtime")
     }
 
-    @Test func parsesHeldTapAndRejectsInvalidTiming() throws {
-        let options = try ActionOptions(command: "tap", arguments: ["--test-id", "gesture", "--hold-duration", "0.7"])
-        #expect(options.holdDuration == 0.7)
+    @Test func usesExistingDurationAndRejectsInvalidTiming() throws {
+        let options = try ActionOptions(command: "tap", arguments: ["--test-id", "gesture", "--duration", "0.7"])
+        #expect(options.duration == 0.7)
         for raw in ["nan", "inf", "-1", "11"] {
             #expect(throws: CLIError.self) {
-                try ActionOptions(command: "tap", arguments: ["--test-id", "gesture", "--hold-duration", raw])
+                try ActionOptions(command: "tap", arguments: ["--test-id", "gesture", "--duration", raw])
             }
         }
+    }
+
+    @Test func privateTouchControlsAreNotPublicCLIOptions() async {
         #expect(throws: CLIError.self) {
-            try ActionOptions(command: "swipe", arguments: ["--from", "10,10", "--to", "10,100", "--hold-duration", "0.7"])
+            try ActionOptions(command: "tap", arguments: ["--test-id", "gesture", "--hold-duration", "0.7"])
+        }
+        await #expect(throws: CLIError.self) {
+            try await LoupeCLI.action(command: "tap", arguments: ["--test-id", "gesture", "--backend", "touch"])
         }
     }
 }
