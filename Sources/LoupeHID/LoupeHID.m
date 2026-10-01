@@ -315,13 +315,15 @@ int LoupeHIDDrag(
 
         int steps = MAX(1, (int)ceil(hypot(endX - startX, endY - startY) / 20.0));
         useconds_t stepDelay = (useconds_t)MAX(1, duration / (double)steps * 1000000.0);
-        for (int index = 0; index <= steps; index += 1) {
+        CGPoint startRatio = LoupeHIDRatio(startX, startY, width, height);
+        LoupeHIDSendMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, startRatio, LoupeHIDDirectionDown));
+        for (int index = 1; index <= steps; index += 1) {
+            usleep(stepDelay);
             double progress = (double)index / (double)steps;
             double x = startX + ((endX - startX) * progress);
             double y = startY + ((endY - startY) * progress);
             CGPoint ratio = LoupeHIDRatio(x, y, width, height);
             LoupeHIDSendMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, LoupeHIDDirectionDown));
-            usleep(stepDelay);
         }
         CGPoint endRatio = LoupeHIDRatio(endX, endY, width, height);
         LoupeHIDSendMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, endRatio, LoupeHIDDirectionUp));

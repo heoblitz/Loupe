@@ -2069,4 +2069,13 @@ private func normalizedEnumValue(_ rawValue: String) -> String {
 private func mutationTypeName(of value: AnyObject) -> String {
     String(describing: type(of: value))
 }
+#else
+public extension LoupeAgent {
+    func performTouchAction(_: LoupeRuntimeTouchActionRequest) throws -> LoupeRuntimeTouchActionResponse {
+        throw LoupeMutationError(
+            code: "unsupported_platform",
+            message: "Synthetic UIKit touch actions are unavailable on this platform."
+        )
+    }
+}
 #endif

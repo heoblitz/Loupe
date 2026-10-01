@@ -192,6 +192,9 @@ package struct ActionOptions: ActionDispatchOptions {
         self.snapshotURL = snapshotURL
         self.point = point
         self.endPoint = endPoint
+        if let duration, (!duration.isFinite || duration <= 0 || duration > 10) {
+            throw CLIError("--duration must be finite and greater than 0, up to 10 seconds")
+        }
         self.duration = duration
         self.text = text
         self.press = press
@@ -248,7 +251,16 @@ package struct ActionOptions: ActionDispatchOptions {
         guard let url = URL(string: raw) else {
             throw CLIError("Invalid URL for \(option): \(raw)")
         }
-        return url
+        return normalizedHostURL(url)
+    }
+
+    private static func normalizedHostURL(_ url: URL) -> URL {
+        guard let host = url.host(), host != host.lowercased() else {
+            return url
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = host.lowercased()
+        return components?.url ?? url
     }
 
     private static func expectVisibleSelector(from raw: String) -> LoupeSelector {

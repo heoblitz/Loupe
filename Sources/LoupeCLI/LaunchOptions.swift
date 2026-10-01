@@ -62,7 +62,7 @@ struct LaunchOptions {
                 guard let url = URL(string: raw) else {
                     throw CLIError("Invalid --host URL: \(raw)")
                 }
-                host = url
+                host = Self.normalizedHostURL(url)
             case "--port":
                 let raw = try Self.value(after: argument, in: arguments, index: &index)
                 guard let value = UInt16(raw), value > 0 else {
@@ -128,5 +128,14 @@ struct LaunchOptions {
             throw CLIError("\(option) expects a number")
         }
         return value
+    }
+
+    private static func normalizedHostURL(_ url: URL) -> URL {
+        guard let host = url.host(), host != host.lowercased() else {
+            return url
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = host.lowercased()
+        return components?.url ?? url
     }
 }

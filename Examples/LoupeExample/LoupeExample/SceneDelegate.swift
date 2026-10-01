@@ -31,6 +31,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private func applyInitialRoute(to navigationController: UINavigationController) {
         let route = ProcessInfo.processInfo.environment["LOUPE_EXAMPLE_ROUTE"] ?? ""
         switch route {
+        case "touch":
+            navigationController.setViewControllers([TouchFixtureViewController()], animated: false)
         case "detail":
             navigationController.pushViewController(
                 DetailViewController(

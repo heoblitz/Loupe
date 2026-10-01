@@ -1309,6 +1309,7 @@ private func performAppKitAccessibilityAction(
     return false
 }
 
+@MainActor
 private func performModernAppKitAccessibilityAction(
     _ action: LoupeAccessibilityAction,
     on view: NSView
@@ -1329,6 +1330,7 @@ private func performModernAppKitAccessibilityAction(
     }
 }
 
+@MainActor
 private func performModernAppKitAccessibilityAction(
     _ action: LoupeAccessibilityAction,
     on element: NSAccessibilityElement

@@ -21,6 +21,7 @@ run_step "watchOS example E2E" Examples/LoupeWatchExample/run-watchos-runtime-e2
 run_step "injected log E2E" Examples/LoupeExample/run-injected.sh
 run_step "runtime E2E" Examples/LoupeExample/run-runtime-e2e.sh
 run_step "native scenario E2E" Examples/LoupeExample/run-native-scenarios.sh
+run_step "touch gesture E2E" Examples/LoupeExample/run-touch-e2e.sh
 run_step "bookmark E2E" Examples/LoupeExample/run-bookmark-e2e.sh
 
 echo "agent work verification passed"

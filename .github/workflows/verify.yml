@@ -211,6 +211,9 @@ jobs:
       - name: Run native scenario E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Native Scenario E2E" Examples/LoupeExample/run-native-scenarios.sh
 
+      - name: Run touch gesture E2E
+        run: scripts/ci-run-with-diagnostics.sh "iOS Touch Gesture E2E" Examples/LoupeExample/run-touch-e2e.sh
+
       - name: Upload iOS native diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -219,6 +222,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-native-*
+            /tmp/loupe-touch-*
             /tmp/loupe-ci-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log

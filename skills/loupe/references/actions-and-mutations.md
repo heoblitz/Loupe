@@ -45,9 +45,18 @@ next alias action.
 - `act wait`, `act drag`, and `debug scroll` need explicit postconditions:
   selector, key or coordinates, output/trace path, expected state, and fresh
   after-proof.
-- iOS/tvOS simulators use native HID. macOS tap is AppKit control activation.
-  watchOS, visionOS, and custom SwiftUI surfaces may correctly fail unless
-  trace/screenshot/report/probe/state evidence proves otherwise.
+- Use the same tap/swipe/drag commands on simulators and physical iOS devices.
+  Loupe selects simulator HID or in-app touch from the runtime identity.
+  The existing `--backend runtime` and `act perform` retain their declared
+  accessibility actions. No touch-specific CLI options are required.
+- The existing `--duration` controls touch duration; a longer tap can exercise
+  a long-press recognizer. The internal touch dispatcher also supports holding
+  before a drag. Touch requests validate coordinates, screen size, timing,
+  foreground state, and private API availability. Failed/partial touches are
+  cancelled and never retried through a different backend. Runtime touch
+  requires a Debug injector.
+- macOS tap is AppKit activation. watchOS, visionOS,
+  and custom SwiftUI surfaces may correctly fail without stronger evidence.
 
 ## Mutations
 

@@ -1324,7 +1324,7 @@ struct LoupeCLI {
         try simctl.run()
         simctl.waitUntilExit()
         print("simctl: \(simctl.terminationStatus == 0 ? "ok" : "unavailable")")
-        print("action backend native: ok")
+        print("action backend simulation: ok")
     }
 
     private static func resolvedInjectorPath(
@@ -2210,7 +2210,7 @@ struct LoupeCLI {
 
     static func action(command: String, arguments: [String]) async throws {
         var options = try ActionOptions(command: command, arguments: arguments)
-        try validateActionBackend(options.backend)
+        options.backend = try normalizedActionBackend(options.backend)
         var target: ActionTarget?
         var aliasCache: ActionTargetAliasCache?
         do {
@@ -2219,6 +2219,7 @@ struct LoupeCLI {
                options.screen.width > 0,
                options.screen.height > 0,
                options.traceDirectory == nil,
+               !["runtime", "touch"].contains(options.backend),
                !options.hostWasExplicit,
                options.bundleID == nil,
                options.expectVisibleSelector == nil {
@@ -2260,11 +2261,18 @@ struct LoupeCLI {
                 command: command,
                 runtimeIdentity: runtimeState.identity
             )
-            let usesRuntimeActivation = options.backend == "runtime"
-            if usesRuntimeActivation && command != "tap" {
+            let usesRuntimeBackend = ["runtime", "touch"].contains(options.backend)
+            if options.backend == "runtime", command != "tap" {
                 throw CLIError("runtime action backend currently supports tap only")
             }
-            if !usesRuntimeActivation {
+            if options.backend == "touch", runtimeState.identity.platform != "iOS" {
+                throw CLIError("touch backend requires a linked iOS debug runtime")
+            }
+            if options.backend == "touch", options.udidWasExplicit,
+               runtimeState.identity.deviceIdentifier != options.udid {
+                throw CLIError("Runtime device identifier does not match --device \(options.udid)")
+            }
+            if !usesRuntimeBackend {
                 try validateRuntimeIdentity(state: runtimeState, expectedUDID: options.udid, host: options.host)
             }
             if let traceDirectory = options.traceDirectory {
@@ -2295,7 +2303,9 @@ struct LoupeCLI {
                     to: traceDirectory.appendingPathComponent("action-target.json")
                 )
             }
-            if usesRuntimeActivation {
+            if options.backend == "touch" {
+                try await dispatchRuntimeTouchAction(command: command, options: options, target: resolvedTarget)
+            } else if options.backend == "runtime" {
                 try await dispatchRuntimeActivation(options: options, target: resolvedTarget)
             } else {
                 try dispatchAction(command: command, options: options, target: resolvedTarget)
@@ -2854,6 +2864,29 @@ struct LoupeCLI {
         return try JSONDecoder().decode(LoupeActivationResponse.self, from: data)
     }
 
+    private static func postRuntimeTouchAction(
+        _ action: LoupeRuntimeTouchActionRequest,
+        host: URL,
+        timeout: TimeInterval
+    ) async throws -> LoupeRuntimeTouchActionResponse {
+        let body = try makeLoupeJSONEncoder().encode(action)
+        var request = URLRequest(url: host.appendingPathComponent("input/touch"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let (data, response) = try await RuntimeHTTPClient.shared.data(for: request, timeout: timeout, label: "runtime touch action")
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CLIError("runtime touch action expected an HTTP response")
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let body = String(decoding: data, as: UTF8.self)
+            throw CLIError("runtime touch action failed with HTTP \(httpResponse.statusCode): \(body)")
+        }
+        return try JSONDecoder().decode(LoupeRuntimeTouchActionResponse.self, from: data)
+    }
+
     private static func writeSnapshot(_ snapshot: LoupeSnapshot, to url: URL) throws {
         try makeLoupeJSONEncoder().encode(snapshot).write(to: url)
     }
@@ -2957,13 +2990,18 @@ struct LoupeCLI {
         command: String,
         runtimeIdentity: LoupeRuntimeIdentity
     ) -> String {
-        guard requested == "auto", command == "tap" else {
-            return requested
+        guard requested == "auto" else { return requested }
+        if ["tap", "swipe", "drag"].contains(command), runtimeSupportsTouchActions(runtimeIdentity) {
+            return "touch"
         }
-        if let simulatorUDID = runtimeIdentity.simulatorUDID, !simulatorUDID.isEmpty {
-            return "auto"
+        if command == "tap", runtimeIdentity.simulatorUDID?.isEmpty != false {
+            return "runtime"
         }
-        return "runtime"
+        return "auto"
+    }
+
+    static func runtimeSupportsTouchActions(_ identity: LoupeRuntimeIdentity) -> Bool {
+        identity.platform == "iOS" && identity.simulatorUDID?.isEmpty != false
     }
 
     static func validateRuntimeIdentity(host: URL, expectedUDID: String, timeout: TimeInterval = 5) async throws {
@@ -3215,7 +3253,7 @@ struct LoupeCLI {
             to: traceDirectory.appendingPathComponent("action-before.json")
         )
 
-        if options.backend != "runtime" {
+        if !["runtime", "touch"].contains(options.backend) {
             let udid = try resolvedBackendUDID(options.udid)
             try captureSimulatorScreenshot(
                 udid: udid,
@@ -3236,11 +3274,6 @@ struct LoupeCLI {
             try await fetchAccessibilityTree(host: options.host, fallbackSnapshot: snapshot, timeout: options.timeout),
             to: traceDirectory.appendingPathComponent("after-accessibility.json")
         )
-        try? await writeRuntimeTracePayload(
-            host: options.host,
-            path: "logs",
-            to: traceDirectory.appendingPathComponent("after-logs.json")
-        )
         try writeActionRecord(
             command: command,
             options: options,
@@ -3249,7 +3282,7 @@ struct LoupeCLI {
             to: traceDirectory.appendingPathComponent("action-after.json")
         )
 
-        if options.backend != "runtime" {
+        if !["runtime", "touch"].contains(options.backend) {
             let udid = try resolvedBackendUDID(options.udid)
             let screenshotURL = traceDirectory.appendingPathComponent("after.png")
             try captureSimulatorScreenshot(udid: udid, outputURL: screenshotURL)
@@ -3259,6 +3292,12 @@ struct LoupeCLI {
                 outputURL: traceDirectory.appendingPathComponent("target-crop.png")
             )
         }
+
+        try? await writeRuntimeTracePayload(
+            host: options.host,
+            path: "logs",
+            to: traceDirectory.appendingPathComponent("after-logs.json")
+        )
     }
 
     private static func writeFailureTrace(
@@ -3523,7 +3562,7 @@ struct LoupeCLI {
 
     private static func dispatchAction(command: String, options: ActionDispatchOptions, target: ActionTarget) throws {
         guard command != "pinch" else {
-            throw CLIError("pinch is not supported by the native HID backend yet")
+            throw CLIError("pinch is not supported by the simulation backend yet")
         }
 
         try validateActionBackend(options.backend)
@@ -3533,7 +3572,12 @@ struct LoupeCLI {
         let status: Int32
         switch command {
         case "tap":
-            status = LoupeHIDTap(udid, mappedPoint.x, mappedPoint.y, target.screen.width, target.screen.height, &errorMessage)
+            if let duration = options.duration {
+                status = LoupeHIDDrag(udid, mappedPoint.x, mappedPoint.y, mappedPoint.x, mappedPoint.y,
+                    target.screen.width, target.screen.height, duration, &errorMessage)
+            } else {
+                status = LoupeHIDTap(udid, mappedPoint.x, mappedPoint.y, target.screen.width, target.screen.height, &errorMessage)
+            }
         case "swipe", "drag":
             let end = try options.requireEndPoint(command: command)
             let mappedEnd = mapToDisplayPoint(end)
@@ -3553,7 +3597,7 @@ struct LoupeCLI {
         case "press":
             status = LoupeHIDPress(udid, options.press ?? "", &errorMessage)
         case "pinch":
-            throw CLIError("pinch is not supported by the native HID backend yet")
+            throw CLIError("pinch is not supported by the simulation backend yet")
         default:
             throw CLIError("Unsupported action command: \(command)")
         }
@@ -3561,10 +3605,10 @@ struct LoupeCLI {
         if let errorMessage {
             defer { LoupeHIDFreeCString(errorMessage) }
             if status != 0 {
-                throw CLIError("native HID \(command) failed: \(String(cString: errorMessage))")
+                throw CLIError("simulation \(command) failed: \(String(cString: errorMessage))")
             }
         } else if status != 0 {
-            throw CLIError("native HID \(command) failed")
+            throw CLIError("simulation \(command) failed")
         }
     }
 
@@ -3598,6 +3642,30 @@ struct LoupeCLI {
             accessibilityTarget: accessibilityTarget
         )
         _ = try await postActivation(request, host: options.host, timeout: options.timeout)
+    }
+
+    private static func dispatchRuntimeTouchAction(command: String, options: ActionOptions, target: ActionTarget) async throws {
+        let runtimeCommand: LoupeRuntimeTouchActionCommand
+        switch command {
+        case "tap":
+            runtimeCommand = .tap
+        case "swipe":
+            runtimeCommand = .swipe
+        case "drag":
+            runtimeCommand = .drag
+        default:
+            throw CLIError("runtime action backend currently supports tap, swipe, and drag")
+        }
+
+        let endPoint = command == "tap" ? nil : try options.requireEndPoint(command: command)
+        let request = LoupeRuntimeTouchActionRequest(
+            command: runtimeCommand,
+            start: target.point,
+            end: endPoint,
+            duration: options.duration,
+            screen: target.screen
+        )
+        _ = try await postRuntimeTouchAction(request, host: options.host, timeout: options.timeout)
     }
 
     static func activationSelector(from selector: LoupeSelector) throws -> LoupeMutationSelector {
@@ -3649,8 +3717,17 @@ struct LoupeCLI {
     }
 
     private static func validateActionBackend(_ requested: String) throws {
-        guard requested == "auto" || requested == "native" || requested == "runtime" else {
-            throw CLIError("Unsupported action backend: \(requested). Loupe currently supports native or runtime.")
+        _ = try normalizedActionBackend(requested)
+    }
+
+    private static func normalizedActionBackend(_ requested: String) throws -> String {
+        switch requested {
+        case "auto", "simulation", "runtime":
+            return requested
+        case "native":
+            return "simulation"
+        default:
+            throw CLIError("Unsupported action backend: \(requested). Loupe currently supports simulation or runtime.")
         }
     }
 

@@ -223,6 +223,26 @@ final class LoupeRequestHandler: Sendable {
             } catch {
                 return ResponsePayload(status: 400, body: errorBody("activation_failed", error: error))
             }
+        case "/input/touch":
+            guard request.method == "POST" else {
+                return ResponsePayload(status: 405, body: #"{"error":"method_not_allowed"}"#)
+            }
+            do {
+                let action = try JSONDecoder().decode(LoupeRuntimeTouchActionRequest.self, from: request.body)
+                #if canImport(UIKit) && os(iOS)
+                try await captureUI(execution) { () }
+                let response = try await LoupeTouchDispatcher.perform(action)
+                #else
+                throw LoupeMutationError(code: "touch_backend_unavailable", message: "Touch input requires a physical iOS debug runtime.")
+                #endif
+                #if canImport(UIKit) && os(iOS)
+                return jsonPayload(response, failureCode: "touch_action_encoding_failed")
+                #endif
+            } catch let error as LoupeMutationError {
+                return ResponsePayload(status: error.status, body: errorBody(error.code, message: error.message))
+            } catch {
+                return ResponsePayload(status: 400, body: errorBody("touch_action_failed", error: error))
+            }
         case "/constraint":
             guard request.method == "POST" else {
                 return ResponsePayload(status: 405, body: #"{"error":"method_not_allowed"}"#)
