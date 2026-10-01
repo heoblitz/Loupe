@@ -117,9 +117,8 @@ loupe injector-path --macos
 
 ## Current Status
 
-The stable formula currently points at `v0.3.0`. Bottle publication starts with
-the next release that uses the workflow above. The workflow builds Apple Silicon
-and Intel packages on macOS 15; compatible bottle installs avoid local Swift
+The stable formula currently points at `v0.4.0`. The workflow above publishes
+Apple Silicon and Intel bottles built on macOS 15; compatible installs avoid local Swift
 compilation. Other supported source-build environments retain that path. Xcode
 is still needed for simulator/device tooling during Loupe use.
 
