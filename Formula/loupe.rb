@@ -6,6 +6,12 @@ class Loupe < Formula
   license "MIT"
   head "https://github.com/heoblitz/Loupe.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/heoblitz/Loupe/releases/download/v0.4.0"
+    sha256 arm64_sequoia: "20dc71dde908e9a8ca0afd6ca83a2549a137fab2f7a6aa0cbb16d7028a835290"
+    sha256 sequoia:       "f72f49b227768f8cf99749a9c0f196ca16a00ed4296d11e35c9ebbd2171d34fe"
+  end
+
   depends_on xcode: ["16.0", :build]
 
   def swift_build(*args)

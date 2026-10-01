@@ -223,6 +223,8 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.repository.default_branch }}
+          # setup-homebrew configures Git authentication at global scope.
+          persist-credentials: false
 
       - name: Revalidate publication target
         shell: bash
