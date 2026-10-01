@@ -75,22 +75,27 @@ Update the source URL and checksum, remove the previous `bottle do` block, and
 commit the Formula change to `main`.
 
 4. In GitHub Actions, run **Homebrew Bottles** from `main` and enter `X.Y.Z`.
-The workflow verifies that the Formula, tag, and draft Release agree, then:
+The workflow verifies the Formula and immutable source tag, then:
 
 - builds Apple Silicon and Intel bottles;
 - installs each generated bottle and requires `poured_from_bottle: true`;
 - runs the Formula test and verifies the CLI and both injector code signatures
   on Apple Silicon;
+- verifies that the matching GitHub Release is still a draft before uploading;
 - uploads both bottles to the draft Release; and
 - generates and commits the new Formula `bottle do` block.
 
 Pull requests that change the Formula or bottle workflow run the build and pour
 checks but never upload assets or modify `main`.
 
-5. Wait for the Formula commit's Verify workflow, then publish the draft
-Release:
+5. After the bottle workflow completes, run **Verify** from `main`. The workflow's
+Formula commit uses `GITHUB_TOKEN`, so its push does not start another workflow
+automatically. Wait for all Verify jobs to pass on that commit, then publish the
+draft Release:
 
 ```bash
+gh workflow run verify.yml --ref main
+# Wait for every Verify job to pass before publishing.
 gh release edit vX.Y.Z --draft=false
 ```
 

@@ -39,7 +39,9 @@ class Loupe < Formula
       "--scratch-path", buildpath/".build/homebrew-loupe-macos-injector",
       "--product", "LoupeInjector"
     )
-    (libexec/"LoupeInjector.framework/macos").install macos_injector_bin_path/"libLoupeInjector.dylib" => "LoupeInjector"
+    (libexec/"LoupeInjector.framework/macos").install(
+      macos_injector_bin_path/"libLoupeInjector.dylib" => "LoupeInjector",
+    )
   end
 
   test do
