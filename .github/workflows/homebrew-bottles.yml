@@ -282,6 +282,13 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          for metadata in bottle-output/*.bottle.json; do
+            local_filename="$(jq -r '.[] .bottle.tags[].local_filename' "$metadata")"
+            public_filename="$(jq -r '.[] .bottle.tags[].filename' "$metadata")"
+            if [[ "$local_filename" != "$public_filename" ]]; then
+              mv "bottle-output/$local_filename" "bottle-output/$public_filename"
+            fi
+          done
           bottles=(bottle-output/*.bottle.tar.gz)
           if [[ "${#bottles[@]}" != "2" ]]; then
             echo "::error::Expected two bottles, found ${#bottles[@]}."
