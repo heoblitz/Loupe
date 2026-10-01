@@ -4,7 +4,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 source Examples/LoupeExample/build-simulator-artifacts.sh
 export LOUPE_EXAMPLE_BUILD_ROOT="${LOUPE_EXAMPLE_BUILD_ROOT:-/tmp/loupe-touch-e2e-build}"
-DEVICE="${LOUPE_DEVICE:-$(xcrun simctl list devices available --json | python3 -c 'import json,sys; ds=json.load(sys.stdin)["devices"]; print(next(d["udid"] for group in ds.values() for d in group if d["name"] == "iPhone 17 Pro"))')}"
+DEVICE="${LOUPE_DEVICE:-$(xcrun simctl list devices available --json | python3 -c '
+import json,sys
+devices = [d for group in json.load(sys.stdin)["devices"].values() for d in group if d["name"] == "iPhone 17 Pro"]
+booted = next((d for d in devices if d["state"] == "Booted"), None)
+print((booted or devices[0])["udid"])
+')}"
+echo "touch E2E simulator: $DEVICE"
 xcrun simctl boot "$DEVICE" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$DEVICE" -b >/tmp/loupe-touch-boot.log 2>&1
 swift build --product loupe >/tmp/loupe-touch-cli-build.log 2>&1
