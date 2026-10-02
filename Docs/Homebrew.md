@@ -86,7 +86,9 @@ The workflow verifies the Formula and immutable source tag, then:
 - generates and commits the new Formula `bottle do` block.
 
 Pull requests that change the Formula or bottle workflow run the build and pour
-checks but never upload assets or modify `main`.
+checks plus UIKit/SwiftUI touch and input E2E with the poured CLI and injector.
+The harness builds only the fixture app. It never rebuilds the installed CLI
+or injector, uploads release assets, or modifies `main` during PR checks.
 
 5. After the bottle workflow completes, run **Verify** from `main`. The workflow's
 Formula commit uses `GITHUB_TOKEN`, so its push does not start another workflow
@@ -133,5 +135,6 @@ and embed LoupeInjector through SwiftPM in their own signed development build.
 
 PR checks package the PR source and prove a bottle can be poured, so they do
 not accidentally test an older tagged release. Release publication uses the
-immutable source tag in the formula. Both architectures must pass before the
-manual publication job uploads any package.
+immutable source tag in the formula. Both architectures must pass their macOS 15 build/pour checks and their separate
+macOS 26 UIKit/SwiftUI runtime checks using those same downloaded bottles before
+the manual publication job uploads any package.

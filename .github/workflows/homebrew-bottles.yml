@@ -10,6 +10,12 @@ on:
       - Formula/loupe.rb
       - Package.swift
       - Sources/**
+      - Examples/LoupeExample/**
+      - scripts/ci-ios-touch-simulator.py
+      - scripts/ci-prepare-intel-host.py
+      - scripts/ci_simulator_readiness.py
+      - scripts/ci-simulator-boot-status.m
+      - scripts/test-ci-simulator-readiness.py
       - skills/loupe/**
   workflow_dispatch:
     inputs:
@@ -24,6 +30,11 @@ permissions:
 concurrency:
   group: homebrew-bottles-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  # Avoid Bootsnap/Bundler recursive locking before brew test can run.
+  # This disables an optional Ruby load cache; all bottle checks still run.
+  HOMEBREW_NO_BOOTSNAP: "1"
 
 jobs:
   metadata:
@@ -145,19 +156,24 @@ jobs:
             File.write(path, text)
           '
 
-      - name: Build and test the Formula
+      - name: Build the Formula
         shell: bash
         run: |
           set -euo pipefail
           brew uninstall --force "$FORMULA" >/dev/null 2>&1 || true
           brew install --build-bottle "$FORMULA"
+
+      - name: Test the built Formula
+        shell: bash
+        run: |
+          set -euo pipefail
           brew test "$FORMULA"
 
       - name: Upload Homebrew build logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-homebrew-logs-${{ matrix.artifact }}
+          name: loupe-homebrew-logs-${{ matrix.artifact }}-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: ~/Library/Logs/Homebrew/loupe
 
@@ -195,9 +211,125 @@ jobs:
       - name: Upload bottle artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-bottles-${{ matrix.artifact }}
+          name: loupe-bottles-${{ matrix.artifact }}-${{ github.run_attempt }}
           if-no-files-found: error
           path: bottle-output/*
+
+  bottle-runtime:
+    name: Bottled iOS runtime (${{ matrix.label }})
+    needs: [metadata, bottle]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple Silicon
+            runner: macos-26
+            artifact: arm64
+            runtime: "26.2"
+            xcode: "26.2"
+            device: iPhone-17-Pro
+            architecture: arm64
+          - label: Intel
+            runner: macos-26-intel
+            artifact: intel
+            runtime: "26.5"
+            xcode: "26.6"
+            device: iPhone-17-Pro
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_FROM_API: "1"
+      FORMULA: heoblitz/loupe/loupe
+      VERSION: ${{ needs.metadata.outputs.version }}
+      LOUPE_TOUCH_RUNTIME_VERSION: ${{ matrix.runtime }}
+      LOUPE_TOUCH_DEVICE_TYPE: com.apple.CoreSimulator.SimDeviceType.${{ matrix.device }}
+      LOUPE_TOUCH_ARCHITECTURE: ${{ matrix.architecture }}
+      DEVELOPER_DIR: /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use the preinstalled Homebrew
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "$LOUPE_TOUCH_ARCHITECTURE"
+          brew --version
+
+      - name: Register the repository as a tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          tap_dir="$(brew --repository)/Library/Taps/heoblitz/homebrew-loupe"
+          mkdir -p "$(dirname "$tap_dir")"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir"
+          brew trust heoblitz/loupe
+
+      - name: Download the verified macOS 15 bottle
+        uses: actions/download-artifact@v4
+        with:
+          name: loupe-bottles-${{ matrix.artifact }}-${{ github.run_attempt }}
+          path: bottle-output
+
+      - name: Install the bottle on the runtime host
+        shell: bash
+        run: |
+          set -euo pipefail
+          bottle_path="$(find "$GITHUB_WORKSPACE/bottle-output" -maxdepth 1 -name '*.bottle.tar.gz' -print -quit)"
+          test -n "$bottle_path"
+          HOMEBREW_DEVELOPER=1 brew install --force-bottle "$bottle_path"
+          prefix="$(brew --prefix "$FORMULA")"
+          jq -e '.poured_from_bottle == true' "$prefix/INSTALL_RECEIPT.json" >/dev/null
+          test "$("$prefix/bin/loupe" --version)" = "loupe $VERSION"
+          echo "LOUPE_BOTTLE_PREFIX=$prefix" >> "$GITHUB_ENV"
+
+      - name: Prepare the disposable Intel host for the known icon crash
+        if: matrix.artifact == 'intel'
+        shell: bash
+        run: python3 scripts/ci-prepare-intel-host.py /tmp/loupe-touch-ci-simulator.json
+
+      - name: Prepare an isolated iOS Simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/ci-print-toolchain.sh
+          python3 scripts/ci-ios-touch-simulator.py create /tmp/loupe-touch-ci-simulator.json
+          device="$(python3 -c 'import json; print(json.load(open("/tmp/loupe-touch-ci-simulator.json"))["device"])')"
+          echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
+          echo "LOUPE_TOUCH_PRECONFIGURED_INPUT=1" >> "$GITHUB_ENV"
+
+      - name: Test the bottle after the selected simulator is ready
+        shell: bash
+        run: brew test "$FORMULA"
+
+      - name: Verify bottled iOS gestures and input
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="$LOUPE_BOTTLE_PREFIX"
+          LOUPE_HID_DIAGNOSTICS=1 \
+          LOUPE_TOUCH_CLI="$prefix/bin/loupe" \
+          LOUPE_EXAMPLE_PREBUILT_INJECTOR="$prefix/libexec/LoupeInjector.framework/LoupeInjector" \
+          LOUPE_EXAMPLE_BUILD_ROOT=/tmp/loupe-bottle-runtime \
+            Examples/LoupeExample/run-touch-e2e.sh
+
+      - name: Upload bottled runtime diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-bottle-runtime-${{ matrix.artifact }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          path: |
+            /tmp/loupe-touch-*
+            /tmp/loupe-example-build.log
+
+      - name: Remove the owned touch simulator
+        if: always()
+        shell: bash
+        run: python3 scripts/ci-ios-touch-simulator.py delete /tmp/loupe-touch-ci-simulator.json
 
   publish:
     name: Publish bottles
@@ -205,6 +337,7 @@ jobs:
     needs:
       - metadata
       - bottle
+      - bottle-runtime
     runs-on: macos-15
     permissions:
       actions: read
@@ -242,7 +375,7 @@ jobs:
       - name: Download bottles
         uses: actions/download-artifact@v4
         with:
-          pattern: loupe-bottles-*
+          pattern: loupe-bottles-*-${{ github.run_attempt }}
           path: bottle-output
           merge-multiple: true
 

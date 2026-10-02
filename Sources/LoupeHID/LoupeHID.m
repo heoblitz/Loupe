@@ -364,7 +364,7 @@ static void LoupeHIDWaitUntil(double deadline)
     dispatch_source_cancel(timer);
 }
 
-static void LoupeHIDRunGesture(dispatch_block_t gesture)
+static void LoupeHIDRunInputTask(const char *phase, NSString *reason, dispatch_block_t operation)
 {
     static dispatch_queue_t queue;
     static dispatch_once_t once;
@@ -372,16 +372,26 @@ static void LoupeHIDRunGesture(dispatch_block_t gesture)
         queue = dispatch_queue_create("dev.loupe.hid.gesture",
             dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
     });
-    // Unlike dispatch_sync, async_and_wait observes the queue's QoS. Touch
-    // timing must not inherit a background caller's timer coalescing policy.
-    dispatch_async_and_wait(queue, ^{
+    // Enqueue on the interactive worker instead of executing synchronously
+    // on the caller. A nested async_and_wait from the main thread can leave
+    // SimulatorKit's ROCKit proxy without its expected dispatch context.
+    // The completion also keeps output pointers alive until preparation ends.
+    dispatch_semaphore_t completed = dispatch_semaphore_create(0);
+    dispatch_async(queue, ^{
         const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
         if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {
-            fprintf(stderr, "loupe.hid.gesture qos=%u\n", qos_class_self());
+            fprintf(stderr, "loupe.hid.%s qos=%u\n", phase, qos_class_self());
         }
         [NSProcessInfo.processInfo performActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
-            reason:@"Deliver requested simulator gesture" usingBlock:gesture];
+            reason:reason usingBlock:operation];
+        dispatch_semaphore_signal(completed);
     });
+    dispatch_semaphore_wait(completed, DISPATCH_TIME_FOREVER);
+}
+
+static void LoupeHIDRunGesture(dispatch_block_t gesture)
+{
+    LoupeHIDRunInputTask("gesture", @"Deliver requested simulator gesture", gesture);
 }
 
 static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseMessage, CGPoint ratio, int direction)
@@ -455,11 +465,18 @@ static bool LoupeHIDPrepare(NSString *udid, id *client, LoupeHIDFunctions *funct
 
 int LoupeHIDInitialize(const char *udid, char **errorMessage)
 {
-    @autoreleasepool {
-        id client = nil;
-        LoupeHIDFunctions functions;
-        return LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, errorMessage) ? 0 : 1;
-    }
+    __block int status = 1;
+    // Framework loading and client creation are part of the input critical
+    // path too. A Swift .high task still calls us at user-initiated QoS25;
+    // use the same user-interactive queue as delivery before sending any touch.
+    LoupeHIDRunInputTask("prepare", @"Prepare requested simulator input", ^{
+        @autoreleasepool {
+            id client = nil;
+            LoupeHIDFunctions functions;
+            status = LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, errorMessage) ? 0 : 1;
+        }
+    });
+    return status;
 }
 
 int LoupeHIDTap(const char *udid, double x, double y, double width, double height, char **errorMessage)

@@ -12,6 +12,7 @@ run_step() {
 }
 
 run_step "swift test" swift test
+run_step "CI simulator readiness contracts" python3 scripts/test-ci-simulator-readiness.py
 run_step "release CLI build" swift build --configuration release --disable-sandbox --product loupe
 run_step "CLI contracts" python3 scripts/verify-cli-contracts.py .build/release/loupe
 run_step "platform builds" scripts/verify-platform-builds.sh

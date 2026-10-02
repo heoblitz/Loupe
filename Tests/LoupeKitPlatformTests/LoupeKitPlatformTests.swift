@@ -42,6 +42,15 @@ private func availableLoopbackPort() throws -> UInt16 {
 private func connectLoopback(port: UInt16) throws -> Int32 {
     let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
     guard fd >= 0 else { throw SocketTestError.failed("socket") }
+    // Set this before connect: an expired peer can reset before a later
+    // setsockopt, and Darwin then rejects SO_RCVTIMEO with EINVAL.
+    var receiveTimeout = timeval(tv_sec: 2, tv_usec: 0)
+    guard Darwin.setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &receiveTimeout,
+                            socklen_t(MemoryLayout<timeval>.size)) == 0 else {
+        let receiveError = errno
+        Darwin.close(fd)
+        throw SocketTestError.failed("receive timeout errno=\(receiveError)")
+    }
     var address = sockaddr_in()
     address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
     address.sin_family = sa_family_t(AF_INET)
@@ -62,19 +71,11 @@ private func connectLoopback(port: UInt16) throws -> Int32 {
 private func requestLoopback(port: UInt16, request: String) throws -> String {
     let fd = try connectLoopback(port: port)
     defer { Darwin.close(fd) }
-    var receiveTimeout = timeval(tv_sec: 2, tv_usec: 0)
-    Darwin.setsockopt(
-        fd,
-        SOL_SOCKET,
-        SO_RCVTIMEO,
-        &receiveTimeout,
-        socklen_t(MemoryLayout<timeval>.size)
-    )
     try sendAll(Data(request.utf8), to: fd)
     return try receiveLoopbackResponse(from: fd)
 }
 
-private func receiveLoopbackResponse(from fd: Int32) throws -> String {
+private func receiveLoopbackResponse(from fd: Int32, requireClosure: Bool = false) throws -> String {
     var response = Data()
     var bytes = [UInt8](repeating: 0, count: 4096)
     while true {
@@ -83,13 +84,30 @@ private func receiveLoopbackResponse(from fd: Int32) throws -> String {
             response.append(bytes, count: Int(count))
             continue
         }
-        guard count == 0 || errno == EAGAIN else {
-            throw SocketTestError.failed("recv")
+        if count < 0, errno == EINTR { continue }
+        let receiveError = errno
+        // An expired queued request can still have unread client bytes. Darwin
+        // then closes with ECONNRESET after delivering the timeout response.
+        guard count == 0 || (requireClosure && receiveError == ECONNRESET)
+                || (!requireClosure && receiveError == EAGAIN) else {
+            throw SocketTestError.failed("recv errno=\(receiveError), received=\(response.count)")
         }
         break
     }
     guard !response.isEmpty else { throw SocketTestError.failed("empty response") }
-    return String(decoding: response, as: UTF8.self)
+    let text = String(decoding: response, as: UTF8.self)
+    if requireClosure {
+        guard let headerEnd = text.range(of: "\r\n\r\n"),
+              let lengthHeader = text[..<headerEnd.lowerBound]
+                .components(separatedBy: "\r\n")
+                .first(where: { $0.lowercased().hasPrefix("content-length:") }),
+              let contentLength = Int(lengthHeader.dropFirst("Content-Length:".count)
+                .trimmingCharacters(in: .whitespaces)),
+              text[headerEnd.upperBound...].utf8.count == contentLength else {
+            throw SocketTestError.failed("incomplete response before connection closed")
+        }
+    }
+    return text
 }
 
 private func sendAll(_ data: Data, to fd: Int32) throws {
@@ -102,6 +120,38 @@ private func sendAll(_ data: Data, to fd: Int32) throws {
             offset += result
         }
     }
+}
+
+private func responseFromPeerClosingWithUnreadRequest(_ response: String) throws -> String {
+    let listener = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+    guard listener >= 0 else { throw SocketTestError.failed("peer socket") }
+    defer { Darwin.close(listener) }
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = try availableLoopbackPort().bigEndian
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let bound = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard bound == 0, Darwin.listen(listener, 1) == 0 else {
+        throw SocketTestError.failed("peer listen")
+    }
+    let client = try connectLoopback(port: UInt16(bigEndian: address.sin_port))
+    defer { Darwin.close(client) }
+    try sendAll(Data("G".utf8), to: client)
+    let peer = Darwin.accept(listener, nil, nil)
+    guard peer >= 0 else { throw SocketTestError.failed("peer accept") }
+    do {
+        try sendAll(Data(response.utf8), to: peer)
+    } catch {
+        Darwin.close(peer)
+        throw error
+    }
+    Darwin.close(peer) // Leave G unread to exercise Darwin's reset close.
+    return try receiveLoopbackResponse(from: client, requireClosure: true)
 }
 
 private final class ServerLifetimeProbe {
@@ -130,6 +180,20 @@ import SwiftUI
 
 #if canImport(UIKit) || canImport(AppKit)
 @Suite struct LoupeServerTransportTests {
+    @Test(arguments: [false, true])
+    func resetCloseRequiresCompleteTimeoutResponse(truncated: Bool) throws {
+        let body = #"{"error":"request_timeout"}"#
+        let headers = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n"
+        if truncated {
+            #expect(throws: SocketTestError.self) {
+                try responseFromPeerClosingWithUnreadRequest(headers + body.dropLast())
+            }
+        } else {
+            let response = try responseFromPeerClosingWithUnreadRequest(headers + body)
+            #expect(response == headers + body)
+        }
+    }
+
     @Test func unknownEndpointReturnsDecodableJSONError() async throws {
         let port = try availableLoopbackPort()
         let server = LoupeServer()
@@ -297,7 +361,20 @@ import SwiftUI
             try sendAll(Data("G".utf8), to: client)
         }
 
-        try await Task.sleep(nanoseconds: 800_000_000)
+        // connect() can complete while the accept worker is still queued.
+        // Verify actual expiry and close rather than sleeping from client time.
+        let clients = slowClients
+        let expiredResponses = try await offMainActor {
+            try clients.map { client in
+                return try receiveLoopbackResponse(from: client, requireClosure: true)
+            }
+        }
+        for expired in expiredResponses {
+            #expect(expired.contains("HTTP/1.1 503 Service Unavailable"))
+            let body = try httpBody(expired)
+            let error = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: String]
+            #expect(error?["error"] == "request_timeout")
+        }
         let response = try await offMainActor {
             try requestLoopback(port: port, request: "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
         }

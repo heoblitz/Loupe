@@ -44,26 +44,41 @@ def point(test_id, fraction_x=0.5, fraction_y=0.5):
     f = node(test_id)['frame']
     return f'{f["x"] + f["width"] * fraction_x},{f["y"] + f["height"] * fraction_y}'
 
-def act(command, args, trace):
+def act(command, args, trace, expect_rejection=False):
     trace_path = out / trace
     selection = ['--udid', device] if device else []
     trace_arguments = [] if command == 'input' else ['--trace-dir', str(trace_path)]
     arguments = [cli, 'act', command] + args + ['--host', host] + selection + trace_arguments
     started = time.time()
+    def completed_state():
+        phase = 'failure' if expect_rejection else 'after'
+        record_path = trace_path / ('action-' + phase + '.json')
+        if not trace_arguments or not record_path.exists() or not started <= record_path.stat().st_mtime <= started + 15:
+            return False
+        record = json.loads(record_path.read_text())
+        if record.get('phase') != phase:
+            return False
+        if expect_rejection:
+            error_path = trace_path / 'error.json'
+            if not error_path.exists():
+                return False
+            message = json.loads(error_path.read_text()).get('message', '')
+            return (record.get('command') == 'tap' and record.get('host') == host
+                    and record.get('backend') == 'runtime' and record.get('selector') == 'testID:touch.tap'
+                    and any(reason in message for reason in (
+                        'accessibility_action_not_handled',
+                        'No native accessibility action matched selector',
+                        'Matched accessibility node does not expose a tap action')))
+        return True
     with subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
         try:
             stdout, stderr = process.communicate(timeout=15)
         except subprocess.TimeoutExpired:
-            # Keep the action/state deadline at 15s. The after record is emitted
-            # only after dispatch, runtime verification and the after snapshot/
-            # accessibility tree have finished. Remaining screenshot (10s) and
-            # log (5s) diagnostics have their own bounded completion budget.
-            after_record = trace_path / 'action-after.json'
-            completed_action = (bool(trace_arguments) and after_record.exists()
-                                and after_record.stat().st_mtime <= started + 15)
-            if completed_action:
-                completed_action = json.loads(after_record.read_text()).get('phase') == 'after'
-            if not completed_action:
+            # State must finish within 15s: either verified dispatch/after-state
+            # or the expected semantic rejection. Failure diagnostics, like
+            # post-action diagnostics, have a separate bounded 15s completion.
+            # A transport error or a late rejection cannot extend this deadline.
+            if not completed_state():
                 sample_failed_cli(process.pid, trace)
                 process.kill()
                 stdout, stderr = process.communicate()
@@ -79,10 +94,16 @@ def act(command, args, trace):
                 raise RuntimeError('Post-action diagnostics exceeded 15s: ' + trace)
     result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
     (out / (trace + '.log')).write_text(result.stdout + result.stderr)
+    if expect_rejection:
+        assert result.returncode != 0 and completed_state(), result.stdout + result.stderr
+        assert not (trace_path / 'action-after.json').exists()
+        assert 'loupe.hid.gesture' not in result.stderr, result.stderr
+        return
     if result.returncode: raise RuntimeError(result.stdout + result.stderr)
     if (expected_backend == 'auto' and command in ('tap', 'drag', 'swipe')
             and os.environ.get('LOUPE_HID_DIAGNOSTICS') == '1'):
         assert re.findall(r'^loupe.hid.gesture qos=(\d+)$', result.stderr, re.MULTILINE) == ['33'], result.stderr
+        assert re.findall(r'^loupe.hid.prepare qos=(\d+)$', result.stderr, re.MULTILINE) == ['33'], result.stderr
     screenshot_error = trace_path / 'after.screenshot-error.json'
     if screenshot_error.exists():
         assert json.loads(screenshot_error.read_text())['message']
@@ -217,8 +238,8 @@ def verify_uikit():
     print('internal touch: gesture tap, long press, held drag, and scroll passed', flush=True)
 
     # Existing explicit accessibility activation must keep its meaning and never retry as touch.
-    failed = subprocess.run([cli, 'act', 'tap', '--host', host, '--backend', 'runtime', '--test-id', 'touch.tap'], capture_output=True, text=True, timeout=15)
-    assert failed.returncode != 0, failed.stderr
+    act('tap', ['--backend', 'runtime', '--test-id', 'touch.tap'],
+        'cli-rejected-runtime', expect_rejection=True)
     expect('touch.tap.status', 'Taps 2')
 
     # Reject stale geometry before emitting any touch, then prove a new CLI tap still works.
