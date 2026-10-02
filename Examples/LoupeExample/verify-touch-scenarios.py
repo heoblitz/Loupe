@@ -83,6 +83,7 @@ def act(command, args, trace):
     if (expected_backend == 'auto' and command in ('tap', 'drag', 'swipe')
             and os.environ.get('LOUPE_HID_DIAGNOSTICS') == '1'):
         assert re.findall(r'^loupe.hid.gesture qos=(\d+)$', result.stderr, re.MULTILINE) == ['33'], result.stderr
+        assert re.findall(r'^loupe.hid.prepare qos=(\d+)$', result.stderr, re.MULTILINE) == ['33'], result.stderr
     screenshot_error = trace_path / 'after.screenshot-error.json'
     if screenshot_error.exists():
         assert json.loads(screenshot_error.read_text())['message']

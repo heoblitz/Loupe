@@ -32,6 +32,9 @@ jobs:
       - name: Run SwiftPM tests
         run: swift test
 
+      - name: CI simulator readiness contracts
+        run: python3 scripts/test-ci-simulator-readiness.py
+
   release-and-platform-builds:
     name: Release and Platform Builds
     runs-on: macos-26
@@ -57,7 +60,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-build-diagnostics
+          name: loupe-build-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-*
@@ -81,7 +84,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-macos-diagnostics
+          name: loupe-macos-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-macos-*
@@ -106,7 +109,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-tvos-diagnostics
+          name: loupe-tvos-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-tvos-*
@@ -131,7 +134,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-watchos-diagnostics
+          name: loupe-watchos-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-watchos-*
@@ -158,7 +161,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-injected-diagnostics
+          name: loupe-ios-injected-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-example-*
@@ -186,7 +189,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-runtime-diagnostics
+          name: loupe-ios-runtime-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-runtime-*
@@ -200,25 +203,38 @@ jobs:
     timeout-minutes: 35
     env:
       LOUPE_LAUNCH_TIMEOUT: "60"
+      LOUPE_EXAMPLE_BUILD_ROOT: "/tmp/loupe-native-shared-build"
+      LOUPE_TOUCH_RUNTIME_VERSION: "26.2"
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
+        run: scripts/ci-print-toolchain.sh
+
+      - name: Prepare the owned iOS fixture
+        run: |
+          set -euo pipefail
+          python3 scripts/ci-ios-touch-simulator.py create /tmp/loupe-touch-ci-simulator.json
+          device="$(python3 -c 'import json; print(json.load(open("/tmp/loupe-touch-ci-simulator.json"))["device"])')"
+          echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
+          echo "LOUPE_TOUCH_PRECONFIGURED_INPUT=1" >> "$GITHUB_ENV"
 
       - name: Run native scenario E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Native Scenario E2E" Examples/LoupeExample/run-native-scenarios.sh
 
       - name: Run touch gesture E2E
+        env:
+          LOUPE_HID_DIAGNOSTICS: "1"
         run: scripts/ci-run-with-diagnostics.sh "iOS Touch Gesture E2E" Examples/LoupeExample/run-touch-e2e.sh
 
       - name: Upload iOS native diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-native-diagnostics
+          name: loupe-ios-native-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-native-*
@@ -226,6 +242,10 @@ jobs:
             /tmp/loupe-ci-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
+
+      - name: Remove the owned touch simulator
+        if: always()
+        run: python3 scripts/ci-ios-touch-simulator.py delete /tmp/loupe-touch-ci-simulator.json
 
   ios-bookmark-e2e:
     name: iOS Bookmark E2E
@@ -248,7 +268,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-bookmark-diagnostics
+          name: loupe-ios-bookmark-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-bookmark-*

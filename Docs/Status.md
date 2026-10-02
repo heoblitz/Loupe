@@ -1,6 +1,6 @@
 # Loupe Status
 
-Last verified: 2026-06-06.
+Touch/input verification updated: 2026-10-02; see the linked regression report.
 
 Loupe is a runtime diagnostic and E2E harness for Apple-platform apps. The
 current product surface is the `loupe` CLI plus injected or LoupeInjector-linked
@@ -20,7 +20,7 @@ runtime servers.
 - Inspect Objective-C runtime class metadata and weak lifetime probes through
   `debug objects` and `debug leaks` for development diagnostics.
 - Query and inspect nodes by `testID`, text, role, or ref.
-- Dispatch simulator-visible `tap`, `swipe`, `drag`, `type`, and tvOS remote
+- Dispatch simulator-visible `tap`, `swipe`, `drag`, and tvOS remote
   `press` through Loupe's native host-side action backend where the simulator
   platform supports it.
 - Dispatch `tap`, `swipe`, and `drag` through the linked runtime's UIKit touch
@@ -28,6 +28,11 @@ runtime servers.
   identity, using the existing CLI commands and options. The touch
   dispatcher yields between phases, validates screen/foreground state, and
   cancels failed gestures without backend retries. It is Debug-only.
+- Insert literal text for `act input` through the foreground iOS runtime's
+  `UIKeyInput` responder: packaged Release/Debug simulator injectors and linked
+  physical Debug injectors. This preserves Unicode
+  and editing notifications independently of the active keyboard layout; CLI
+  syntax is unchanged. Other simulator platforms retain host HID typing.
 - Dispatch `tap --backend runtime` against runtime-backed targets to activate
   selector-addressed UI controls such as AppKit `NSButton` when native HID is
   not the right backend.
@@ -35,6 +40,10 @@ runtime servers.
   offset probes for runtime platform examples.
 - Resolve action targets through the accessibility tree first, then fall back to
   the view tree when needed.
+- List meaningful touch targets beyond accessibility: wired UIKit controls,
+  enabled gesture recognizers, scrollable content, and concrete SwiftUI gesture
+  declarations with verified geometry. `act tap --count 2` and
+  `act drag --hold-duration` add double tap and held drag while retaining defaults.
 - Save action traces with before/after snapshots, accessibility trees, logs,
   screenshots, action records, diffs, and target crops when available.
 - Run quick route sweeps with `loupe debug trace explore`.
@@ -72,9 +81,9 @@ It runs:
 - release CLI build
 - runtime injection smoke E2E
 - native HID and UIKit scenario E2E
-- gesture-only tap, long press, drag, and scroll using the existing CLI, plus
-  held drag through internal Debug touch requests, failed activation, and
-  concurrent-touch checks
+- UIKit/SwiftUI tap, double tap, long press, ordinary/held drag, and scroll
+  through public CLI and internal Debug touch requests, including non-accessibility
+  targets, failed activation, and concurrent-touch checks
 - bookmark app-style E2E
 - platform build checks for iOS, macOS, tvOS, visionOS Simulator, and watchOS
   Simulator targets
@@ -115,7 +124,7 @@ clipping, and UIKit metadata.
   `--host`. macOS launch-time injection is for local debug/development builds;
   Hardened Runtime or library-validation settings can reject dynamic injection.
 - The Debug touch path has simulator E2E coverage and physical-device coverage
-  on iPhone 15 with iOS 26.2.1, verified on 2026-09-30. CLI input selected the
+  on iPhone 15 with iOS 26.2.1, verified on 2026-10-01. CLI input selected the
   touch path internally; gesture-only tap, long press, held drag, and scroll
   passed through the touch dispatcher. Explicit accessibility activation
   failure, invalid geometry rejection, concurrent-touch
@@ -128,10 +137,16 @@ clipping, and UIKit metadata.
   discovery includes SwiftUI elements alongside UIKit controls. This uses
   dynamically loaded, private Apple accessibility symbols and may vary across
   iOS versions; if unavailable, observation continues without that preparation.
-- SwiftUI movement/input selectors depend on elements exposed through the
-  accessibility tree. Loupe does not synthesize private SwiftUI view selectors.
-  Snapshots may include a bounded `swiftui` summary, but not raw private
-  hierarchy.
+- Physical touch selector resolution first captures native action targets,
+  initializing SwiftUI accessibility in a fresh process, then uses a full
+  observation for elements without declared accessibility actions. Separate
+  UIKit and SwiftUI regression screens cover actual button counters, gesture
+  completion, scroll offsets, literal input, aliases, coordinates, and saved refs.
+  See [TouchRegressionVerification.md](TouchRegressionVerification.md).
+- SwiftUI controls use native accessibility first. Gesture-only surfaces can
+  use private Debug declarations initialized at app launch, with verified native
+  geometry or agreeing anchors. Unsupported declarations and uncertain geometry
+  are omitted. Snapshots retain bounded summaries rather than raw private data.
 - Screenshot baseline diffing is not implemented yet.
 - Layout audit is useful for obvious issues, but it does not yet fully encode
   spacing, alignment, typography, z-order intent, clipping, or truncation rules.
