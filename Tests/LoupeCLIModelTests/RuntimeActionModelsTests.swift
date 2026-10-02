@@ -4,6 +4,25 @@ import Testing
 @testable import LoupeCLIModel
 
 struct RuntimeActionModelsTests {
+    @Test func holdTimingIsExplicitAndPreservesOrdinaryDrag() throws {
+        #expect(try ActionOptions(command: "drag", arguments: ["--from", "20,20", "--to", "200,20"]).holdDuration == 0)
+        #expect(try ActionOptions(command: "drag", arguments: ["--from", "20,20", "--to", "200,20", "--hold-duration", "0.6"]).holdDuration == 0.6)
+        for value in ["nan", "inf", "-1", "10"] {
+            #expect(throws: CLIError.self) { try ActionOptions(command: "drag", arguments: ["--hold-duration", value]) }
+        }
+        #expect(throws: CLIError.self) { try ActionOptions(command: "swipe", arguments: ["--hold-duration", "0.6"]) }
+        #expect(throws: CLIError.self) { try ActionOptions(command: "tap", arguments: ["#1", "--hold-duration", "0.6"]) }
+    }
+
+    @Test func doubleTapIsAnExplicitCompatibleExtension() throws {
+        #expect(try ActionOptions(command: "tap", arguments: ["#1"]).tapCount == 1)
+        #expect(try ActionOptions(command: "tap", arguments: ["#1", "--count", "2"]).tapCount == 2)
+        for arguments in [["#1", "--count", "0"], ["#1", "--count", "3"], ["#1", "--count", "2", "--duration", "0.6"]] {
+            #expect(throws: CLIError.self) { try ActionOptions(command: "tap", arguments: arguments) }
+        }
+        #expect(throws: CLIError.self) { try ActionOptions(command: "drag", arguments: ["--count", "2"]) }
+    }
+
     @Test func actionsRejectConflictingSelectorsInsteadOfUsingTheLastOne() {
         #expect(throws: CLIError.self) {
             try ActionOptions(command: "tap", arguments: ["--test-id", "safe", "--ref", "other"])
@@ -47,6 +66,51 @@ struct RuntimeActionModelsTests {
         #expect(throws: CLIError.self) {
             _ = try ActionOptions(command: "tap", arguments: ["#1", "--x", "20", "--y", "30"])
         }
+    }
+
+    @Test func touchContractsAreActionableWithoutInventingAccessibilityCallbacks() throws {
+        let screen = LoupeScreen(size: LoupeSize(width: 400, height: 800), scale: 3)
+        var gesture = viewNode(ref: "gesture")
+        gesture.testID = "double"
+        gesture.label = "Double tap"
+        gesture.frame = LoupeRect(x: 20, y: 30, width: 100, height: 45)
+        gesture.touchActions = [.doubleTap]
+        var decoration = viewNode(ref: "decoration")
+        decoration.testID = "decoration"
+        var disabled = gesture
+        disabled.ref = "disabled"
+        disabled.isEnabled = false
+        var hidden = gesture
+        hidden.ref = "hidden"
+        hidden.isVisible = false
+        let snapshot = LoupeSnapshot(id: "snapshot", capturedAt: Date(), screen: screen,
+            rootRefs: ["gesture", "decoration", "disabled", "hidden"],
+            nodes: ["gesture": gesture, "decoration": decoration, "disabled": disabled, "hidden": hidden])
+        let tree = LoupeAccessibilityTree(snapshotID: snapshot.id, screen: screen, rootRefs: [], nodes: [:])
+        let cache = ActionTargetAliasPlanner.makeCache(snapshot: snapshot, accessibilityTree: tree,
+            runtimeIdentity: LoupeRuntimeIdentity(launchID: "launch", platform: "iOS", processIdentifier: 1),
+            bundleIdentifier: "app", host: URL(string: "http://127.0.0.1:8765")!)
+        #expect(cache.targets.count == 1)
+        let target = try cache.target(at: 1)
+        #expect(!target.supportsTap(count: 1, duration: nil))
+        #expect(target.supportsTap(count: 2, duration: nil))
+        #expect(target.actions.isEmpty)
+        #expect(target.touchActions == [.doubleTap])
+        #expect(ActionTargetAliasText.render(cache).contains("[double-tap]"))
+        #expect(try ActionTargetAliasPlanner.resolveTapTarget(target, snapshot: snapshot, accessibilityTree: tree).sourceRef == "gesture")
+
+        // Multiple recognizers on the same surface remain one target with all
+        // observed capabilities, rather than duplicate aliases or a lost action.
+        var combinedSnapshot = snapshot
+        var tap = gesture
+        tap.ref = "tap"
+        tap.touchActions = [.tap]
+        combinedSnapshot.nodes[tap.ref] = tap
+        let combined = ActionTargetAliasPlanner.makeCache(snapshot: combinedSnapshot, accessibilityTree: tree,
+            runtimeIdentity: LoupeRuntimeIdentity(launchID: "launch", platform: "iOS", processIdentifier: 1),
+            bundleIdentifier: "app", host: URL(string: "http://127.0.0.1:8765")!)
+        #expect(combined.targets.count == 1)
+        #expect(combined.targets.first?.touchActions == [.tap, .doubleTap])
     }
 
     @Test func actionTargetPlannerFiltersOrdersAndConservativelyDeduplicates() throws {

@@ -30,8 +30,8 @@ struct ScreenshotOptions {
         }
         self.udid = udid
         self.outputPath = outputPath
-        guard timeout > 0 else {
-            throw CLIError("--timeout must be greater than 0")
+        guard timeout.isFinite, timeout > 0 else {
+            throw CLIError("--timeout must be finite and greater than 0")
         }
         self.timeout = timeout
     }

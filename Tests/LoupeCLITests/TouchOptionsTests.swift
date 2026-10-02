@@ -4,6 +4,13 @@ import LoupeCore
 import Testing
 
 struct TouchOptionsTests {
+    @Test func literalTextUsesIOSRuntimeForBothDeviceKinds() {
+        for simulator in [nil, "SIMULATOR"] as [String?] {
+            let identity = LoupeRuntimeIdentity(platform: "iOS", deviceIdentifier: "DEVICE", processIdentifier: 1, simulatorUDID: simulator)
+            #expect(LoupeCLI.resolvedActionBackend(requested: "auto", command: "type", runtimeIdentity: identity) == "text")
+            #expect(LoupeCLI.resolvedActionBackend(requested: "native", command: "type", runtimeIdentity: identity) == "native")
+        }
+    }
     @Test func preservesExplicitActivationAndUsesTouchForPhysicalGestures() {
         let identity = LoupeRuntimeIdentity(platform: "iOS", deviceIdentifier: "PHONE", processIdentifier: 1)
         for command in ["tap", "swipe", "drag"] {
@@ -22,12 +29,14 @@ struct TouchOptionsTests {
         }
     }
 
-    @Test func privateTouchControlsAreNotPublicCLIOptions() async {
+    @Test func internalBackendsAndTapHoldFlagAreNotPublicCLIOptions() async {
         #expect(throws: CLIError.self) {
             try ActionOptions(command: "tap", arguments: ["--test-id", "gesture", "--hold-duration", "0.7"])
         }
-        await #expect(throws: CLIError.self) {
-            try await LoupeCLI.action(command: "tap", arguments: ["--test-id", "gesture", "--backend", "touch"])
+        for backend in ["touch", "text"] {
+            await #expect(throws: CLIError.self) {
+                try await LoupeCLI.action(command: "tap", arguments: ["--test-id", "gesture", "--backend", backend])
+            }
         }
     }
 }

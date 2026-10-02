@@ -307,8 +307,10 @@ public final class LoupeServer: @unchecked Sendable {
     ) {
         ioQueue.async { [connection] in
             Self.writeResponse(payload, to: connection.fileDescriptor)
-            connection.close()
+            // A client observing EOF or reset must also observe freed capacity.
+            // Finish admission cleanup before publishing the socket's closure.
             state.release(connection)
+            connection.close()
         }
     }
 

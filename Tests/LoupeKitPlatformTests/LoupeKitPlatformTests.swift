@@ -8,38 +8,49 @@ import Darwin
 #endif
 
 #if canImport(Darwin)
+private let testPortLock = NSLock()
+nonisolated(unsafe) private var assignedTestPorts = Set<UInt16>()
 private func availableLoopbackPort() throws -> UInt16 {
-    let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-    guard fd >= 0 else { throw SocketTestError.failed("socket") }
-    defer { Darwin.close(fd) }
-
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = 0
-    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let result = withUnsafePointer(to: &address) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+    // Port zero chooses from Darwin's client ephemeral range (49152...65535).
+    // A concurrent client or another test can claim it while a restart closes
+    // the listener. Keep test listeners below that range, and never give two
+    // tests the same port even while the concurrent-start test is restarting.
+    testPortLock.lock()
+    defer { testPortLock.unlock() }
+    for _ in 0..<100 {
+        let port = UInt16.random(in: 20_000..<40_000)
+        guard assignedTestPorts.insert(port).inserted else { continue }
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw SocketTestError.failed("socket") }
+        defer { Darwin.close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
         }
+        if result == 0 { return port }
+        guard errno == EADDRINUSE else { throw SocketTestError.failed("bind") }
     }
-    guard result == 0 else { throw SocketTestError.failed("bind") }
-
-    var boundAddress = sockaddr_in()
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    guard withUnsafeMutablePointer(to: &boundAddress, {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            Darwin.getsockname(fd, $0, &length)
-        }
-    }) == 0 else {
-        throw SocketTestError.failed("getsockname")
-    }
-    return UInt16(bigEndian: boundAddress.sin_port)
+    throw SocketTestError.failed("no unused test listener port")
 }
 
 private func connectLoopback(port: UInt16) throws -> Int32 {
     let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
     guard fd >= 0 else { throw SocketTestError.failed("socket") }
+    // Set this before connect: an expired peer can reset before a later
+    // setsockopt, and Darwin then rejects SO_RCVTIMEO with EINVAL.
+    var receiveTimeout = timeval(tv_sec: 2, tv_usec: 0)
+    guard Darwin.setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &receiveTimeout,
+                            socklen_t(MemoryLayout<timeval>.size)) == 0 else {
+        let receiveError = errno
+        Darwin.close(fd)
+        throw SocketTestError.failed("receive timeout errno=\(receiveError)")
+    }
     var address = sockaddr_in()
     address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
     address.sin_family = sa_family_t(AF_INET)
@@ -60,19 +71,11 @@ private func connectLoopback(port: UInt16) throws -> Int32 {
 private func requestLoopback(port: UInt16, request: String) throws -> String {
     let fd = try connectLoopback(port: port)
     defer { Darwin.close(fd) }
-    var receiveTimeout = timeval(tv_sec: 2, tv_usec: 0)
-    Darwin.setsockopt(
-        fd,
-        SOL_SOCKET,
-        SO_RCVTIMEO,
-        &receiveTimeout,
-        socklen_t(MemoryLayout<timeval>.size)
-    )
     try sendAll(Data(request.utf8), to: fd)
     return try receiveLoopbackResponse(from: fd)
 }
 
-private func receiveLoopbackResponse(from fd: Int32) throws -> String {
+private func receiveLoopbackResponse(from fd: Int32, requireClosure: Bool = false) throws -> String {
     var response = Data()
     var bytes = [UInt8](repeating: 0, count: 4096)
     while true {
@@ -81,13 +84,30 @@ private func receiveLoopbackResponse(from fd: Int32) throws -> String {
             response.append(bytes, count: Int(count))
             continue
         }
-        guard count == 0 || errno == EAGAIN else {
-            throw SocketTestError.failed("recv")
+        if count < 0, errno == EINTR { continue }
+        let receiveError = errno
+        // An expired queued request can still have unread client bytes. Darwin
+        // then closes with ECONNRESET after delivering the timeout response.
+        guard count == 0 || (requireClosure && receiveError == ECONNRESET)
+                || (!requireClosure && receiveError == EAGAIN) else {
+            throw SocketTestError.failed("recv errno=\(receiveError), received=\(response.count)")
         }
         break
     }
     guard !response.isEmpty else { throw SocketTestError.failed("empty response") }
-    return String(decoding: response, as: UTF8.self)
+    let text = String(decoding: response, as: UTF8.self)
+    if requireClosure {
+        guard let headerEnd = text.range(of: "\r\n\r\n"),
+              let lengthHeader = text[..<headerEnd.lowerBound]
+                .components(separatedBy: "\r\n")
+                .first(where: { $0.lowercased().hasPrefix("content-length:") }),
+              let contentLength = Int(lengthHeader.dropFirst("Content-Length:".count)
+                .trimmingCharacters(in: .whitespaces)),
+              text[headerEnd.upperBound...].utf8.count == contentLength else {
+            throw SocketTestError.failed("incomplete response before connection closed")
+        }
+    }
+    return text
 }
 
 private func sendAll(_ data: Data, to fd: Int32) throws {
@@ -100,6 +120,38 @@ private func sendAll(_ data: Data, to fd: Int32) throws {
             offset += result
         }
     }
+}
+
+private func responseFromPeerClosingWithUnreadRequest(_ response: String) throws -> String {
+    let listener = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+    guard listener >= 0 else { throw SocketTestError.failed("peer socket") }
+    defer { Darwin.close(listener) }
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = try availableLoopbackPort().bigEndian
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let bound = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard bound == 0, Darwin.listen(listener, 1) == 0 else {
+        throw SocketTestError.failed("peer listen")
+    }
+    let client = try connectLoopback(port: UInt16(bigEndian: address.sin_port))
+    defer { Darwin.close(client) }
+    try sendAll(Data("G".utf8), to: client)
+    let peer = Darwin.accept(listener, nil, nil)
+    guard peer >= 0 else { throw SocketTestError.failed("peer accept") }
+    do {
+        try sendAll(Data(response.utf8), to: peer)
+    } catch {
+        Darwin.close(peer)
+        throw error
+    }
+    Darwin.close(peer) // Leave G unread to exercise Darwin's reset close.
+    return try receiveLoopbackResponse(from: client, requireClosure: true)
 }
 
 private final class ServerLifetimeProbe {
@@ -128,6 +180,20 @@ import SwiftUI
 
 #if canImport(UIKit) || canImport(AppKit)
 @Suite struct LoupeServerTransportTests {
+    @Test(arguments: [false, true])
+    func resetCloseRequiresCompleteTimeoutResponse(truncated: Bool) throws {
+        let body = #"{"error":"request_timeout"}"#
+        let headers = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n"
+        if truncated {
+            #expect(throws: SocketTestError.self) {
+                try responseFromPeerClosingWithUnreadRequest(headers + body.dropLast())
+            }
+        } else {
+            let response = try responseFromPeerClosingWithUnreadRequest(headers + body)
+            #expect(response == headers + body)
+        }
+    }
+
     @Test func unknownEndpointReturnsDecodableJSONError() async throws {
         let port = try availableLoopbackPort()
         let server = LoupeServer()
@@ -295,7 +361,20 @@ import SwiftUI
             try sendAll(Data("G".utf8), to: client)
         }
 
-        try await Task.sleep(nanoseconds: 800_000_000)
+        // connect() can complete while the accept worker is still queued.
+        // Verify actual expiry and close rather than sleeping from client time.
+        let clients = slowClients
+        let expiredResponses = try await offMainActor {
+            try clients.map { client in
+                return try receiveLoopbackResponse(from: client, requireClosure: true)
+            }
+        }
+        for expired in expiredResponses {
+            #expect(expired.contains("HTTP/1.1 503 Service Unavailable"))
+            let body = try httpBody(expired)
+            let error = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: String]
+            #expect(error?["error"] == "request_timeout")
+        }
         let response = try await offMainActor {
             try requestLoopback(port: port, request: "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
         }
@@ -556,6 +635,103 @@ private func offMainActor<Value: Sendable>(
         #expect(reflectionCount == 1)
     }
 
+    @Test func swiftUIPropertiesDoNotReflectUIKitInternalHosts() {
+        var reflected = false
+        let properties = loupeSwiftUIProperties(
+            backingTypeName: "UIKit.UICoreHostingView<UIKit.DesignLibraryStepper>",
+            frameworkBundleIdentifier: "com.apple.UIKitCore",
+            privateSummary: {
+                reflected = true
+                return LoupeSwiftUIPrivateSummary(rootTypeName: "WrongView", properties: [], evidence: [])
+            }()
+        )
+        #expect(properties?.origin == "host")
+        #expect(properties?.rootTypeName == nil)
+        #expect(!reflected)
+    }
+
+    @Test func storedDebugCollectionsDoNotBridgeUnrelatedValues() {
+        final class Counter { var calls = 0 }
+        struct Value: _ObjectiveCBridgeable {
+            let counter: Counter
+            func _bridgeToObjectiveC() -> NSArray {
+                counter.calls += 1
+                return [1, 2] as NSArray
+            }
+            static func _forceBridgeFromObjectiveC(_ source: NSArray, result: inout Value?) { result = nil }
+            static func _conditionallyBridgeFromObjectiveC(_ source: NSArray, result: inout Value?) -> Bool { false }
+            static func _unconditionallyBridgeFromObjectiveC(_ source: NSArray?) -> Value { fatalError("unused") }
+        }
+        let counter = Counter()
+        #expect(loupeExactDebugValue(Value(counter: counter), as: [Int].self) == nil)
+        #expect(counter.calls == 0)
+        #expect(loupeExactDebugValue([1, 2] as NSArray, as: [Int].self) == nil)
+        #expect(loupeExactDebugValue(["count": 2] as NSDictionary, as: [String: Int].self) == nil)
+        #expect(loupeExactDebugValue([1, 2], as: [Int].self) == [1, 2])
+        #expect(loupeExactDebugValue(["count": 2], as: [String: Int].self)?["count"] == 2)
+    }
+
+    @Test func selectiveDebugAttributesDoNotBridgeUserValues() throws {
+        final class Counter { var calls = 0 }
+        struct Value: _ObjectiveCBridgeable {
+            let count: Int
+            let counter: Counter
+            func _bridgeToObjectiveC() -> NSNumber { counter.calls += 1; return NSNumber(value: count) }
+            static func _forceBridgeFromObjectiveC(_ source: NSNumber, result: inout Value?) {
+                result = Value(count: source.intValue, counter: Counter())
+            }
+            static func _conditionallyBridgeFromObjectiveC(_ source: NSNumber, result: inout Value?) -> Bool {
+                _forceBridgeFromObjectiveC(source, result: &result); return true
+            }
+            static func _unconditionallyBridgeFromObjectiveC(_ source: NSNumber?) -> Value {
+                Value(count: source?.intValue ?? 0, counter: Counter())
+            }
+        }
+        let counter = Counter()
+        var remaining = 32
+        let attribute = loupeSelectiveDebugAttribute(Value(count: 2, counter: counter), remaining: &remaining)
+        #expect(counter.calls == 0)
+        let fields = try #require(attribute["subattributes"] as? [[String: Any]])
+        #expect(fields.first { $0["name"] as? String == "count" }?["value"] as? Int == 2)
+    }
+
+    @Test func selectiveDebugAttributesReadStoredScalarsWithoutDebugDescriptions() throws {
+        struct Gesture: CustomDebugStringConvertible {
+            let count = 2
+            let rawValue: UInt32 = 1
+            let enabled = false
+            let invalid = Double.infinity
+            var debugDescription: String { fatalError("Must not format arbitrary SwiftUI values") }
+        }
+        var remaining = 64
+        let attribute = loupeSelectiveDebugAttribute(Gesture(), remaining: &remaining)
+        let children = try #require(attribute["subattributes"] as? [[String: Any]])
+        #expect((children.first { $0["name"] as? String == "count" }?["value"] as? NSNumber)?.intValue == 2)
+        #expect((children.first { $0["name"] as? String == "rawValue" }?["value"] as? NSNumber)?.intValue == 1)
+        #expect((children.first { $0["name"] as? String == "enabled" }?["value"] as? NSNumber)?.boolValue == false)
+        #expect(children.first { $0["name"] as? String == "invalid" }?["value"] == nil)
+        #expect(JSONSerialization.isValidJSONObject(attribute))
+        remaining = 32
+        let boxedNumber = loupeSelectiveDebugAttribute(NSNumber(value: 2), remaining: &remaining)
+        let boxedString = loupeSelectiveDebugAttribute(NSString(string: "label"), remaining: &remaining)
+        #expect((boxedNumber["value"] as? NSNumber)?.intValue == 2)
+        #expect(boxedString["value"] as? String == "label")
+        struct Graph: CustomReflectable {
+            var customMirror: Mirror { Mirror(self, children: (0..<24).map { ("branch\($0)", Graph() as Any) }) }
+        }
+        remaining = 32
+        _ = loupeSelectiveDebugAttribute(Graph(), remaining: &remaining)
+        #expect(remaining == 0)
+    }
+
+    @Test func touchDebugValuesExcludeParentsContainingAccessibilityModifiers() {
+        #expect(loupeNeedsTouchDebugValue(typeName: "SwiftUI.AccessibilityAttachmentModifier"))
+        #expect(loupeNeedsTouchDebugValue(typeName: "SwiftUI.AddGestureModifier<SwiftUI.TapGesture>"))
+        #expect(loupeNeedsTouchDebugValue(typeName: "SwiftUI._AllowsHitTestingModifier"))
+        #expect(!loupeNeedsTouchDebugValue(typeName: "SwiftUI.ModifiedContent<SomeView, SwiftUI.AccessibilityAttachmentModifier>"))
+        #expect(!loupeNeedsTouchDebugValue(typeName: "SwiftUI.TupleView<(SwiftUI.Text, SwiftUI.ModifiedContent<SomeView, SwiftUI.AccessibilityAttachmentModifier>)>"))
+    }
+
     @Test func swiftUIPrivateReflectionStopsAfterFirstUserRoot() {
         struct ProfileView {
             var enabled = true
@@ -587,6 +763,39 @@ private func offMainActor<Value: Sendable>(
         #expect(summary?.rootTypeName == "ProfileView")
         #expect(summary?.properties.contains { $0.name == "enabled" && $0.value == .bool(true) } == true)
         #expect(summary?.properties.contains { $0.name == "mode" && $0.value == .string("Save") } == true)
+        #expect(counter.count == 0)
+    }
+
+    @Test func swiftUIPrivateReflectionBoundsBranchingGraphsAndPrioritizesRoot() {
+        final class Counter { var count = 0 }
+        struct Graph: CustomReflectable {
+            let depth: Int
+            let counter: Counter
+            var customMirror: Mirror {
+                counter.count += 1
+                let children: [(String?, Any)] = depth == 0 ? [] : (0..<24).map {
+                    ("branch\($0)", Graph(depth: depth - 1, counter: counter))
+                }
+                return Mirror(self, children: children)
+            }
+        }
+        final class MissingRootHost: NSObject {
+            let graph: Graph
+            init(counter: Counter) { graph = Graph(depth: 10, counter: counter) }
+        }
+        struct ProfileView { let mode = "Focus" }
+        final class RootHost: NSObject {
+            let graph: Graph
+            let rootView = ProfileView()
+            init(counter: Counter) { graph = Graph(depth: 10, counter: counter) }
+        }
+        let counter = Counter()
+        #expect(loupeSwiftUIPrivateSummary(from: MissingRootHost(counter: counter)) == nil)
+        #expect(counter.count <= 512)
+        counter.count = 0
+        let summary = loupeSwiftUIPrivateSummary(from: RootHost(counter: counter))
+        #expect(summary?.rootTypeName == "ProfileView")
+        #expect(summary?.properties.contains { $0.name == "mode" && $0.value == .string("Focus") } == true)
         #expect(counter.count == 0)
     }
 

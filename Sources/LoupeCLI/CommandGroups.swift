@@ -84,7 +84,7 @@ extension LoupeCLI {
                 try await liveAccessibility(rest)
             }
         case "screenshot":
-            try screenshot(rest)
+            try await screenshot(rest)
         case "node":
             try inspect(rest)
         case "query":

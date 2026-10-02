@@ -66,8 +66,11 @@ public final class LoupeAgent {
             LoupeAccessibilityPreparation.prepare()
         }
         #endif
-        let capture = captureSnapshotWithViewRefs()
-        guard ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" else {
+        let usesNativeAccessibility = ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1"
+        // Native accessibility needs stable view refs/visibility, not a second
+        // full style/layout/private-property capture beside the trace snapshot.
+        let capture = captureSnapshotWithViewRefs(actionTargetsOnly: usesNativeAccessibility)
+        guard usesNativeAccessibility else {
             return LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: capture.snapshot), includeHidden: includeHidden)
         }
         return captureNativeAccessibilityTree(
@@ -147,6 +150,7 @@ public final class LoupeAgent {
     }
 
     func captureSnapshotWithViewRefs(actionTargetsOnly: Bool = false) -> CapturedSnapshot {
+        LoupeCaptureDiagnostics.record("snapshot.begin")
         nextRef = 0
 
         var nodes: [String: LoupeNode] = [:]
@@ -213,6 +217,7 @@ public final class LoupeAgent {
             sceneRefs.append(sceneRef)
         }
 
+        LoupeCaptureDiagnostics.record("snapshot.probes.begin")
         let materializedProbeIDs = Set(nodes.values.compactMap { node -> String? in
             guard node.isVisible,
                   let testID = node.testID ?? stringMetadata("id", from: node.custom) else {
@@ -235,6 +240,7 @@ public final class LoupeAgent {
             return ref
         }
 
+        LoupeCaptureDiagnostics.record("snapshot.probes.end")
         nodes[appRef] = LoupeNode(
             ref: appRef,
             parentRef: nil,
@@ -261,6 +267,7 @@ public final class LoupeAgent {
             nodes: nodes
         )
 
+        LoupeCaptureDiagnostics.record("snapshot.end")
         return CapturedSnapshot(snapshot: snapshot, viewRefs: viewRefs, viewsByRef: viewsByRef)
     }
 
@@ -340,6 +347,7 @@ public final class LoupeAgent {
         viewRefs: inout [ObjectIdentifier: String],
         viewsByRef: inout [String: UIView]
     ) -> String {
+        LoupeCaptureDiagnostics.record("window.enter", object: window)
         let ref = makeRef()
         viewRefs[ObjectIdentifier(window)] = ref
         viewsByRef[ref] = window
@@ -376,6 +384,7 @@ public final class LoupeAgent {
             children: childRefs
         )
 
+        LoupeCaptureDiagnostics.record("window.end", object: window)
         return ref
     }
 
@@ -388,6 +397,7 @@ public final class LoupeAgent {
         viewRefs: inout [ObjectIdentifier: String],
         viewsByRef: inout [String: UIView]
     ) -> String {
+        LoupeCaptureDiagnostics.record("view.enter", object: view)
         let ref = makeRef()
         viewRefs[ObjectIdentifier(view)] = ref
         viewsByRef[ref] = view
@@ -399,6 +409,16 @@ public final class LoupeAgent {
             && view.bounds.height > 0
         let visible = directlyVisible
             && (inheritedVisible || isAppAuthoredProbe(customMetadata))
+
+        #if os(iOS)
+        if visible, typeName(of: view).contains("UIHostingView") {
+            // Full snapshots read SwiftUI native semantics too. Prepare before
+            // visiting descendants, just as the native action observation does.
+            LoupeCaptureDiagnostics.record("hosting.prepare.begin", object: view)
+            LoupeAccessibilityPreparation.prepare()
+            LoupeCaptureDiagnostics.record("hosting.prepare.end", object: view)
+        }
+        #endif
 
         var childRefs: [String] = []
         for subview in view.subviews {
@@ -430,7 +450,39 @@ public final class LoupeAgent {
             )
         )
 
+        LoupeCaptureDiagnostics.record("view.accessibility.begin", object: view)
         let accessibility = accessibility(for: view)
+        LoupeCaptureDiagnostics.record("view.accessibility.end", object: view)
+        #if os(iOS)
+        let touchFrame = frameInScreen(for: view)
+        let declaredTouchActions = visible ? loupeTouchActions(for: view) : []
+        let touchActions = declaredTouchActions.isEmpty ? [] :
+            touchFrame.map { loupeTouchable($0, in: view) ? declaredTouchActions : [] } ?? []
+        if visible, typeName(of: view).contains("UIHostingView") {
+            let targets = loupeSwiftUITouchDeclarations(in: view) {
+                var visited = Set<ObjectIdentifier>()
+                var elements: [NSObject] = []
+                @MainActor func collect(in current: UIView) {
+                    elements.append(current)
+                    elements.append(contentsOf: nativeAccessibilityElements(in: current, visitedContainers: &visited))
+                    current.subviews.forEach { collect(in: $0) }
+                }
+                collect(in: view)
+                return elements
+            }
+            for target in targets {
+                let targetRef = makeRef()
+                nodes[targetRef] = LoupeNode(ref: targetRef, parentRef: ref, kind: .view,
+                    typeName: "SwiftUI.Gesture", role: "gesture", testID: target.testID,
+                    label: target.label, text: target.label, frame: target.frame,
+                    isVisible: true, isEnabled: true, isInteractive: true,
+                    touchActions: target.actions)
+                childRefs.append(targetRef)
+            }
+        }
+        #else
+        let touchActions: [LoupeTouchAction] = []
+        #endif
         if actionTargetsOnly {
             nodes[ref] = LoupeNode(
                 ref: ref,
@@ -447,13 +499,17 @@ public final class LoupeAgent {
                 isVisible: visible,
                 isEnabled: isEnabled(view),
                 isInteractive: isInteractive(view),
+                touchActions: touchActions.isEmpty ? nil : touchActions,
                 accessibility: accessibility,
                 children: childRefs
             )
             return ref
         }
+        LoupeCaptureDiagnostics.record("view.runtime.begin", object: view)
         let runtimeProperties = runtimeProperties(for: view)
+        LoupeCaptureDiagnostics.record("view.uikit.begin", object: view)
         let uiKitProperties = uiKitProperties(for: view)
+        LoupeCaptureDiagnostics.record("view.swiftui.begin", object: view)
         let swiftUIProperties = loupeSwiftUIProperties(
             backingTypeName: typeName(of: view),
             frameworkBundleIdentifier: runtimeProperties.frameworkBundleIdentifier,
@@ -463,6 +519,7 @@ public final class LoupeAgent {
         )
 
         if let swiftUIProperties {
+            LoupeCaptureDiagnostics.record("view.swiftui.semantics.begin", object: view)
             childRefs.append(
                 contentsOf: captureSwiftUISemanticChildren(
                     in: view,
@@ -473,6 +530,24 @@ public final class LoupeAgent {
                 )
             )
         }
+        LoupeCaptureDiagnostics.record("view.node.begin", object: view)
+
+        #if os(iOS)
+        for gestureRef in childRefs where nodes[gestureRef]?.typeName == "SwiftUI.Gesture" {
+            guard let gesture = nodes[gestureRef], let id = gesture.testID,
+                  let semanticRef = childRefs.sorted(by: {
+                      (nodes[$0]?.typeName == "SwiftUI.Gesture" ? 1 : 0)
+                          < (nodes[$1]?.typeName == "SwiftUI.Gesture" ? 1 : 0)
+                  }).first(where: {
+                      $0 != gestureRef && nodes[$0]?.testID == id && nodes[$0]?.frame == gesture.frame
+                  }) else { continue }
+            let combined = (nodes[semanticRef]?.touchActions ?? []) + (gesture.touchActions ?? [])
+            nodes[semanticRef]?.touchActions = LoupeTouchAction.allObservedOrder.filter(combined.contains)
+            nodes[semanticRef]?.isInteractive = true
+            nodes.removeValue(forKey: gestureRef)
+        }
+        childRefs.removeAll { nodes[$0] == nil }
+        #endif
 
         nodes[ref] = LoupeNode(
             ref: ref,
@@ -492,6 +567,7 @@ public final class LoupeAgent {
             isEnabled: isEnabled(view),
             isInteractive: isInteractive(view),
             style: style(for: view),
+            touchActions: touchActions.isEmpty ? nil : touchActions,
             accessibility: accessibility,
             runtime: runtimeProperties,
             uikit: uiKitProperties,
@@ -1254,7 +1330,7 @@ private func mergedMetadata(
 }
 
 @MainActor
-private func accessibilityIdentifier(for element: NSObject) -> String? {
+func accessibilityIdentifier(for element: NSObject) -> String? {
     if let identifier = (element as? UIAccessibilityIdentification)?.accessibilityIdentifier {
         return nonEmpty(identifier)
     }
@@ -1345,9 +1421,22 @@ private func accessibilityActions(
         blockActions = (false, false, false, false, false)
     }
 
-    if element is UIControl
-        || role.map(standardActivatingRoles.contains) == true
-        || blockActions.activate {
+    var hasActivationContract: Bool
+    if let control = element as? UIControl {
+        hasActivationContract = !control.allControlEvents.isEmpty || control is UITextField
+            || control is UISegmentedControl || control is UIPageControl
+        #if os(iOS)
+        hasActivationContract = hasActivationContract || control is UISwitch
+            || control is UISlider || control is UIStepper || (control as? UIButton)?.menu != nil
+        #endif
+    } else if element is UIView {
+        let selector = #selector(NSObject.accessibilityActivate)
+        hasActivationContract = class_getInstanceMethod(type(of: element), selector).map(method_getImplementation)
+            != class_getInstanceMethod(UIView.self, selector).map(method_getImplementation)
+    } else {
+        hasActivationContract = role.map(standardActivatingRoles.contains) == true
+    }
+    if hasActivationContract || blockActions.activate {
         actions.append(.activate)
     }
     #if os(iOS)
@@ -1417,7 +1506,7 @@ private func accessibilityVisualOrder(
 }
 
 func typeName(of value: AnyObject) -> String {
-    String(describing: type(of: value))
+    _typeName(type(of: value), qualified: false)
 }
 
 private func interfaceStyleName(_ style: UIUserInterfaceStyle) -> String {
@@ -1475,9 +1564,22 @@ private func activationPoint(for view: UIView) -> LoupePoint? {
 
 @MainActor
 private func uiKitProperties(for view: UIView) -> LoupeUIKitProperties {
-    LoupeUIKitProperties(
-        viewController: owningViewControllerName(for: view),
-        viewControllerRole: owningViewControllerRole(for: view),
+    defer { LoupeCaptureDiagnostics.record("uikit.components.end", object: view) }
+    LoupeCaptureDiagnostics.record("uikit.owner.begin", object: view)
+    let ownerName = owningViewControllerName(for: view)
+    let ownerRole = owningViewControllerRole(for: view)
+    LoupeCaptureDiagnostics.record("uikit.first-responder.begin", object: view)
+    let isFirstResponder = view.isFirstResponder
+    LoupeCaptureDiagnostics.record("uikit.focus.begin", object: view)
+    let isFocused = view.isFocused
+    LoupeCaptureDiagnostics.record("uikit.can-focus.begin", object: view)
+    let canBecomeFocused = view.canBecomeFocused
+    LoupeCaptureDiagnostics.record("uikit.layout.begin", object: view)
+    let layout = layoutProperties(for: view)
+    LoupeCaptureDiagnostics.record("uikit.components.begin", object: view)
+    return LoupeUIKitProperties(
+        viewController: ownerName,
+        viewControllerRole: ownerRole,
         className: typeName(of: view),
         tag: view.tag,
         alpha: finiteDouble(view.alpha.doubleValue) ?? 0,
@@ -1487,11 +1589,11 @@ private func uiKitProperties(for view: UIView) -> LoupeUIKitProperties {
         contentMode: contentModeName(view.contentMode),
         userInteractionEnabled: view.isUserInteractionEnabled,
         gestureRecognizers: view.gestureRecognizers?.map { typeName(of: $0) } ?? [],
-        isFirstResponder: view.isFirstResponder,
-        isFocused: view.isFocused,
-        canBecomeFocused: view.canBecomeFocused,
+        isFirstResponder: isFirstResponder,
+        isFocused: isFocused,
+        canBecomeFocused: canBecomeFocused,
         windowLevel: (view as? UIWindow).flatMap { finiteDouble($0.windowLevel.rawValue.doubleValue) },
-        layout: layoutProperties(for: view),
+        layout: layout,
         stackView: stackViewProperties(for: view),
         control: controlProperties(for: view),
         label: labelProperties(for: view),

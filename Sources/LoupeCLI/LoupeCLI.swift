@@ -2,6 +2,7 @@ import Foundation
 import LoupeCLIModel
 import LoupeCore
 import LoupeHID
+import CoreGraphics
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -999,6 +1000,11 @@ struct LoupeCLI {
     static func launch(_ arguments: [String]) async throws {
         let options = try LaunchOptions(arguments)
         var environment = options.environment
+        // SwiftUI must record gesture/layout declarations before hosting views
+        // are created; no platform-specific action option is needed.
+        // Only type, value, position and size; display lists are unrelated to
+        // gesture discovery and expensive to materialize on a cold launch.
+        environment["SWIFTUI_VIEW_DEBUG"] = environment["SWIFTUI_VIEW_DEBUG"] ?? "27"
         if let port = options.port {
             environment["LOUPE_PORT"] = String(port)
         }
@@ -1917,12 +1923,12 @@ struct LoupeCLI {
         )
     }
 
-    static func screenshot(_ arguments: [String]) throws {
+    static func screenshot(_ arguments: [String]) async throws {
         let options = try ScreenshotOptions(arguments)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "io", options.udid, "screenshot", options.outputPath]
-        try run(process, label: "simctl screenshot", timeout: options.timeout)
+        try await captureActionTraceScreenshot(
+            udid: options.udid, outputURL: URL(fileURLWithPath: options.outputPath),
+            timeout: options.timeout
+        )
     }
 
     static func exploreRoutes(_ arguments: [String]) async throws {
@@ -2211,9 +2217,21 @@ struct LoupeCLI {
     static func action(command: String, arguments: [String]) async throws {
         var options = try ActionOptions(command: command, arguments: arguments)
         options.backend = try normalizedActionBackend(options.backend)
+        if options.backend == "runtime", options.tapCount > 1 {
+            throw CLIError("--count 2 requires native touch delivery; use the default backend")
+        }
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "Complete requested runtime action"
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
         var target: ActionTarget?
         var aliasCache: ActionTargetAliasCache?
+        let actionStartedAt = Date()
         do {
+            if let traceDirectory = options.traceDirectory {
+                try prepareNewActionTrace(traceDirectory)
+            }
             if command == "tap",
                let point = options.point,
                options.screen.width > 0,
@@ -2246,8 +2264,8 @@ struct LoupeCLI {
                 let cache = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: options.host)).load()
                 try cache.validate(host: options.host, runtimeIdentity: runtimeState.identity)
                 let entry = try cache.target(at: alias)
-                if command == "tap", !entry.actions.contains(where: { $0 == .activate || $0 == .press }) {
-                    throw CLIError("Action target '#\(alias)' does not expose a tap action. Use `loupe act perform '#\(alias)' <action>` for one of its listed actions.")
+                if command == "tap", !entry.supportsTap(count: options.tapCount, duration: options.duration) {
+                    throw CLIError("Action target '#\(alias)' does not expose the requested tap. Double taps use --count 2; long presses use --duration. Use a listed action.")
                 }
                 aliasCache = cache
                 if !options.udidWasExplicit,
@@ -2261,29 +2279,37 @@ struct LoupeCLI {
                 command: command,
                 runtimeIdentity: runtimeState.identity
             )
-            let usesRuntimeBackend = ["runtime", "touch"].contains(options.backend)
+            let usesRuntimeBackend = ["runtime", "touch", "text"].contains(options.backend)
+            if options.backend == "runtime", options.tapCount > 1 {
+                throw CLIError("--count 2 requires native touch delivery; this runtime supports activation only")
+            }
             if options.backend == "runtime", command != "tap" {
                 throw CLIError("runtime action backend currently supports tap only")
             }
             if options.backend == "touch", runtimeState.identity.platform != "iOS" {
                 throw CLIError("touch backend requires a linked iOS debug runtime")
             }
-            if options.backend == "touch", options.udidWasExplicit,
+            if ["touch", "text"].contains(options.backend), options.udidWasExplicit,
                runtimeState.identity.deviceIdentifier != options.udid {
                 throw CLIError("Runtime device identifier does not match --device \(options.udid)")
             }
             if !usesRuntimeBackend {
                 try validateRuntimeIdentity(state: runtimeState, expectedUDID: options.udid, host: options.host)
             }
+            // Complete host framework/client setup before trace work spawns
+            // another CoreSimulator client. No input is sent until the fresh
+            // selector and identity checks have succeeded.
+            let simulatorUDID = usesRuntimeBackend ? nil : try resolvedBackendUDID(options.udid)
+            try await prepareSimulatorInput(udid: simulatorUDID)
             if let traceDirectory = options.traceDirectory {
-                try prepareTraceDirectory(traceDirectory)
                 try await writePreActionTrace(command: command, options: options, traceDirectory: traceDirectory)
             }
             let resolvedTarget: ActionTarget
             if let alias = options.targetAlias, let aliasCache {
                 resolvedTarget = try await freshActionTarget(
                     alias: alias, cache: aliasCache,
-                    host: options.host, timeout: options.timeout
+                    host: options.host, timeout: options.timeout,
+                    tapCount: options.tapCount, duration: options.duration
                 )
             } else {
                 resolvedTarget = try await resolveActionTarget(options)
@@ -2303,7 +2329,9 @@ struct LoupeCLI {
                     to: traceDirectory.appendingPathComponent("action-target.json")
                 )
             }
-            if options.backend == "touch" {
+            if options.backend == "text" {
+                try await dispatchRuntimeTextInput(options)
+            } else if options.backend == "touch" {
                 try await dispatchRuntimeTouchAction(command: command, options: options, target: resolvedTarget)
             } else if options.backend == "runtime" {
                 try await dispatchRuntimeActivation(options: options, target: resolvedTarget)
@@ -2332,6 +2360,7 @@ struct LoupeCLI {
                 options: options,
                 target: target,
                 error: error,
+                actionStartedAt: actionStartedAt,
                 traceDirectory: traceDirectory
             )
             if options.traceDirectory == nil {
@@ -2346,6 +2375,14 @@ struct LoupeCLI {
     }
 
     static func actionTarget(entry: ActionTargetAliasEntry, screen: LoupeScreen) -> ActionTarget {
+        if entry.actions.isEmpty {
+            let node = LoupeNode(ref: entry.sourceRef, parentRef: nil, kind: .view,
+                typeName: "TouchTarget", role: entry.role, testID: entry.testID,
+                label: entry.text, text: entry.text, frame: entry.frame,
+                isVisible: entry.isVisible, isEnabled: entry.isEnabled, isInteractive: true)
+            return ActionTarget(point: entry.point, screen: screen.size, screenScale: screen.scale,
+                source: .view(ref: entry.sourceRef), match: .view(LoupeQueryResult(node: node)))
+        }
         return ActionTarget(
             point: entry.point,
             screen: screen.size,
@@ -2359,13 +2396,16 @@ struct LoupeCLI {
     /// action tree so HID never uses a coordinate captured before a relayout.
     private static func freshActionTarget(
         alias: Int, cache: ActionTargetAliasCache,
-        host: URL, timeout: TimeInterval
+        host: URL, timeout: TimeInterval, tapCount: Int, duration: Double?
     ) async throws -> ActionTarget {
         let saved = try cache.target(at: alias)
         let observation = try await fetchAccessibilityActionObservation(host: host, timeout: timeout)
         let target = try ActionTargetAliasPlanner.resolveTapTarget(
             saved, snapshot: observation.snapshot, accessibilityTree: observation.tree
         )
+        guard target.supportsTap(count: tapCount, duration: duration) else {
+            throw CLIError("The target's touch contract changed. Rerun `loupe act targets`")
+        }
         return actionTarget(entry: target, screen: observation.tree.screen)
     }
 
@@ -2598,9 +2638,9 @@ struct LoupeCLI {
             throw CLIError("\(options.command) requires a selector or coordinates")
         }
 
-        let snapshot: LoupeSnapshot
-        let accessibilityTree: LoupeAccessibilityTree
-        if options.command == "tap", options.backend == "runtime", options.snapshotURL == nil {
+        var snapshot: LoupeSnapshot
+        var accessibilityTree: LoupeAccessibilityTree
+        if options.command == "tap", ["runtime", "touch"].contains(options.backend), options.snapshotURL == nil {
             let observation = try await fetchAccessibilityActionObservation(host: options.host, timeout: options.timeout)
             snapshot = observation.snapshot
             accessibilityTree = observation.tree
@@ -2620,7 +2660,7 @@ struct LoupeCLI {
                 )
             }
         }
-        let accessibilityMatches = preferPlatformBackedActionMatches(
+        var accessibilityMatches = preferPlatformBackedActionMatches(
             uniqueActionMatches(
                 LoupeAccessibilityTreeQuery.find(
                     selector,
@@ -2630,6 +2670,20 @@ struct LoupeCLI {
             ),
             snapshot: snapshot
         )
+        // Native action observations intentionally omit gesture-only SwiftUI
+        // elements. Touch can still target them through the full observation.
+        if accessibilityMatches.isEmpty, options.backend == "touch", options.snapshotURL == nil {
+            snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
+            accessibilityTree = try await fetchAccessibilityTree(
+                host: options.host, fallbackSnapshot: snapshot, timeout: options.timeout
+            )
+            accessibilityMatches = preferPlatformBackedActionMatches(
+                uniqueActionMatches(LoupeAccessibilityTreeQuery.find(
+                    selector, in: accessibilityTree,
+                    options: LoupeQueryOptions(includeHidden: false, includeDisabled: false, maxResults: 8)
+                )), snapshot: snapshot
+            )
+        }
         if accessibilityMatches.count > 1 {
             throw CLIError("Selector matched multiple accessibility nodes: \(matchSummary(accessibilityMatches))")
         }
@@ -2991,6 +3045,9 @@ struct LoupeCLI {
         runtimeIdentity: LoupeRuntimeIdentity
     ) -> String {
         guard requested == "auto" else { return requested }
+        if command == "type", runtimeIdentity.platform == "iOS" {
+            return "text"
+        }
         if ["tap", "swipe", "drag"].contains(command), runtimeSupportsTouchActions(runtimeIdentity) {
             return "touch"
         }
@@ -3229,11 +3286,36 @@ struct LoupeCLI {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
+    static func prepareNewActionTrace(_ url: URL) throws {
+        try prepareTraceDirectory(url)
+        // A reused output directory describes this action only. Clear our
+        // generated evidence before dispatch, preserving unrelated files.
+        let artifacts = [
+            "action-before.json", "action-target.json", "action-after.json", "action-failure.json", "error.json",
+            "before-snapshot.json", "before-accessibility.json", "before-logs.json", "before.png", "before.png.stderr.log",
+            "after-snapshot.json", "after-accessibility.json", "after-logs.json", "after.png", "after.png.stderr.log",
+            "after.screenshot-error.json", "target-crop.png",
+            "failure-snapshot.json", "failure-accessibility.json", "failure-logs.json", "failure.png", "failure.png.stderr.log",
+        ]
+        for name in artifacts {
+            let artifact = url.appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: artifact.path, isDirectory: &isDirectory) else { continue }
+            guard !isDirectory.boolValue else { throw CLIError("Trace artifact is a directory: \(name)") }
+            try FileManager.default.removeItem(at: artifact)
+        }
+    }
+
     private static func writePreActionTrace(
         command: String,
         options: ActionOptions,
         traceDirectory: URL
     ) async throws {
+        let screenshotUDID = ["runtime", "touch", "text"].contains(options.backend)
+            ? nil : try resolvedBackendUDID(options.udid)
+        async let screenshot: Void = captureActionTraceScreenshot(
+            udid: screenshotUDID, outputURL: traceDirectory.appendingPathComponent("before.png")
+        )
         let snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
         try writeJSON(snapshot, to: traceDirectory.appendingPathComponent("before-snapshot.json"))
         try writeJSON(
@@ -3253,13 +3335,7 @@ struct LoupeCLI {
             to: traceDirectory.appendingPathComponent("action-before.json")
         )
 
-        if !["runtime", "touch"].contains(options.backend) {
-            let udid = try resolvedBackendUDID(options.udid)
-            try captureSimulatorScreenshot(
-                udid: udid,
-                outputURL: traceDirectory.appendingPathComponent("before.png")
-            )
-        }
+        try await screenshot
     }
 
     private static func writePostActionTrace(
@@ -3268,6 +3344,10 @@ struct LoupeCLI {
         target: ActionTarget,
         traceDirectory: URL
     ) async throws {
+        let screenshotUDID = ["runtime", "touch", "text"].contains(options.backend)
+            ? nil : try resolvedBackendUDID(options.udid)
+        let screenshotURL = traceDirectory.appendingPathComponent("after.png")
+        async let screenshot = captureActionTraceScreenshotResult(udid: screenshotUDID, outputURL: screenshotURL)
         let snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
         try writeJSON(snapshot, to: traceDirectory.appendingPathComponent("after-snapshot.json"))
         try writeJSON(
@@ -3282,10 +3362,8 @@ struct LoupeCLI {
             to: traceDirectory.appendingPathComponent("action-after.json")
         )
 
-        if !["runtime", "touch"].contains(options.backend) {
-            let udid = try resolvedBackendUDID(options.udid)
-            let screenshotURL = traceDirectory.appendingPathComponent("after.png")
-            try captureSimulatorScreenshot(udid: udid, outputURL: screenshotURL)
+        let screenshotAvailable = try finishPostActionScreenshot(await screenshot, outputURL: screenshotURL)
+        if screenshotAvailable, screenshotUDID != nil {
             try? cropTargetImage(
                 target: target,
                 screenshotURL: screenshotURL,
@@ -3305,6 +3383,7 @@ struct LoupeCLI {
         options: ActionOptions,
         target: ActionTarget?,
         error: Error,
+        actionStartedAt: Date,
         traceDirectory: URL
     ) async throws {
         try writeJSON(
@@ -3318,6 +3397,14 @@ struct LoupeCLI {
             phase: "failure",
             to: traceDirectory.appendingPathComponent("action-failure.json")
         )
+        // A failed post-action diagnostic already has the completed state.
+        // Starting another full capture only obscures the original failure.
+        let afterURL = traceDirectory.appendingPathComponent("action-after.json")
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: afterURL.path),
+           let recordedAt = attributes[.modificationDate] as? Date,
+           recordedAt >= actionStartedAt {
+            return
+        }
         if let snapshot = try? await fetchSnapshot(host: options.host, timeout: min(3, options.timeout)) {
             try? writeJSON(snapshot, to: traceDirectory.appendingPathComponent("failure-snapshot.json"))
             if let tree = try? await fetchAccessibilityTree(host: options.host, fallbackSnapshot: snapshot, timeout: min(3, options.timeout)) {
@@ -3369,6 +3456,8 @@ struct LoupeCLI {
             point: options.point,
             endPoint: options.endPoint,
             duration: options.duration,
+            tapCount: command == "tap" ? options.tapCount : nil,
+            holdDuration: command == "drag" ? options.holdDuration : nil,
             text: ActionTraceText.recordable(command: command, text: options.text),
             press: options.press,
             resolvedPoint: target?.point,
@@ -3382,13 +3471,65 @@ struct LoupeCLI {
         try writeJSON(record, to: url)
     }
 
-    private static func captureSimulatorScreenshot(udid: String, outputURL: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "io", udid, "screenshot", "--type=png", outputURL.path]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try run(process, label: "simctl screenshot", timeout: 10)
+    private static func captureSimulatorScreenshot(udid: String, outputURL: URL, timeout: TimeInterval = 10) throws {
+        try SimulatorScreenshotCapture.capture(udid: udid, outputURL: outputURL, timeout: timeout)
+    }
+
+    private static func captureActionTraceScreenshot(udid: String?, outputURL: URL, timeout: TimeInterval = 10) async throws {
+        guard let udid else { return }
+        try await Task.detached(priority: .high) {
+            let activity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Capture requested simulator screenshot"
+            )
+            defer { ProcessInfo.processInfo.endActivity(activity) }
+            try captureSimulatorScreenshot(udid: udid, outputURL: outputURL, timeout: timeout)
+        }.value
+    }
+
+    private static func captureActionTraceScreenshotResult(udid: String?, outputURL: URL) async -> Result<Void, Error> {
+        do {
+            try await captureActionTraceScreenshot(udid: udid, outputURL: outputURL)
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    static func finishPostActionScreenshot(_ result: Result<Void, Error>, outputURL: URL) throws -> Bool {
+        let errorURL = outputURL.deletingPathExtension().appendingPathExtension("screenshot-error.json")
+        switch result {
+        case .success:
+            if FileManager.default.fileExists(atPath: errorURL.path) {
+                try FileManager.default.removeItem(at: errorURL)
+            }
+            return true
+        case .failure(let error):
+            // Dispatch, runtime checks and after-state capture have completed.
+            // Report the missing diagnostic without reporting a failed action
+            // that a caller might repeat. Never reuse an earlier screenshot.
+            if FileManager.default.fileExists(atPath: outputURL.path) {
+                try FileManager.default.removeItem(at: outputURL)
+            }
+            try writeJSON(
+                LoupeCLIActionErrorTrace(message: String(describing: error), recordedAt: Date()),
+                to: errorURL
+            )
+            FileHandle.standardError.write(Data("warning: action completed; after screenshot unavailable: \(error)\n".utf8))
+            return false
+        }
+    }
+
+    private static func prepareSimulatorInput(udid: String?) async throws {
+        guard let udid else { return }
+        try await Task.detached(priority: .high) {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            let status = LoupeHIDInitialize(udid, &errorMessage)
+            defer { if let errorMessage { LoupeHIDFreeCString(errorMessage) } }
+            if status != 0 {
+                throw CLIError(errorMessage.map { String(cString: $0) } ?? "Could not prepare simulator input")
+            }
+        }.value
     }
 
     private static func cropTargetImage(
@@ -3410,17 +3551,11 @@ struct LoupeCLI {
         let width = min(maxWidth, max(1, Int(((frame.width + padding * 2) * scaleX).rounded(.up))))
         let height = min(maxHeight, max(1, Int(((frame.height + padding * 2) * scaleY).rounded(.up))))
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
-        process.arguments = [
-            screenshotURL.path,
-            "--cropToHeightWidth", String(height), String(width),
-            "--cropOffset", String(y), String(x),
-            "--out", outputURL.path,
-        ]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try run(process, label: "sips crop", timeout: 5)
+        try ScreenshotCropper.write(
+            source: screenshotURL,
+            rect: CGRect(x: x, y: y, width: width, height: height),
+            output: outputURL
+        )
     }
 
     private static func pngPixelSize(_ url: URL) throws -> LoupeSize {
@@ -3576,12 +3711,12 @@ struct LoupeCLI {
                 status = LoupeHIDDrag(udid, mappedPoint.x, mappedPoint.y, mappedPoint.x, mappedPoint.y,
                     target.screen.width, target.screen.height, duration, &errorMessage)
             } else {
-                status = LoupeHIDTap(udid, mappedPoint.x, mappedPoint.y, target.screen.width, target.screen.height, &errorMessage)
+                status = LoupeHIDTapCount(udid, mappedPoint.x, mappedPoint.y, target.screen.width, target.screen.height, Int32(options.tapCount), &errorMessage)
             }
         case "swipe", "drag":
             let end = try options.requireEndPoint(command: command)
             let mappedEnd = mapToDisplayPoint(end)
-            status = LoupeHIDDrag(
+            status = LoupeHIDDragWithHold(
                 udid,
                 mappedPoint.x,
                 mappedPoint.y,
@@ -3590,6 +3725,7 @@ struct LoupeCLI {
                 target.screen.width,
                 target.screen.height,
                 options.duration ?? 0.6,
+                options.holdDuration,
                 &errorMessage
             )
         case "type":
@@ -3663,6 +3799,8 @@ struct LoupeCLI {
             start: target.point,
             end: endPoint,
             duration: options.duration,
+            holdDuration: options.holdDuration,
+            tapCount: options.tapCount,
             screen: target.screen
         )
         _ = try await postRuntimeTouchAction(request, host: options.host, timeout: options.timeout)
@@ -3737,14 +3875,11 @@ struct LoupeCLI {
         }
 
         let process = Process()
-        let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = ["simctl", "list", "devices", "booted", "--json"]
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        try run(process, label: "simctl list booted devices", timeout: simctlListTimeout())
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let data = try runCapturingStandardOutput(
+            process, label: "simctl list booted devices", timeout: simctlListTimeout()
+        )
         guard
             let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let devicesByRuntime = object["devices"] as? [String: [[String: Any]]]
@@ -3789,14 +3924,11 @@ struct LoupeCLI {
         }
 
         let process = Process()
-        let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = ["simctl", "list", "devices", "--json"]
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        try run(process, label: "simctl list devices", timeout: simctlListTimeout())
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let data = try runCapturingStandardOutput(
+            process, label: "simctl list devices", timeout: simctlListTimeout()
+        )
         guard
             let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             let devicesByRuntime = object["devices"] as? [String: [[String: Any]]]
@@ -3820,6 +3952,28 @@ struct LoupeCLI {
             throw CLIError("Simulator \(requested) did not include a UDID")
         }
         return udid
+    }
+
+    // Waiting for termination before draining a pipe deadlocks once a large
+    // simulator inventory fills the pipe. A private temporary file lets the
+    // subprocess finish independently of the reader, with the same deadline.
+    static func runCapturingStandardOutput(
+        _ process: Process, label: String, timeout: TimeInterval
+    ) throws -> Data {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("loupe-process-\(UUID().uuidString).stdout")
+        guard FileManager.default.createFile(
+            atPath: outputURL.path, contents: nil, attributes: [.posixPermissions: 0o600]
+        ) else {
+            throw CLIError("Could not create temporary subprocess output file")
+        }
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        let output = try FileHandle(forWritingTo: outputURL)
+        defer { try? output.close() }
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try run(process, label: label, timeout: timeout)
+        return try Data(contentsOf: outputURL)
     }
 
     private static func simctlListTimeout() -> TimeInterval {
@@ -3856,6 +4010,12 @@ struct LoupeCLI {
         try process.run()
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
+            // Some CoreSimulator tools ignore SIGTERM while waiting on XPC.
+            // Reap this owned child instead of leaving a timed-out capture alive.
+            if semaphore.wait(timeout: .now() + 0.25) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = semaphore.wait(timeout: .now() + 1)
+            }
             throw CLIError("\(label) timed out after \(format(timeout))s")
         }
         guard process.terminationStatus == 0 else {
