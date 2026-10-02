@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   startup:
-    name: Startup (${{ matrix.runner }} / Xcode ${{ matrix.xcode }})
+    name: Startup (${{ matrix.runner }} / observer ${{ matrix.observer_qos }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 12
     strategy:
@@ -19,12 +19,19 @@ jobs:
           - runner: macos-26-intel
             xcode: '26.6'
             runtime: '26.5'
+            observer_qos: 'inherited'
+          - runner: macos-26-intel
+            xcode: '26.6'
+            runtime: '26.5'
+            observer_qos: 'interactive'
     env:
       DEVELOPER_DIR: /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
       LOUPE_TOUCH_ARCHITECTURE: x86_64
       LOUPE_TOUCH_RUNTIME_VERSION: ${{ matrix.runtime }}
       LOUPE_TOUCH_DEVICE_TYPE: com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro
       PYTHONDONTWRITEBYTECODE: '1'
+      LOUPE_HID_DIAGNOSTICS: '1'
+      LOUPE_CI_OBSERVER_QOS: ${{ matrix.observer_qos }}
     steps:
       - uses: actions/checkout@v4
       - name: Record native host and pinned toolchain
@@ -33,6 +40,26 @@ jobs:
           sw_vers
           sysctl hw.ncpu hw.memsize
           xcodebuild -version
+      - name: Capture the idle host baseline
+        shell: bash
+        run: |
+          python3 - <<'PYBASE'
+          import json, pathlib, subprocess
+          root = pathlib.Path('/tmp/loupe-intel-boot-comparison.baseline')
+          for name, command in [
+              ('processes', ['/bin/ps', '-r', '-axo', 'pid,ppid,pcpu,pmem,state,comm']),
+              ('memory', ['/usr/bin/vm_stat']),
+              ('iconservice', ['/bin/launchctl', 'print', 'gui/501/com.apple.iconservices.iconservicesagent']),
+          ]:
+              with root.with_suffix('.' + name + '.log').open('w') as out:
+                  try:
+                      subprocess.run(command, stdout=out, stderr=subprocess.STDOUT, timeout=5)
+                  except subprocess.SubprocessError as error:
+                      out.write(str(error) + '\n')
+          reports = pathlib.Path.home() / 'Library/Logs/DiagnosticReports'
+          names = [p.name for p in reports.glob('*.ips')]
+          root.with_suffix('.crash-reports.json').write_text(json.dumps(names))
+          PYBASE
       - name: Prepare the same exact iOS runtime
         run: python3 scripts/ci-ios-touch-simulator.py create /tmp/loupe-intel-boot-comparison.json
       - name: Remove only the owned fixture
@@ -42,6 +69,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: intel-startup-${{ matrix.runner }}-xcode-${{ matrix.xcode }}
+          name: intel-startup-${{ matrix.runner }}-observer-${{ matrix.observer_qos }}
           if-no-files-found: ignore
           path: /tmp/loupe-intel-boot-comparison*
