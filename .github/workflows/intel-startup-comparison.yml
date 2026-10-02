@@ -1,0 +1,44 @@
+name: Intel simulator startup comparison
+
+on:
+  push:
+    branches: [feature/ci-intel-startup-comparison-20261002]
+
+permissions:
+  contents: read
+
+jobs:
+  startup:
+    name: Startup (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-26-intel]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      LOUPE_TOUCH_ARCHITECTURE: x86_64
+      LOUPE_TOUCH_RUNTIME_VERSION: '26.2'
+      LOUPE_TOUCH_DEVICE_TYPE: com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record native host and pinned toolchain
+        run: |
+          test "$(uname -m)" = x86_64
+          sw_vers
+          sysctl hw.ncpu hw.memsize
+          xcodebuild -version
+      - name: Prepare the same exact iOS runtime
+        run: python3 scripts/ci-ios-touch-simulator.py create /tmp/loupe-intel-boot-comparison.json
+      - name: Retain startup records on either outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intel-startup-${{ matrix.runner }}
+          if-no-files-found: ignore
+          path: /tmp/loupe-intel-boot-comparison*
+      - name: Remove only the owned fixture
+        if: always()
+        run: python3 scripts/ci-ios-touch-simulator.py delete /tmp/loupe-intel-boot-comparison.json
