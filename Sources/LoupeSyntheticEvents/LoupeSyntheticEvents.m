@@ -2,7 +2,7 @@
 
 #import <TargetConditionals.h>
 
-#if DEBUG && TARGET_OS_IOS && !TARGET_OS_TV && !TARGET_OS_VISION && !TARGET_OS_WATCH
+#if (DEBUG || TARGET_OS_SIMULATOR) && TARGET_OS_IOS && !TARGET_OS_TV && !TARGET_OS_VISION && !TARGET_OS_WATCH
 
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
@@ -78,12 +78,16 @@ void __attribute__((weak_import)) IOHIDEventSetIntegerValue(IOHIDEventRef event,
 - (void)setTimestamp:(NSTimeInterval)timestamp;
 - (void)_setLocationInWindow:(CGPoint)point resetPrevious:(BOOL)resetPrevious;
 - (void)_setHidEvent:(IOHIDEventRef)event;
-- (void)_setIsTapToClick:(BOOL)value;
-- (void)setIsTap:(BOOL)value;
+- (void)_setIsFirstTouchForView:(BOOL)value;
+- (void)setGestureView:(id)view;
 - (void)setIsDelayed:(BOOL)value;
 - (void)_setPathIndex:(NSUInteger)value;
 - (void)_setPathIdentity:(NSUInteger)value;
 - (void)_setSenderID:(uint64_t)value;
+@end
+
+@interface UIView (LoupeSyntheticHitTesting)
+- (id)_hitTestWithContext:(id)context;
 @end
 
 static NSString * const LoupeSyntheticEventsErrorDomain = @"dev.loupe.synthetic-events";
@@ -117,15 +121,6 @@ static UIWindow *LoupeKeyWindow(void)
     return nil;
 }
 
-static void LoupeSetFirstTouchFlag(UITouch *touch)
-{
-    if ([touch respondsToSelector:@selector(_setIsTapToClick:)]) {
-        [touch _setIsTapToClick:YES];
-    } else if ([touch respondsToSelector:@selector(setIsTap:)]) {
-        [touch setIsTap:YES];
-    }
-}
-
 static IOHIDDigitizerEventMask LoupeEventMask(UITouchPhase phase)
 {
     switch (phase) {
@@ -154,11 +149,11 @@ static void LoupeMarkIntegratedDisplay(IOHIDEventRef event)
 #endif
 }
 
-static UITouch *LoupeTouchForPoint(CGPoint point, UIWindow *window, UIEvent *event)
+static UITouch *LoupeTouchForPoint(CGPoint point, UIWindow *window, UIEvent *event, NSUInteger tapCount)
 {
     UITouch *touch = [[UITouch alloc] init];
     [touch setWindow:window];
-    [touch setTapCount:1];
+    [touch setTapCount:tapCount];
     if ([touch respondsToSelector:@selector(setIsDelayed:)]) {
         [touch setIsDelayed:NO];
     }
@@ -172,8 +167,32 @@ static UITouch *LoupeTouchForPoint(CGPoint point, UIWindow *window, UIEvent *eve
         [touch _setSenderID:0x0acefade00000002];
     }
     UIView *view = [window hitTest:point withEvent:event];
-    [touch setView:view];
-    LoupeSetFirstTouchFlag(touch);
+    id responder = view;
+    // iOS 18 introduced gesture responders inside SwiftUI hosting views. A
+    // UIView-only hit test stops before the Button's actual gesture recipient.
+    // API behavior is also documented by kif-framework/KIF PR #1323.
+    if (@available(iOS 18.0, *)) {
+        Class contextClass = NSClassFromString(@"_UIHitTestContext");
+        SEL makeContext = NSSelectorFromString(@"contextWithPoint:radius:");
+        if ([contextClass respondsToSelector:makeContext]) {
+            typedef id (*MakeContext)(id, SEL, CGPoint, CGFloat);
+            MakeContext make = (MakeContext)[contextClass methodForSelector:makeContext];
+            id context = make(contextClass, makeContext, point, 0);
+            for (UIView *ancestor = view; context && ancestor; ancestor = ancestor.superview) {
+                if (![ancestor respondsToSelector:@selector(_hitTestWithContext:)]) continue;
+                id candidate = [ancestor _hitTestWithContext:context];
+                if (candidate) {
+                    responder = candidate;
+                    break;
+                }
+            }
+        }
+    }
+    [touch setView:responder];
+    if ([touch respondsToSelector:@selector(setGestureView:)]) [touch setGestureView:responder];
+    // UIControl tracking requires a first touch for this view, in addition to
+    // the began phase used by gesture recognizers.
+    [touch _setIsFirstTouchForView:YES];
     return touch;
 }
 
@@ -283,10 +302,22 @@ static BOOL LoupeTouchAPIsAvailable(void)
         [event respondsToSelector:@selector(_clearTouches)] && [event respondsToSelector:@selector(_setHIDEvent:)] &&
         [touch respondsToSelector:@selector(setWindow:)] && [touch respondsToSelector:@selector(setView:)] &&
         [touch respondsToSelector:@selector(setTapCount:)] && [touch respondsToSelector:@selector(setPhase:)] &&
+        [touch respondsToSelector:@selector(_setIsFirstTouchForView:)] &&
         [touch respondsToSelector:@selector(setTimestamp:)] && [touch respondsToSelector:@selector(_setLocationInWindow:resetPrevious:)];
 }
 
+BOOL LoupeGestureHasTargets(NSObject *gesture)
+{
+    @try { return [[gesture valueForKey:@"_targets"] count] > 0; }
+    @catch (NSException *exception) { return NO; }
+}
+
 NSObject *LoupeSyntheticTouchBegin(CGPoint point, CGSize screenSize, NSError **error)
+{
+    return LoupeSyntheticTouchBeginWithTapCount(point, screenSize, 1, error);
+}
+
+NSObject *LoupeSyntheticTouchBeginWithTapCount(CGPoint point, CGSize screenSize, NSUInteger tapCount, NSError **error)
 {
     NSCAssert(NSThread.isMainThread, @"Touch delivery requires the main thread");
     @try {
@@ -308,7 +339,7 @@ NSObject *LoupeSyntheticTouchBegin(CGPoint point, CGSize screenSize, NSError **e
         LoupeTouchSession *session = [LoupeTouchSession new];
         session.window = window;
         session.point = local;
-        session.touch = LoupeTouchForPoint(local, window, [UIApplication.sharedApplication _touchesEvent]);
+        session.touch = LoupeTouchForPoint(local, window, [UIApplication.sharedApplication _touchesEvent], tapCount);
         session.active = YES;
         if (!LoupeSendTouch(session.touch, local, UITouchPhaseBegan, window, error)) {
             LoupeSyntheticTouchCancel(session);
@@ -372,7 +403,13 @@ static void LoupeUnavailable(NSError **error)
     if (error) *error = [NSError errorWithDomain:@"dev.loupe.synthetic-events" code:1
         userInfo:@{NSLocalizedDescriptionKey: @"Touch input requires an iOS Debug build of LoupeInjector."}];
 }
+BOOL LoupeGestureHasTargets(NSObject *gesture) { return NO; }
 NSObject *LoupeSyntheticTouchBegin(CGPoint point, CGSize screenSize, NSError **error)
+{
+    return LoupeSyntheticTouchBeginWithTapCount(point, screenSize, 1, error);
+}
+
+NSObject *LoupeSyntheticTouchBeginWithTapCount(CGPoint point, CGSize screenSize, NSUInteger tapCount, NSError **error)
 {
     LoupeUnavailable(error);
     return nil;

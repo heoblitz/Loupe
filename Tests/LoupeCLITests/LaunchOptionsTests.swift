@@ -4,6 +4,19 @@ import LoupeCore
 import Testing
 
 @Suite struct LaunchOptionsTests {
+    @Test func simulatorInventoryCaptureDoesNotBlockOnLargeOutput() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/awk")
+        process.arguments = [
+            "BEGIN { for (i = 0; i < 10000; i++) { print \"abcdefghijklmnopqrstuvwxyz0123456789\"; print \"diagnostic\" > \"/dev/stderr\" } }",
+        ]
+        let data = try LoupeCLI.runCapturingStandardOutput(
+            process, label: "large simulator inventory regression", timeout: 3
+        )
+        #expect(data.count == 370000)
+        #expect(String(decoding: data, as: UTF8.self).split(separator: "\n").count == 10000)
+    }
+
     @Test func udidAliasesDevice() throws {
         let options = try LaunchOptions([
             "--bundle-id", "com.apple.Preferences",

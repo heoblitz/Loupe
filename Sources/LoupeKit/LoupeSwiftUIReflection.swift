@@ -23,6 +23,7 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
     private var properties: [LoupeSwiftUIProperty] = []
     private var seenPropertyNames: Set<String> = []
     private var rootTypeName: String?
+    private var remainingValues = 512
 
     init(maxDepth: Int, maxProperties: Int) {
         self.maxDepth = maxDepth
@@ -44,9 +45,10 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
     }
 
     private mutating func visit(_ value: Any, propertyName: String?, depth: Int) {
-        guard depth <= maxDepth, rootTypeName == nil else {
+        guard depth <= maxDepth, rootTypeName == nil, remainingValues > 0 else {
             return
         }
+        remainingValues -= 1
 
         let mirror = Mirror(reflecting: value)
         if mirror.displayStyle == .class, let object = value as AnyObject? {
@@ -56,7 +58,7 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
             }
         }
 
-        let typeName = displayTypeName(for: value)
+        let typeName = _typeName(mirror.subjectType, qualified: true)
         if rootTypeName == nil, isUserAuthoredSwiftUIViewType(typeName) {
             rootTypeName = swiftUILeafTypeName(typeName)
             properties.removeAll()
@@ -65,20 +67,24 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
             return
         }
 
-        for (index, child) in mirror.children.enumerated().prefix(24) {
+        let children = Array(mirror.children.prefix(24))
+        let rootNames: Set<String> = ["rootView", "rootViewContent", "root"]
+        let rootChildren = children.filter { normalizedPropertyName($0.label).map(rootNames.contains) == true }
+        let otherChildren = children.filter { normalizedPropertyName($0.label).map(rootNames.contains) != true }
+        for child in rootChildren + otherChildren {
             visit(
                 child.value,
                 propertyName: normalizedPropertyName(child.label),
-                depth: depth + 1 + index / 24
+                depth: depth + 1
             )
-            guard rootTypeName == nil else {
+            guard rootTypeName == nil, remainingValues > 0 else {
                 return
             }
         }
     }
 
     private mutating func collectProperties(from value: Any) {
-        for child in Mirror(reflecting: value).children {
+        for child in Mirror(reflecting: value).children.prefix(24) {
             collectProperty(
                 name: normalizedPropertyName(child.label),
                 typeName: displayTypeName(for: child.value),
@@ -106,10 +112,11 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
         )
     }
 
-    private func firstPrimitive(in value: Any, depth: Int) -> (typeName: String, value: LoupeMetadataValue)? {
-        guard depth <= 5 else {
+    private mutating func firstPrimitive(in value: Any, depth: Int) -> (typeName: String, value: LoupeMetadataValue)? {
+        guard depth <= 5, remainingValues > 0 else {
             return nil
         }
+        remainingValues -= 1
 
         switch value {
         case let value as Bool:
@@ -137,7 +144,7 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
             break
         }
 
-        for child in Mirror(reflecting: value).children {
+        for child in Mirror(reflecting: value).children.prefix(24) {
             if let primitive = firstPrimitive(in: child.value, depth: depth + 1) {
                 return primitive
             }
@@ -148,7 +155,7 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
 
 private func displayTypeName(for value: Any) -> String {
     let mirror = Mirror(reflecting: value)
-    return String(reflecting: mirror.subjectType)
+    return _typeName(mirror.subjectType, qualified: true)
 }
 
 private func isUserAuthoredSwiftUIViewType(_ typeName: String) -> Bool {

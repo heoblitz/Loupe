@@ -8,33 +8,35 @@ import Darwin
 #endif
 
 #if canImport(Darwin)
+private let testPortLock = NSLock()
+nonisolated(unsafe) private var assignedTestPorts = Set<UInt16>()
 private func availableLoopbackPort() throws -> UInt16 {
-    let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-    guard fd >= 0 else { throw SocketTestError.failed("socket") }
-    defer { Darwin.close(fd) }
-
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = 0
-    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let result = withUnsafePointer(to: &address) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+    // Port zero chooses from Darwin's client ephemeral range (49152...65535).
+    // A concurrent client or another test can claim it while a restart closes
+    // the listener. Keep test listeners below that range, and never give two
+    // tests the same port even while the concurrent-start test is restarting.
+    testPortLock.lock()
+    defer { testPortLock.unlock() }
+    for _ in 0..<100 {
+        let port = UInt16.random(in: 20_000..<40_000)
+        guard assignedTestPorts.insert(port).inserted else { continue }
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw SocketTestError.failed("socket") }
+        defer { Darwin.close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
         }
+        if result == 0 { return port }
+        guard errno == EADDRINUSE else { throw SocketTestError.failed("bind") }
     }
-    guard result == 0 else { throw SocketTestError.failed("bind") }
-
-    var boundAddress = sockaddr_in()
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    guard withUnsafeMutablePointer(to: &boundAddress, {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            Darwin.getsockname(fd, $0, &length)
-        }
-    }) == 0 else {
-        throw SocketTestError.failed("getsockname")
-    }
-    return UInt16(bigEndian: boundAddress.sin_port)
+    throw SocketTestError.failed("no unused test listener port")
 }
 
 private func connectLoopback(port: UInt16) throws -> Int32 {
@@ -556,6 +558,103 @@ private func offMainActor<Value: Sendable>(
         #expect(reflectionCount == 1)
     }
 
+    @Test func swiftUIPropertiesDoNotReflectUIKitInternalHosts() {
+        var reflected = false
+        let properties = loupeSwiftUIProperties(
+            backingTypeName: "UIKit.UICoreHostingView<UIKit.DesignLibraryStepper>",
+            frameworkBundleIdentifier: "com.apple.UIKitCore",
+            privateSummary: {
+                reflected = true
+                return LoupeSwiftUIPrivateSummary(rootTypeName: "WrongView", properties: [], evidence: [])
+            }()
+        )
+        #expect(properties?.origin == "host")
+        #expect(properties?.rootTypeName == nil)
+        #expect(!reflected)
+    }
+
+    @Test func storedDebugCollectionsDoNotBridgeUnrelatedValues() {
+        final class Counter { var calls = 0 }
+        struct Value: _ObjectiveCBridgeable {
+            let counter: Counter
+            func _bridgeToObjectiveC() -> NSArray {
+                counter.calls += 1
+                return [1, 2] as NSArray
+            }
+            static func _forceBridgeFromObjectiveC(_ source: NSArray, result: inout Value?) { result = nil }
+            static func _conditionallyBridgeFromObjectiveC(_ source: NSArray, result: inout Value?) -> Bool { false }
+            static func _unconditionallyBridgeFromObjectiveC(_ source: NSArray?) -> Value { fatalError("unused") }
+        }
+        let counter = Counter()
+        #expect(loupeExactDebugValue(Value(counter: counter), as: [Int].self) == nil)
+        #expect(counter.calls == 0)
+        #expect(loupeExactDebugValue([1, 2] as NSArray, as: [Int].self) == nil)
+        #expect(loupeExactDebugValue(["count": 2] as NSDictionary, as: [String: Int].self) == nil)
+        #expect(loupeExactDebugValue([1, 2], as: [Int].self) == [1, 2])
+        #expect(loupeExactDebugValue(["count": 2], as: [String: Int].self)?["count"] == 2)
+    }
+
+    @Test func selectiveDebugAttributesDoNotBridgeUserValues() throws {
+        final class Counter { var calls = 0 }
+        struct Value: _ObjectiveCBridgeable {
+            let count: Int
+            let counter: Counter
+            func _bridgeToObjectiveC() -> NSNumber { counter.calls += 1; return NSNumber(value: count) }
+            static func _forceBridgeFromObjectiveC(_ source: NSNumber, result: inout Value?) {
+                result = Value(count: source.intValue, counter: Counter())
+            }
+            static func _conditionallyBridgeFromObjectiveC(_ source: NSNumber, result: inout Value?) -> Bool {
+                _forceBridgeFromObjectiveC(source, result: &result); return true
+            }
+            static func _unconditionallyBridgeFromObjectiveC(_ source: NSNumber?) -> Value {
+                Value(count: source?.intValue ?? 0, counter: Counter())
+            }
+        }
+        let counter = Counter()
+        var remaining = 32
+        let attribute = loupeSelectiveDebugAttribute(Value(count: 2, counter: counter), remaining: &remaining)
+        #expect(counter.calls == 0)
+        let fields = try #require(attribute["subattributes"] as? [[String: Any]])
+        #expect(fields.first { $0["name"] as? String == "count" }?["value"] as? Int == 2)
+    }
+
+    @Test func selectiveDebugAttributesReadStoredScalarsWithoutDebugDescriptions() throws {
+        struct Gesture: CustomDebugStringConvertible {
+            let count = 2
+            let rawValue: UInt32 = 1
+            let enabled = false
+            let invalid = Double.infinity
+            var debugDescription: String { fatalError("Must not format arbitrary SwiftUI values") }
+        }
+        var remaining = 64
+        let attribute = loupeSelectiveDebugAttribute(Gesture(), remaining: &remaining)
+        let children = try #require(attribute["subattributes"] as? [[String: Any]])
+        #expect((children.first { $0["name"] as? String == "count" }?["value"] as? NSNumber)?.intValue == 2)
+        #expect((children.first { $0["name"] as? String == "rawValue" }?["value"] as? NSNumber)?.intValue == 1)
+        #expect((children.first { $0["name"] as? String == "enabled" }?["value"] as? NSNumber)?.boolValue == false)
+        #expect(children.first { $0["name"] as? String == "invalid" }?["value"] == nil)
+        #expect(JSONSerialization.isValidJSONObject(attribute))
+        remaining = 32
+        let boxedNumber = loupeSelectiveDebugAttribute(NSNumber(value: 2), remaining: &remaining)
+        let boxedString = loupeSelectiveDebugAttribute(NSString(string: "label"), remaining: &remaining)
+        #expect((boxedNumber["value"] as? NSNumber)?.intValue == 2)
+        #expect(boxedString["value"] as? String == "label")
+        struct Graph: CustomReflectable {
+            var customMirror: Mirror { Mirror(self, children: (0..<24).map { ("branch\($0)", Graph() as Any) }) }
+        }
+        remaining = 32
+        _ = loupeSelectiveDebugAttribute(Graph(), remaining: &remaining)
+        #expect(remaining == 0)
+    }
+
+    @Test func touchDebugValuesExcludeParentsContainingAccessibilityModifiers() {
+        #expect(loupeNeedsTouchDebugValue(typeName: "SwiftUI.AccessibilityAttachmentModifier"))
+        #expect(loupeNeedsTouchDebugValue(typeName: "SwiftUI.AddGestureModifier<SwiftUI.TapGesture>"))
+        #expect(loupeNeedsTouchDebugValue(typeName: "SwiftUI._AllowsHitTestingModifier"))
+        #expect(!loupeNeedsTouchDebugValue(typeName: "SwiftUI.ModifiedContent<SomeView, SwiftUI.AccessibilityAttachmentModifier>"))
+        #expect(!loupeNeedsTouchDebugValue(typeName: "SwiftUI.TupleView<(SwiftUI.Text, SwiftUI.ModifiedContent<SomeView, SwiftUI.AccessibilityAttachmentModifier>)>"))
+    }
+
     @Test func swiftUIPrivateReflectionStopsAfterFirstUserRoot() {
         struct ProfileView {
             var enabled = true
@@ -587,6 +686,39 @@ private func offMainActor<Value: Sendable>(
         #expect(summary?.rootTypeName == "ProfileView")
         #expect(summary?.properties.contains { $0.name == "enabled" && $0.value == .bool(true) } == true)
         #expect(summary?.properties.contains { $0.name == "mode" && $0.value == .string("Save") } == true)
+        #expect(counter.count == 0)
+    }
+
+    @Test func swiftUIPrivateReflectionBoundsBranchingGraphsAndPrioritizesRoot() {
+        final class Counter { var count = 0 }
+        struct Graph: CustomReflectable {
+            let depth: Int
+            let counter: Counter
+            var customMirror: Mirror {
+                counter.count += 1
+                let children: [(String?, Any)] = depth == 0 ? [] : (0..<24).map {
+                    ("branch\($0)", Graph(depth: depth - 1, counter: counter))
+                }
+                return Mirror(self, children: children)
+            }
+        }
+        final class MissingRootHost: NSObject {
+            let graph: Graph
+            init(counter: Counter) { graph = Graph(depth: 10, counter: counter) }
+        }
+        struct ProfileView { let mode = "Focus" }
+        final class RootHost: NSObject {
+            let graph: Graph
+            let rootView = ProfileView()
+            init(counter: Counter) { graph = Graph(depth: 10, counter: counter) }
+        }
+        let counter = Counter()
+        #expect(loupeSwiftUIPrivateSummary(from: MissingRootHost(counter: counter)) == nil)
+        #expect(counter.count <= 512)
+        counter.count = 0
+        let summary = loupeSwiftUIPrivateSummary(from: RootHost(counter: counter))
+        #expect(summary?.rootTypeName == "ProfileView")
+        #expect(summary?.properties.contains { $0.name == "mode" && $0.value == .string("Focus") } == true)
         #expect(counter.count == 0)
     }
 

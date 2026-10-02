@@ -17,6 +17,9 @@ requests = []
 ax_status = 200
 status_delay = 0
 snapshot_delay = 0
+runtime_input = False
+text_status = 200
+input_bodies = []
 wait_snapshot = {
     'id': 'wait-snapshot', 'capturedAt': '2026-01-01T00:00:00Z',
     'screen': screen, 'rootRefs': ['wait-node'],
@@ -41,6 +44,8 @@ class Runtime(http.server.BaseHTTPRequestHandler):
         if url.path == '/status':
             time.sleep(status_delay)
             status, body = 200, {'identity': identity, 'retainedLogCount': 0}
+        elif url.path == '/input/focus':
+            status, body = 200, {'focused': True}
         elif url.path == '/snapshot':
             time.sleep(snapshot_delay)
             status, body = 200, wait_snapshot
@@ -60,7 +65,10 @@ class Runtime(http.server.BaseHTTPRequestHandler):
                     'actions': [{'name': 'press'}]}
             snapshot = {'id': 'action', 'capturedAt': '2026-01-01T00:00:00Z',
                         'screen': screen, 'rootRefs': [], 'nodes': {}}
-            tree = {'snapshotID': 'action', 'screen': screen,
+            if runtime_input:
+                snapshot = wait_snapshot
+                node.update(ref='ax-input', sourceRef='wait-node', testID='wait.node', role='textField')
+            tree = {'snapshotID': snapshot['id'], 'screen': screen,
                     'rootRefs': [node['ref']], 'nodes': {node['ref']: node}}
             status, body = 200, {'snapshot': snapshot, 'tree': tree}
         data = json.dumps(body).encode()
@@ -74,6 +82,22 @@ class Runtime(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         requests.append(('POST', self.path))
+        if runtime_input:
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            input_bodies.append((self.path, body))
+            if self.path == '/input/touch':
+                response = dict(command=body['command'], start=body['start'], actionElapsed=0.05,
+                                beforeSnapshotID='before', afterSnapshotID='after')
+                status = 200
+            else:
+                response = {'inserted': True} if text_status == 200 else {'error': 'text_input_not_focused'}
+                status = text_status
+            data = json.dumps(response).encode()
+            self.send_response(status)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         # Simulate a transport failure after the server may have applied a write.
         self.close_connection = True
 
@@ -152,6 +176,36 @@ try:
     assert result.returncode != 0 and 'timed out' in result.stderr, result.stderr
     assert time.monotonic() - started < 0.6, 'runtime selection ignored --timeout'
     assert requests == [('GET', '/status')], requests
+    # Physical act input must focus through touch and insert literal text in
+    # the same runtime. It must never try to resolve this device with simctl.
+    identity.update(platform='iOS', deviceIdentifier='physical-device')
+    status_delay = 0
+    ax_status = 200
+    wait_snapshot['nodes']['wait-node'].update(
+        typeName='UITextField', isInteractive=True, frame={'x': 20, 'y': 100, 'width': 160, 'height': 40})
+    runtime_input = True
+    literal = 'Hello 123! 한글 👋🏼'
+    input_bodies.clear()
+    result = run(['act', 'input', '--test-id', 'wait.node', '--text', literal])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch', '/input/text'], input_bodies
+    assert input_bodies[-1][1] == {'text': literal}, input_bodies
+    wait_snapshot['nodes']['gesture'] = dict(
+        ref='gesture', kind='view', typeName='GestureView', testID='wait.gesture',
+        isVisible=True, isEnabled=True, isInteractive=True, children=[],
+        frame={'x': 20, 'y': 150, 'width': 160, 'height': 40})
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.gesture'])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    assert input_bodies[0][1]['start'] == {'x': 100, 'y': 170}, input_bodies
+    assert ('GET', '/snapshot') in requests and ('GET', '/accessibility') in requests, requests
+    for text_status in [400, 404, 503]:
+        input_bodies.clear()
+        result = run(['act', 'input', '--test-id', 'wait.node', '--text', literal])
+        assert result.returncode != 0 and f'HTTP {text_status}' in result.stderr, result.stderr
+        assert [path for path, _ in input_bodies] == ['/input/touch', '/input/text'], input_bodies
+    runtime_input = False
     print('CLI contract checks passed: runtime identity, live accessibility, action capture, timeout, and error propagation')
 finally:
     server.shutdown()

@@ -41,7 +41,7 @@ func loupeSwiftUIProperties(
         isSwiftUIFramework: isSwiftUIFramework
     )
     let hostSummary: LoupeSwiftUIPrivateSummary?
-    if origin == "host" {
+    if origin == "host", frameworkBundleIdentifier?.hasPrefix("com.apple.UIKit") != true {
         // A snapshot visits every native view, so private reflection belongs only to confirmed hosts.
         hostSummary = privateSummary()
     } else {

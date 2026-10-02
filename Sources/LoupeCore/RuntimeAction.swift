@@ -11,6 +11,7 @@ public struct LoupeRuntimeTouchActionRequest: Codable, Equatable, Sendable {
     public var start: LoupePoint
     public var end: LoupePoint?
     public var duration: Double?
+    public var tapCount: Int?
     public var holdDuration: Double
     public var screen: LoupeSize
 
@@ -20,12 +21,14 @@ public struct LoupeRuntimeTouchActionRequest: Codable, Equatable, Sendable {
         end: LoupePoint? = nil,
         duration: Double? = nil,
         holdDuration: Double = 0,
+        tapCount: Int? = nil,
         screen: LoupeSize
     ) {
         self.command = command
         self.start = start
         self.end = end
         self.duration = duration
+        self.tapCount = tapCount
         self.holdDuration = holdDuration
         self.screen = screen
     }
@@ -42,6 +45,13 @@ public struct LoupeRuntimeTouchActionRequest: Codable, Equatable, Sendable {
         }
         if command != .tap, end == nil { return "Swipe and drag require an end point." }
         if command == .tap, end != nil { return "Tap does not accept an end point." }
+        let count = tapCount ?? 1
+        guard (1...2).contains(count), command == .tap || count == 1 else {
+            return "Tap count must be 1 or 2 and applies to tap only."
+        }
+        if count > 1, holdDuration > 0 || (duration ?? 0.05) > 0.2 {
+            return "Repeated taps cannot use long-press timing."
+        }
         let movement = duration ?? (command == .tap ? 0.05 : 0.6)
         guard movement.isFinite, movement > 0, holdDuration.isFinite, holdDuration >= 0,
               movement + holdDuration <= 10 else {
