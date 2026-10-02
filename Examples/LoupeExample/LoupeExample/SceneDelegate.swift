@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -33,6 +34,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         switch route {
         case "touch":
             navigationController.setViewControllers([TouchFixtureViewController()], animated: false)
+        case "touch.swiftui":
+            let controller = UIHostingController(rootView: TouchSwiftUIFixture())
+            controller.navigationItem.largeTitleDisplayMode = .never
+            navigationController.setViewControllers([controller], animated: false)
         case "detail":
             navigationController.pushViewController(
                 DetailViewController(

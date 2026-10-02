@@ -26,6 +26,31 @@ run_with_timeout() {
   return 124
 }
 
+# A failed snapshot can leave the app busy after the client deadline. Sample
+# that exact process immediately so CI records the blocked stack, without
+# replaying an action or extending its timeout.
+capture_failure_stack() {
+  local status=$?
+  if [[ "$status" -ne 0 && -n "${LATEST_APP_PID:-}" ]]; then
+    local container
+    container="$(run_with_timeout 8 xcrun simctl get_app_container "$DEVICE" dev.loupe.example data 2>/dev/null || true)"
+    if [[ -f "$container/Library/Caches/loupe-capture-progress.txt" ]]; then
+      cp "$container/Library/Caches/loupe-capture-progress.txt" /tmp/loupe-native-capture-progress.txt
+    fi
+    local command_path
+    command_path="$(ps -p "$LATEST_APP_PID" -o comm= 2>/dev/null || true)"
+    if [[ "$command_path" == */LoupeExample.app/LoupeExample ]]; then
+      run_with_timeout 45 /usr/bin/sample "$LATEST_APP_PID" 1 \
+        -file /tmp/loupe-native-app-failure-stack.txt >/tmp/loupe-native-sample.log 2>&1 || true
+    fi
+    if [[ -f "$container/Library/Caches/loupe-capture-progress.txt" ]]; then
+      cp "$container/Library/Caches/loupe-capture-progress.txt" /tmp/loupe-native-post-sample-capture-progress.txt
+    fi
+  fi
+  return "$status"
+}
+trap capture_failure_stack EXIT
+
 simctl_list_timeout() {
   ruby -e 'value = ENV.fetch("LOUPE_SIMCTL_LIST_TIMEOUT", "60").to_f; puts(value.positive? ? value.to_i : 60)'
 }
@@ -130,9 +155,13 @@ launch_app() {
   if [[ -n "$route" ]]; then
     arguments+=(--env "LOUPE_EXAMPLE_ROUTE=$route")
   fi
+  if [[ "$route" == "fixtures.swiftui" ]]; then
+    arguments+=(--env LOUPE_CAPTURE_DIAGNOSTICS=1)
+  fi
   local launch_output
   launch_output="$(.build/debug/loupe app launch "${arguments[@]}")"
   HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
+  LATEST_APP_PID="$(awk '/^dev.loupe.example: [0-9]+$/ { print $2 }' <<<"$launch_output" | tail -1)"
   if [[ -z "$HOST" ]]; then
     echo "error: loupe app launch did not report a runtime host" >&2
     echo "$launch_output" >&2

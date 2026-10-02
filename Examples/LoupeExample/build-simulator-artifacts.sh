@@ -7,16 +7,22 @@ build_loupe_example_simulator_artifacts() {
   local injector_derived_data="$build_root/LoupeInjector"
   local app_derived_data="$build_root/LoupeExample"
 
-  rm -rf "$build_root"
+  # Xcode invalidates changed sources and destinations. Keep its incremental
+  # products so multiple scenarios on the same runner do not rebuild from zero.
   mkdir -p "$injector_derived_data" "$app_derived_data"
 
-  xcodebuild \
-    -scheme LoupeInjector \
-    -destination "$destination" \
-    -configuration Debug \
-    -derivedDataPath "$injector_derived_data" \
-    ONLY_ACTIVE_ARCH=YES \
-    build >/tmp/loupe-injector-build.log
+  if [[ -n "${LOUPE_EXAMPLE_PREBUILT_INJECTOR:-}" ]]; then
+    LOUPE_INJECTOR_PATH="$LOUPE_EXAMPLE_PREBUILT_INJECTOR"
+  else
+    xcodebuild \
+      -scheme LoupeInjector \
+      -destination "$destination" \
+      -configuration Debug \
+      -derivedDataPath "$injector_derived_data" \
+      ONLY_ACTIVE_ARCH=YES \
+      build >/tmp/loupe-injector-build.log
+    LOUPE_INJECTOR_PATH="$injector_derived_data/Build/Products/Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector"
+  fi
 
   xcodebuild \
     -project "$root_dir/Examples/LoupeExample/LoupeExample.xcodeproj" \
@@ -27,7 +33,6 @@ build_loupe_example_simulator_artifacts() {
     ONLY_ACTIVE_ARCH=YES \
     build >/tmp/loupe-example-build.log
 
-  LOUPE_INJECTOR_PATH="$injector_derived_data/Build/Products/Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector"
   APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
 
   if [[ ! -x "$LOUPE_INJECTOR_PATH" ]]; then
