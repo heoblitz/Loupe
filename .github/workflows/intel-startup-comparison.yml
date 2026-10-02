@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   startup:
-    name: Startup (${{ matrix.runner }} / observer ${{ matrix.observer_qos }})
+    name: Startup (${{ matrix.runner }} / ${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 12
     strategy:
@@ -20,10 +20,14 @@ jobs:
             xcode: '26.6'
             runtime: '26.5'
             observer_qos: 'inherited'
+            label: stock-icon-service
+            icon_fallback: false
           - runner: macos-26-intel
             xcode: '26.6'
             runtime: '26.5'
-            observer_qos: 'interactive'
+            observer_qos: 'inherited'
+            label: icon-service-fallback
+            icon_fallback: true
     env:
       DEVELOPER_DIR: /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
       LOUPE_TOUCH_ARCHITECTURE: x86_64
@@ -59,7 +63,31 @@ jobs:
           reports = pathlib.Path.home() / 'Library/Logs/DiagnosticReports'
           names = [p.name for p in reports.glob('*.ips')]
           root.with_suffix('.crash-reports.json').write_text(json.dumps(names))
+          icons = list(reports.glob('iconservicesagent*.ips'))
+          if icons:
+              latest = max(icons, key=lambda p: p.stat().st_mtime_ns)
+              with latest.open('rb') as source:
+                  root.with_suffix('.icon-crash.ips').write_bytes(source.read(2 * 1024 * 1024))
           PYBASE
+      - name: Use generic host icons on the disposable Intel runner
+        if: matrix.icon_fallback
+        shell: bash
+        run: |
+          # Isolated workaround for actions/runner-images#14751. It changes
+          # only a crashing host icon service, never the simulator or input.
+          python3 - <<'PYICON'
+          import os, pathlib, subprocess
+          assert os.environ.get('GITHUB_ACTIONS') == 'true'
+          assert subprocess.check_output(['uname', '-m'], text=True).strip() == 'x86_64'
+          assert subprocess.check_output(['sw_vers', '-productVersion'], text=True).startswith('26.')
+          target = f'gui/{os.getuid()}/com.apple.iconservices.iconservicesagent'
+          with pathlib.Path('/tmp/loupe-intel-boot-comparison.icon-workaround.log').open('w') as out:
+              for args in [('disable', target), ('bootout', target)]:
+                  subprocess.run(['launchctl', *args], check=True, stdout=out,
+                                 stderr=subprocess.STDOUT, timeout=10)
+              subprocess.run(['launchctl', 'print-disabled', f'gui/{os.getuid()}'],
+                             check=True, stdout=out, stderr=subprocess.STDOUT, timeout=5)
+          PYICON
       - name: Prepare the same exact iOS runtime
         run: python3 scripts/ci-ios-touch-simulator.py create /tmp/loupe-intel-boot-comparison.json
       - name: Remove only the owned fixture
@@ -69,6 +97,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: intel-startup-${{ matrix.runner }}-observer-${{ matrix.observer_qos }}
+          name: intel-startup-${{ matrix.runner }}-${{ matrix.label }}
           if-no-files-found: ignore
           path: /tmp/loupe-intel-boot-comparison*
