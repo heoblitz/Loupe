@@ -91,7 +91,8 @@ It runs:
 - injected tvOS Simulator runtime and remote press E2E
 - injected watchOS Simulator registered-probe runtime E2E
 
-GitHub Actions uses the same command for the `Post-change E2E` required check.
+GitHub Actions runs build, test, and platform E2E checks as separate jobs,
+sharing runtime verification scripts with the local harness.
 
 ## Runtime Diagnosis And UI Iteration
 
