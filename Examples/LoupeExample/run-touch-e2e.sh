@@ -4,6 +4,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 source Examples/LoupeExample/build-simulator-artifacts.sh
 configure_loupe_ios_verification
+export LOUPE_HID_DIAGNOSTICS="${LOUPE_HID_DIAGNOSTICS:-1}"
 CLI="${LOUPE_TOUCH_CLI:-.build/debug/loupe}"
 if [[ -z "${LOUPE_TOUCH_CLI:-}" ]]; then
   swift build --product loupe >/tmp/loupe-touch-cli-build.log 2>&1

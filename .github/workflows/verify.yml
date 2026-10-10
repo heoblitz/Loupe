@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
   LOUPE_SIMCTL_LIST_TIMEOUT: "120"
   LOUPE_CI_SIMCTL_LIST_ATTEMPTS: "3"
   LOUPE_SIMCTL_TERMINATE_TIMEOUT: "20"
@@ -48,7 +49,7 @@ jobs:
         run: swift build --configuration release --disable-sandbox --product loupe
 
       - name: CLI contract checks
-        run: python3 scripts/verify-cli-contracts.py .build/release/loupe
+        run: xcrun python3 scripts/verify-cli-contracts.py .build/release/loupe
 
       - name: Platform builds
         run: scripts/verify-platform-builds.sh
@@ -57,7 +58,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-build-diagnostics
+          name: loupe-build-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-*
@@ -81,7 +82,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-macos-diagnostics
+          name: loupe-macos-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-macos-*
@@ -106,7 +107,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-tvos-diagnostics
+          name: loupe-tvos-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-tvos-*
@@ -131,7 +132,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-watchos-diagnostics
+          name: loupe-watchos-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-watchos-*
@@ -141,8 +142,6 @@ jobs:
     name: iOS Injected E2E
     runs-on: macos-26
     timeout-minutes: 30
-    env:
-      LOUPE_LAUNCH_TIMEOUT: "60"
 
     steps:
       - name: Checkout
@@ -158,10 +157,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-injected-diagnostics
+          name: loupe-ios-injected-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-example-*
+            /tmp/loupe-touch-keyboards*
+            /tmp/loupe-touch-boot.log
             /tmp/loupe-ci-*
             /tmp/loupe-injector-build.log
 
@@ -169,8 +170,6 @@ jobs:
     name: iOS Runtime E2E
     runs-on: macos-26
     timeout-minutes: 30
-    env:
-      LOUPE_LAUNCH_TIMEOUT: "60"
 
     steps:
       - name: Checkout
@@ -186,10 +185,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-runtime-diagnostics
+          name: loupe-ios-runtime-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-runtime-*
+            /tmp/loupe-touch-keyboards*
+            /tmp/loupe-touch-boot.log
             /tmp/loupe-ci-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
@@ -199,26 +200,28 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 35
     env:
-      LOUPE_LAUNCH_TIMEOUT: "60"
+      LOUPE_EXAMPLE_BUILD_ROOT: "/tmp/loupe-native-shared-build"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
+        run: scripts/ci-print-toolchain.sh
 
       - name: Run native scenario E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Native Scenario E2E" Examples/LoupeExample/run-native-scenarios.sh
 
       - name: Run touch gesture E2E
+        env:
+          LOUPE_HID_DIAGNOSTICS: "1"
         run: scripts/ci-run-with-diagnostics.sh "iOS Touch Gesture E2E" Examples/LoupeExample/run-touch-e2e.sh
 
       - name: Upload iOS native diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-native-diagnostics
+          name: loupe-ios-native-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-native-*
@@ -231,8 +234,6 @@ jobs:
     name: iOS Bookmark E2E
     runs-on: macos-26
     timeout-minutes: 35
-    env:
-      LOUPE_LAUNCH_TIMEOUT: "60"
 
     steps:
       - name: Checkout
@@ -248,10 +249,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios-bookmark-diagnostics
+          name: loupe-ios-bookmark-diagnostics-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-bookmark-*
+            /tmp/loupe-touch-keyboards*
+            /tmp/loupe-touch-boot.log
             /tmp/loupe-ci-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log

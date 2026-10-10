@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import urllib.parse
 
@@ -184,6 +185,19 @@ try:
     result = run(['ui', 'tree', '--accessibility'])
     assert result.returncode != 0 and 'HTTP 503' in result.stderr, result.stderr
     assert requests == [('GET', '/accessibility')], requests
+    ax_status = 404
+    result = run(['ui', 'tree', '--accessibility'])
+    assert result.returncode == 0 and 'wait.node' in result.stdout, result.stderr
+    assert requests == [('GET', '/accessibility'), ('GET', '/snapshot')], requests
+    # Compatibility fallback shares the original request budget, rather than
+    # granting another full timeout after a slow missing-endpoint response.
+    ax_delay = 0.2
+    snapshot_delay = 0.2
+    started = time.monotonic()
+    result = run(['ui', 'tree', '--accessibility', '--timeout', '0.3'])
+    assert result.returncode != 0 and 'timed out' in result.stderr, result.stderr
+    assert time.monotonic() - started < 0.7, 'accessibility fallback exceeded its overall timeout'
+    ax_delay = snapshot_delay = 0
     status_delay = 0.8
     started = time.monotonic()
     result = run(['act', 'targets', '--bundle-id', 'fixture.app', '--timeout', '0.05'])
@@ -214,12 +228,46 @@ try:
     assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
     assert input_bodies[0][1]['start'] == {'x': 100, 'y': 170}, input_bodies
     assert ('GET', '/snapshot') in requests and ('GET', '/accessibility') in requests, requests
+    # A pre-dispatch trace failure must preserve its first snapshot and error.
+    # Recapturing an unchanged app only delays the original failure.
+    ax_status = 503
+    input_bodies.clear()
+    with tempfile.TemporaryDirectory(prefix='loupe-pre-action-failure-') as trace:
+        result = run(['act', 'tap', '--test-id', 'wait.gesture', '--trace-dir', trace])
+        assert result.returncode != 0 and 'HTTP 503' in result.stderr, result.stderr
+        assert input_bodies == [], input_bodies
+        assert requests == [('GET', '/status'), ('GET', '/snapshot'), ('GET', '/accessibility')], requests
+        assert (pathlib.Path(trace) / 'before-snapshot.json').exists()
+        assert 'HTTP 503' in json.loads((pathlib.Path(trace) / 'error.json').read_text())['message']
+        assert not (pathlib.Path(trace) / 'action-target.json').exists()
+    ax_status = 200
     ax_delay = 3.2
     input_bodies.clear()
     result = run(['act', 'tap', '--test-id', 'wait.gesture', '--expect-visible', 'native.button', '--timeout', '5'])
     assert result.returncode == 0, result.stderr
     assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
     ax_delay = 0
+    # Verifying a completed tap must not depend on a full style/layout capture
+    # when the expected screen is already present in native accessibility.
+    snapshot_delay = 0.8
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.node', '--expect-visible', 'native.button', '--timeout', '0.3'])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    assert ('GET', '/accessibility') in requests and ('GET', '/snapshot') not in requests, requests
+    snapshot_delay = 0
+    # A view-only expectation still uses the full snapshot fallback.
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.node', '--expect-visible', 'wait.node', '--timeout', '1'])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    assert requests[-2:] == [('GET', '/accessibility'), ('GET', '/snapshot')], requests
+    ax_status = 503
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.node', '--expect-visible', 'wait.node'])
+    assert result.returncode != 0 and 'HTTP 503' in result.stderr, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    ax_status = 200
     for text_status in [400, 404, 503]:
         input_bodies.clear()
         result = run(['act', 'input', '--test-id', 'wait.node', '--text', literal])

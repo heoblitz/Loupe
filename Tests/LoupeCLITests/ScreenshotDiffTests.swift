@@ -12,7 +12,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let crop = directory.appendingPathComponent("target-crop.png")
         try writePNG([RGBA(red: 0, green: 0, blue: 255, alpha: 255)], width: 1, height: 1, to: crop)
-        let oldEvidence = ["after.png", "action-after.json", "action-failure.json", "error.json", "failure-logs.json"]
+        let oldEvidence = ["before.screenshot-error.json", "after.png", "action-after.json", "action-failure.json", "error.json", "failure-logs.json"]
         for name in oldEvidence { try Data("previous action".utf8).write(to: directory.appendingPathComponent(name)) }
         let note = directory.appendingPathComponent("notes.txt")
         let preserved = Data("user notes".utf8)
@@ -21,7 +21,7 @@ import Testing
         let state = directory.appendingPathComponent("after-snapshot.json")
         let completedState = Data("{\"counter\":2}".utf8)
         try completedState.write(to: state)
-        #expect(try !LoupeCLI.finishPostActionScreenshot(.failure(CLIError("capture failed")), outputURL: directory.appendingPathComponent("after.png")))
+        #expect(try !LoupeCLI.finishActionTraceScreenshot(.failure(CLIError("capture failed")), outputURL: directory.appendingPathComponent("after.png")))
         #expect(!FileManager.default.fileExists(atPath: crop.path))
         for name in oldEvidence { #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)) }
         #expect(try Data(contentsOf: state) == completedState)
@@ -39,37 +39,39 @@ import Testing
         #expect(try String(contentsOf: note, encoding: .utf8) == "preserve")
     }
 
-    @Test func completedActionRecordsAMissingScreenshotAndRemovesStalePixels() throws {
+    @Test(arguments: ["before", "after"])
+    func diagnosticCaptureFailurePreservesStateAndRemovesStalePixels(phase: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("loupe-post-capture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let output = directory.appendingPathComponent("after.png")
-        let state = directory.appendingPathComponent("after-snapshot.json")
+        let output = directory.appendingPathComponent("\(phase).png")
+        let state = directory.appendingPathComponent("\(phase)-snapshot.json")
         let completedState = Data("{\"counter\":2}".utf8)
         try completedState.write(to: state)
         try writePNG([RGBA(red: 0, green: 0, blue: 255, alpha: 255)], width: 1, height: 1, to: output)
-        #expect(try !LoupeCLI.finishPostActionScreenshot(
+        #expect(try !LoupeCLI.finishActionTraceScreenshot(
             .failure(CLIError("simctl screenshot timed out after 10.0s")), outputURL: output
         ))
         #expect(!FileManager.default.fileExists(atPath: output.path))
         #expect(try Data(contentsOf: state) == completedState)
-        let error = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("after.screenshot-error.json"))) as? [String: Any]
+        let error = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("\(phase).screenshot-error.json"))) as? [String: Any]
         #expect(error?["message"] as? String == "simctl screenshot timed out after 10.0s")
         #expect(error?["recordedAt"] != nil)
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("action-failure.json").path))
         // Reusing the trace directory after a successful fresh capture must
         // not leave the previous diagnostic failure attached to the new image.
         try writePNG([RGBA(red: 255, green: 0, blue: 0, alpha: 255)], width: 1, height: 1, to: output)
-        #expect(try LoupeCLI.finishPostActionScreenshot(.success(()), outputURL: output))
+        #expect(try LoupeCLI.finishActionTraceScreenshot(.success(()), outputURL: output))
         #expect(FileManager.default.fileExists(atPath: output.path))
-        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("after.screenshot-error.json").path))
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("\(phase).screenshot-error.json").path))
     }
 
-    @Test func missingScreenshotCannotBeSilentlyAcceptedWhenItsErrorCannotBeRecorded() {
+    @Test(arguments: ["before", "after"])
+    func missingScreenshotCannotBeSilentlyAcceptedWhenItsErrorCannotBeRecorded(phase: String) {
         let output = FileManager.default.temporaryDirectory
-            .appendingPathComponent("loupe-missing-capture-directory-\(UUID().uuidString)/after.png")
+            .appendingPathComponent("loupe-missing-capture-directory-\(UUID().uuidString)/\(phase).png")
         #expect(throws: Error.self) {
-            try LoupeCLI.finishPostActionScreenshot(.failure(CLIError("capture failed")), outputURL: output)
+            try LoupeCLI.finishActionTraceScreenshot(.failure(CLIError("capture failed")), outputURL: output)
         }
     }
 

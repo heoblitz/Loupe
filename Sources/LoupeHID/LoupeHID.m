@@ -137,14 +137,19 @@ void LoupeHIDFreeCString(char *string)
     free(string);
 }
 
-static bool LoupeHIDLoadFrameworks(char **errorMessage)
+static bool LoupeLoadCoreSimulator(char **errorMessage)
 {
     NSBundle *coreSimulator = [NSBundle bundleWithPath:LoupeCoreSimulatorPath];
     if (![coreSimulator load]) {
         LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to load %@", LoupeCoreSimulatorPath]);
         return false;
     }
+    return true;
+}
 
+static bool LoupeHIDLoadFrameworks(char **errorMessage)
+{
+    if (!LoupeLoadCoreSimulator(errorMessage)) return false;
     NSString *simulatorKitPath = LoupeSimulatorKitPath();
     NSBundle *simulatorKit = [NSBundle bundleWithPath:simulatorKitPath];
     if (![simulatorKit load]) {
@@ -166,6 +171,15 @@ static bool LoupeHIDLoadFunctions(LoupeHIDFunctions *functions, char **errorMess
     return true;
 }
 
+static void LoupeHIDLookupStage(const char *stage)
+{
+    const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
+    if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {
+        fprintf(stderr, "loupe.hid.lookup stage=%s uptime=%.6f\n", stage,
+            NSProcessInfo.processInfo.systemUptime);
+    }
+}
+
 static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
 {
     Class contextClass = NSClassFromString(@"SimServiceContext");
@@ -175,6 +189,7 @@ static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
     }
 
     NSError *error = nil;
+    LoupeHIDLookupStage("service-context");
     id context = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(
         contextClass,
         NSSelectorFromString(@"sharedServiceContextForDeveloperDir:error:"),
@@ -186,6 +201,7 @@ static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
         return nil;
     }
 
+    LoupeHIDLookupStage("device-set");
     id deviceSet = ((id (*)(id, SEL, NSError **))objc_msgSend)(
         context,
         NSSelectorFromString(@"defaultDeviceSetWithError:"),
@@ -196,7 +212,9 @@ static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
         return nil;
     }
 
+    LoupeHIDLookupStage("available-devices");
     NSArray *devices = ((id (*)(id, SEL))objc_msgSend)(deviceSet, NSSelectorFromString(@"availableDevices"));
+    LoupeHIDLookupStage("select-device");
     for (id device in devices) {
         NSString *state = ((id (*)(id, SEL))objc_msgSend)(device, NSSelectorFromString(@"stateString"));
         NSUUID *deviceUDID = ((id (*)(id, SEL))objc_msgSend)(device, NSSelectorFromString(@"UDID"));
@@ -656,12 +674,23 @@ static id LoupeSimulatorObject(id target, NSString *name) {
 
 void LoupeSimulatorFreeBuffer(void *bytes) { free(bytes); }
 
+static void LoupeFramebufferStage(const char *stage) {
+    const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
+    if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {
+        fprintf(stderr, "loupe.framebuffer stage=%s uptime=%.6f\n", stage,
+            NSProcessInfo.processInfo.systemUptime);
+    }
+}
+
 int LoupeSimulatorCopyPNG(const char *udid, void **bytes, size_t *count, char **errorMessage) {
     *bytes = NULL; *count = 0;
     @autoreleasepool { @try {
-        if (!LoupeHIDLoadFrameworks(errorMessage)) return 1;
+        LoupeFramebufferStage("load-core-simulator");
+        if (!LoupeLoadCoreSimulator(errorMessage)) return 1;
+        LoupeFramebufferStage("connect-device");
         id device = LoupeHIDDeviceForUDID([NSString stringWithUTF8String:udid], errorMessage);
         if (!device) return 1;
+        LoupeFramebufferStage("read-ports");
         NSArray *ports = LoupeSimulatorObject(LoupeSimulatorObject(device, @"io"), @"ioPorts");
         id mainDisplay = nil;
         for (id port in ports) {
@@ -675,6 +704,7 @@ int LoupeSimulatorCopyPNG(const char *udid, void **bytes, size_t *count, char **
             mainDisplay = descriptor;
         }
         if (!mainDisplay) return 2;
+        LoupeFramebufferStage("read-surface");
         IOSurfaceRef surface = (__bridge IOSurfaceRef)(LoupeSimulatorObject(mainDisplay, @"framebufferSurface") ?: LoupeSimulatorObject(mainDisplay, @"ioSurface"));
         if (!surface) { LoupeHIDSetError(errorMessage, @"Simulator main display has no framebuffer"); return 1; }
         // Read the main display's composed framebuffer. App interface
@@ -685,15 +715,18 @@ int LoupeSimulatorCopyPNG(const char *udid, void **bytes, size_t *count, char **
         CFMutableDataRef png = NULL;
         CGImageDestinationRef destination = NULL;
         @try {
+            LoupeFramebufferStage("create-context");
             static CIContext *context;
             static dispatch_once_t once;
             dispatch_once(&once, ^{ context = [[CIContext alloc] initWithOptions:nil]; });
             if (!space) { LoupeHIDSetError(errorMessage, @"Could not create framebuffer color space"); return 1; }
+            LoupeFramebufferStage("render-image");
             CIImage *source = [CIImage imageWithIOSurface:surface options:@{kCIImageColorSpace:(__bridge id)space}];
             image = [context createCGImage:source fromRect:source.extent];
             if (!image || CGImageGetWidth(image) == 0 || CGImageGetHeight(image) == 0) {
                 LoupeHIDSetError(errorMessage, @"Could not render simulator framebuffer"); return 1;
             }
+            LoupeFramebufferStage("encode-png");
             png = CFDataCreateMutable(kCFAllocatorDefault, 0);
             destination = CGImageDestinationCreateWithData(png, CFSTR("public.png"), 1, NULL);
             if (!destination) { LoupeHIDSetError(errorMessage, @"Could not encode simulator framebuffer"); return 1; }
@@ -704,6 +737,7 @@ int LoupeSimulatorCopyPNG(const char *udid, void **bytes, size_t *count, char **
             if (!copy) { LoupeHIDSetError(errorMessage, @"Could not allocate framebuffer PNG"); return 1; }
             memcpy(copy, CFDataGetBytePtr(png), length);
             *bytes = copy; *count = length;
+            LoupeFramebufferStage("complete");
             return 0;
         } @finally {
             if (destination) CFRelease(destination);

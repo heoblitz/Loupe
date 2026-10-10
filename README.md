@@ -34,6 +34,9 @@ Why use Loupe:
 
 ## Supported Platforms
 
+The Loupe CLI and Homebrew package support Apple Silicon Macs. Intel Macs are
+not supported.
+
 | Platform | Runtime |
 | --- | --- |
 | iOS | Simulator, physical device debug builds |

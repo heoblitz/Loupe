@@ -49,12 +49,16 @@ def act(command, args, trace, expect_rejection=False):
     selection = ['--udid', device] if device else []
     trace_arguments = [] if command == 'input' else ['--trace-dir', str(trace_path)]
     arguments = [cli, 'act', command] + args + ['--host', host] + selection + trace_arguments
+    # Account for both existing 10s screenshot phases separately from the
+    # original 15s input budget. CLI request/capture deadlines stay unchanged;
+    # diagnostic capture errors are recorded; app-state checks remain mandatory.
+    command_budget = 15 + (2 * 10 if trace_arguments else 0)
     try:
-        result = subprocess.run(arguments, capture_output=True, text=True, timeout=15)
+        result = subprocess.run(arguments, capture_output=True, text=True, timeout=command_budget)
     except subprocess.TimeoutExpired as error:
         (out / (trace + '.log')).write_text(
             (error.stdout or b'').decode(errors='replace') + (error.stderr or b'').decode(errors='replace'))
-        raise RuntimeError('Action did not complete within 15s: ' + trace) from error
+        raise RuntimeError(f'Action and requested trace did not complete within {command_budget}s: {trace}') from error
     (out / (trace + '.log')).write_text(result.stdout + result.stderr)
     if expect_rejection:
         assert result.returncode != 0, result.stdout + result.stderr
@@ -66,6 +70,9 @@ def act(command, args, trace, expect_rejection=False):
         assert not (trace_path / 'action-after.json').exists()
         return
     if result.returncode: raise RuntimeError(result.stdout + result.stderr)
+    for line in result.stderr.splitlines():
+        if line.startswith('warning: '):
+            print(f'{trace}: {line}', flush=True)
     if command == 'tap':
         record = json.loads((trace_path / 'action-target.json').read_text())
         assert record['backend'] == expected_backend, record

@@ -2573,26 +2573,28 @@ struct LoupeCLI {
         let deadline = Date().addingTimeInterval(timeout)
 
         while true {
-            let snapshot = try await fetchSnapshotForWait(host: options.host, deadline: deadline)
-            if LoupeSnapshotQuery.first(
-                options.selector,
-                in: snapshot,
-                options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
-            ) != nil {
-                return
-            }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else {
                 throw CLIError("Timed out waiting for expected visible Loupe node: \(selectorDescription(selector))")
             }
             let accessibilityTree = try await fetchAccessibilityTree(
                 host: options.host,
-                fallbackSnapshot: snapshot,
                 timeout: remaining
             )
             if LoupeAccessibilityTreeQuery.first(
                 options.selector,
                 in: accessibilityTree,
+                options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
+            ) != nil {
+                return
+            }
+            // Native accessibility can confirm navigation without collecting every
+            // style/layout/private property immediately after the input. Capture
+            // the full view tree only for targets absent from accessibility.
+            let snapshot = try await fetchSnapshotForWait(host: options.host, deadline: deadline)
+            if LoupeSnapshotQuery.first(
+                options.selector,
+                in: snapshot,
                 options: LoupeQueryOptions(includeHidden: false, includeDisabled: true, maxResults: 1)
             ) != nil {
                 return
@@ -3288,7 +3290,7 @@ struct LoupeCLI {
             "action-before.json", "action-target.json", "action-after.json", "action-failure.json", "error.json",
             "before-snapshot.json", "before-accessibility.json", "before-logs.json", "before.png", "before.png.stderr.log",
             "after-snapshot.json", "after-accessibility.json", "after-logs.json", "after.png", "after.png.stderr.log",
-            "after.screenshot-error.json", "target-crop.png",
+            "before.screenshot-error.json", "after.screenshot-error.json", "target-crop.png",
             "failure-snapshot.json", "failure-accessibility.json", "failure-logs.json", "failure.png", "failure.png.stderr.log",
         ]
         for name in artifacts {
@@ -3307,7 +3309,7 @@ struct LoupeCLI {
     ) async throws {
         let screenshotUDID = ["runtime", "touch", "text"].contains(options.backend)
             ? nil : try resolvedBackendUDID(options.udid)
-        async let screenshot: Void = captureActionTraceScreenshot(
+        async let screenshot = captureActionTraceScreenshotResult(
             udid: screenshotUDID, outputURL: traceDirectory.appendingPathComponent("before.png")
         )
         let snapshot = try await fetchSnapshot(host: options.host, timeout: options.timeout)
@@ -3329,7 +3331,7 @@ struct LoupeCLI {
             to: traceDirectory.appendingPathComponent("action-before.json")
         )
 
-        try await screenshot
+        _ = try finishActionTraceScreenshot(await screenshot, outputURL: traceDirectory.appendingPathComponent("before.png"))
     }
 
     private static func writePostActionTrace(
@@ -3356,7 +3358,7 @@ struct LoupeCLI {
             to: traceDirectory.appendingPathComponent("action-after.json")
         )
 
-        let screenshotAvailable = try finishPostActionScreenshot(await screenshot, outputURL: screenshotURL)
+        let screenshotAvailable = try finishActionTraceScreenshot(await screenshot, outputURL: screenshotURL)
         if screenshotAvailable, screenshotUDID != nil {
             try? cropTargetImage(
                 target: target,
@@ -3391,10 +3393,14 @@ struct LoupeCLI {
             phase: "failure",
             to: traceDirectory.appendingPathComponent("action-failure.json")
         )
-        // A failed post-action diagnostic already has the completed state.
-        // Starting another full capture only obscures the original failure.
-        let afterURL = traceDirectory.appendingPathComponent("action-after.json")
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: afterURL.path),
+        // Before target resolution no input has been sent, so the existing
+        // pre-action snapshot is still the failure state. Likewise, a completed
+        // post-action trace already has that state. Recapturing either only
+        // delays the original error and may repeat the same failed capture.
+        let stateURL = traceDirectory.appendingPathComponent(
+            target == nil ? "before-snapshot.json" : "action-after.json"
+        )
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: stateURL.path),
            let recordedAt = attributes[.modificationDate] as? Date,
            recordedAt >= actionStartedAt {
             return
@@ -3508,7 +3514,7 @@ struct LoupeCLI {
         }
     }
 
-    static func finishPostActionScreenshot(_ result: Result<Void, Error>, outputURL: URL) throws -> Bool {
+    static func finishActionTraceScreenshot(_ result: Result<Void, Error>, outputURL: URL) throws -> Bool {
         let errorURL = outputURL.deletingPathExtension().appendingPathExtension("screenshot-error.json")
         switch result {
         case .success:
@@ -3517,9 +3523,9 @@ struct LoupeCLI {
             }
             return true
         case .failure(let error):
-            // Dispatch, runtime checks and after-state capture have completed.
-            // Report the missing diagnostic without reporting a failed action
-            // that a caller might repeat. Never reuse an earlier screenshot.
+            // Screenshots are diagnostic evidence. Preserve their errors without
+            // aborting input or disguising an action/observation failure.
+            // Never reuse an earlier screenshot.
             if FileManager.default.fileExists(atPath: outputURL.path) {
                 try FileManager.default.removeItem(at: outputURL)
             }
@@ -3527,7 +3533,8 @@ struct LoupeCLI {
                 LoupeCLIActionErrorTrace(message: String(describing: error), recordedAt: Date()),
                 to: errorURL
             )
-            FileHandle.standardError.write(Data("warning: action completed; after screenshot unavailable: \(error)\n".utf8))
+            let phase = outputURL.deletingPathExtension().lastPathComponent
+            FileHandle.standardError.write(Data("warning: \(phase) screenshot unavailable: \(error)\n".utf8))
             return false
         }
     }

@@ -8,20 +8,11 @@ LAUNCH_TIMEOUT="${LOUPE_LAUNCH_TIMEOUT:-30}"
 cd "$ROOT_DIR"
 source Examples/LoupeExample/build-simulator-artifacts.sh
 
-booted_udid() {
-  xcrun simctl list devices booted --json | ruby -rjson -e '
-    devices = JSON.parse(STDIN.read).fetch("devices").values.flatten
-    booted = devices.find { |device| device["state"] == "Booted" && device["name"].include?("iPhone") }
-    puts booted && booted["udid"]
-  '
-}
+configure_loupe_ios_verification
+DEVICE="$(loupe_ios_verification_device)"
+prepare_loupe_ios_preferences
 
-DEVICE="${LOUPE_DEVICE:-$(booted_udid)}"
-if [[ -z "$DEVICE" ]]; then
-  FIRST_DEVICE="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { print $2; exit }')"
-  xcrun simctl boot "$FIRST_DEVICE"
-  DEVICE="$FIRST_DEVICE"
-fi
+boot_loupe_ios_verification_device
 
 swift build
 build_loupe_example_simulator_artifacts "$ROOT_DIR" "platform=iOS Simulator,id=$DEVICE"

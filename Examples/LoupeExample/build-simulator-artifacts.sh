@@ -8,6 +8,10 @@ configure_loupe_ios_verification() {
     echo "error: iOS verification requires Xcode 26.3; selected $version. Set DEVELOPER_DIR explicitly." >&2
     return 1
   fi
+  # Use the interpreter shipped with the selected Xcode, not Homebrew's
+  # independently updated Python on hosted runners.
+  export PATH="$(dirname "$(xcrun --find python3)"):$PATH"
+  python3 --version >&2
   export LOUPE_LAUNCH_TIMEOUT="${LOUPE_LAUNCH_TIMEOUT:-30}"
   export LOUPE_SIMCTL_TERMINATE_TIMEOUT="${LOUPE_SIMCTL_TERMINATE_TIMEOUT:-20}"
 }
@@ -16,9 +20,9 @@ loupe_ios_verification_device() {
   python3 - "${1:-${LOUPE_DEVICE:-}}" <<'DEVICE_PY'
 import json, os, platform, subprocess, sys
 architecture = platform.machine()
-expected = os.environ.get('LOUPE_TOUCH_ARCHITECTURE', architecture)
+expected = os.environ.get('LOUPE_TOUCH_ARCHITECTURE', 'arm64')
 assert architecture == expected, f'Expected native {expected}, got {architecture}'
-version = os.environ.get('LOUPE_TOUCH_RUNTIME_VERSION', '26.2' if architecture == 'arm64' else '18.6')
+version = os.environ.get('LOUPE_TOUCH_RUNTIME_VERSION', '26.2')
 runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-' + version.replace('.', '-')
 inventory = json.loads(subprocess.check_output(
     ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'], timeout=60))
