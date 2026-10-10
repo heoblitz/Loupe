@@ -6,6 +6,11 @@ class Loupe < Formula
   license "MIT"
   head "https://github.com/heoblitz/Loupe.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/heoblitz/Loupe/releases/download/v0.5.0"
+    sha256 arm64_sequoia: "e4eb399b68ff3ee5f10af4d0a581ffd88e6b4c8193b235cf0de1b88921cbe183"
+  end
+
   depends_on xcode: ["16.0", :build]
   depends_on arch: :arm64
 
