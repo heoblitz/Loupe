@@ -1544,16 +1544,71 @@ final class TouchFixtureViewController: UIViewController {
     private let tapStatus = UILabel()
     private let holdStatus = UILabel()
     private let dragStatus = UILabel()
+    private let doubleStatus = UILabel()
+    private let panStatus = UILabel()
+    private var doubles = 0
     private var taps = 0
     private var holds = 0
     private var dragStart = CGPoint.zero
+    private let buttonStatus = UILabel()
+    private let inputStatus = UILabel()
+    private var buttonTaps = 0
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Touch fixtures"
+        title = "UIKit touch fixtures"
         view.backgroundColor = .systemBackground
+        let button = UIButton(type: .system)
+        button.setTitle("UIKit button", for: .normal)
+        button.accessibilityIdentifier = "touch.uikit.button"
+        button.addTarget(self, action: #selector(buttonTapped), for: .touchUpInside)
+        buttonStatus.accessibilityIdentifier = "touch.uikit.status"
+        buttonStatus.text = "UIKit taps 0"
+        buttonStatus.isUserInteractionEnabled = true
+        buttonStatus.addGestureRecognizer(UITapGestureRecognizer())
+        let buttonRow = UIStackView(arrangedSubviews: [button, buttonStatus])
+        buttonRow.distribution = .fillEqually
+        let openSwiftUI = UIButton(type: .system)
+        openSwiftUI.setTitle("Open SwiftUI fixtures", for: .normal)
+        openSwiftUI.accessibilityIdentifier = "touch.open.swiftui"
+        openSwiftUI.addTarget(self, action: #selector(showSwiftUI), for: .touchUpInside)
+        let input = TouchTextFixtureField()
+        input.accessibilityIdentifier = "touch.input"
+        input.placeholder = "Text input"
+        input.borderStyle = .roundedRect
+        input.autocorrectionType = .no
+        input.autocapitalizationType = .none
+        input.addTarget(self, action: #selector(inputChanged(_:)), for: .editingChanged)
+        input.addTarget(self, action: #selector(inputFocused(_:)), for: .editingDidBegin)
+        inputStatus.accessibilityIdentifier = "touch.input.status"
+        inputStatus.text = "Input unchanged"
         let tap = card(id: "touch.tap", label: "Gesture tap", color: .systemBlue)
         tap.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        let doubleTap = card(id: "touch.uikit.double", label: "Double tap", color: .systemTeal)
+        doubleTap.isAccessibilityElement = false
+        doubleTap.accessibilityTraits = []
+        doubleTap.accessibilityElementsHidden = true
+        let doubleRecognizer = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
+        doubleRecognizer.numberOfTapsRequired = 2
+        doubleTap.addGestureRecognizer(doubleRecognizer)
+        let pan = card(id: "touch.uikit.pan", label: "Drag", color: .systemGreen)
+        pan.isAccessibilityElement = false
+        pan.accessibilityTraits = []
+        pan.accessibilityElementsHidden = true
+        pan.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(panned(_:))))
+        let gestureRow = UIStackView(arrangedSubviews: [doubleTap, pan])
+        gestureRow.distribution = .fillEqually
+        gestureRow.spacing = 8
+        let disabled = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
+        disabled.isEnabled = false
+        doubleStatus.isUserInteractionEnabled = true
+        doubleStatus.addGestureRecognizer(disabled)
+        doubleStatus.text = "Double taps 0"
+        doubleStatus.accessibilityIdentifier = "touch.uikit.double.status"
+        panStatus.text = "Pan waiting"
+        panStatus.accessibilityIdentifier = "touch.uikit.pan.status"
+        let gestureStatusRow = UIStackView(arrangedSubviews: [doubleStatus, panStatus])
+        gestureStatusRow.distribution = .fillEqually
         let hold = card(id: "touch.hold", label: "Long press", color: .systemIndigo)
         let holdRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
         holdRecognizer.minimumPressDuration = 0.3
@@ -1574,20 +1629,57 @@ final class TouchFixtureViewController: UIViewController {
         content.numberOfLines = 0
         content.text = (1...20).map { "Scroll row \($0)" }.joined(separator: "\n\n")
         scroll.addSubview(content)
-        let stack = UIStackView(arrangedSubviews: [tap, tapStatus, hold, holdStatus, drag, dragStatus, scroll])
+        let stack = UIStackView(arrangedSubviews: [buttonRow, input, inputStatus, tap, tapStatus, hold, holdStatus, drag, dragStatus, gestureRow, gestureStatusRow, scroll, openSwiftUI])
         stack.axis = .vertical
-        stack.spacing = 10
+        stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            tap.heightAnchor.constraint(equalToConstant: 70),
-            hold.heightAnchor.constraint(equalToConstant: 70),
-            drag.heightAnchor.constraint(equalToConstant: 90),
-            scroll.heightAnchor.constraint(equalToConstant: 160),
+            buttonRow.heightAnchor.constraint(equalToConstant: 40),
+            openSwiftUI.heightAnchor.constraint(equalToConstant: 44),
+            input.heightAnchor.constraint(equalToConstant: 36),
+            tap.heightAnchor.constraint(equalToConstant: 45),
+            hold.heightAnchor.constraint(equalToConstant: 45),
+            drag.heightAnchor.constraint(equalToConstant: 60),
+            gestureRow.heightAnchor.constraint(equalToConstant: 45),
+            scroll.heightAnchor.constraint(equalToConstant: 100),
         ])
+    }
+
+    @objc private func doubleTapped() {
+        doubles += 1
+        doubleStatus.text = "Double taps \(doubles)"
+    }
+
+    @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
+        if recognizer.state == .ended {
+            panStatus.text = "Pan completed \(Int(recognizer.translation(in: view).x))"
+        }
+    }
+
+    @objc private func buttonTapped() {
+        view.endEditing(true)
+        buttonTaps += 1
+        buttonStatus.text = "UIKit taps \(buttonTaps)"
+    }
+
+    @objc private func inputChanged(_ input: UITextField) {
+        inputStatus.text = "Input changed: \(input.text ?? "")"
+    }
+
+    @objc private func inputFocused(_ input: UITextField) {
+        inputStatus.text = "Input mode: \(input.textInputMode?.primaryLanguage ?? "unknown")"
+    }
+
+    @objc private func showSwiftUI() {
+        view.endEditing(true)
+        let controller = UIHostingController(rootView: TouchSwiftUIFixture())
+        controller.title = "SwiftUI touch fixtures"
+        controller.navigationItem.largeTitleDisplayMode = .never
+        navigationController?.pushViewController(controller, animated: false)
     }
 
     private func card(id: String, label: String, color: UIColor) -> UIView {
@@ -1631,5 +1723,98 @@ final class TouchFixtureViewController: UIViewController {
         } else if recognizer.state == .cancelled {
             dragStatus.text = "Drag cancelled"
         }
+    }
+}
+
+struct TouchSwiftUIFixture: View {
+    @State private var doubles = 0
+    @State private var panStatus = "Pan waiting"
+    @State private var taps = 0
+    @State private var gestureTaps = 0
+    @State private var holds = 0
+    @State private var input = ""
+    @State private var dragStatus = "Drag waiting"
+    @FocusState private var inputFocused: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                Text("SwiftUI touch fixtures").accessibilityIdentifier("touch.swiftui.title")
+                Button("SwiftUI button") {
+                    inputFocused = false
+                    taps += 1
+                }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("touch.swiftui.button")
+                Text("SwiftUI taps \(taps)")
+                    .accessibilityIdentifier("touch.swiftui.status")
+                TextField("Text input", text: $input)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($inputFocused)
+                    .accessibilityIdentifier("touch.swiftui.input")
+                Text("Input changed: \(input)").accessibilityIdentifier("touch.swiftui.input.status")
+                Text("Gesture tap").frame(maxWidth: .infinity).frame(height: 45)
+                    .background(Color.blue).foregroundStyle(.white)
+                    .onTapGesture { gestureTaps += 1 }
+                    .accessibilityIdentifier("touch.swiftui.tap")
+                Text("Taps \(gestureTaps)").accessibilityIdentifier("touch.swiftui.tap.status")
+                    .gesture(TapGesture()) // A recognizer without an app handler is not an action target.
+                Text("Long press").frame(maxWidth: .infinity).frame(height: 45)
+                    .background(Color.indigo).foregroundStyle(.white)
+                    .onLongPressGesture(minimumDuration: 0.3) { holds += 1 }
+                    .accessibilityIdentifier("touch.swiftui.hold")
+                Text("Holds \(holds)").accessibilityIdentifier("touch.swiftui.hold.status")
+                Text("Hold then drag").frame(maxWidth: .infinity).frame(height: 60)
+                    .background(Color.orange)
+                    .gesture(LongPressGesture(minimumDuration: 0.3)
+                        .sequenced(before: DragGesture(minimumDistance: 1))
+                        .onChanged { value in
+                            switch value {
+                            case .first(true): dragStatus = "Drag held"
+                            case let .second(true, drag?): dragStatus = "Drag moved \(Int(drag.translation.width))"
+                            default: break
+                            }
+                        }
+                        .onEnded { value in
+                            if case let .second(true, drag?) = value {
+                                dragStatus = "Drag completed \(Int(drag.translation.width))"
+                            }
+                        })
+                    .accessibilityIdentifier("touch.swiftui.drag")
+                Text(dragStatus).accessibilityIdentifier("touch.swiftui.drag.status")
+                HStack {
+                    Text("Double tap").frame(maxWidth: .infinity).frame(height: 45)
+                        .background(Color.teal)
+                        .onTapGesture(count: 2) { doubles += 1 }
+                        .accessibilityIdentifier("touch.swiftui.double")
+                        .accessibilityHidden(true)
+                    Text("Drag").frame(maxWidth: .infinity).frame(height: 45)
+                        .background(Color.green)
+                        .gesture(DragGesture(minimumDistance: 1).onEnded { panStatus = "Pan completed \(Int($0.translation.width))" })
+                        .accessibilityIdentifier("touch.swiftui.pan")
+                        .accessibilityHidden(true)
+                }
+                HStack {
+                    Text("Double taps \(doubles)").accessibilityIdentifier("touch.swiftui.double.status")
+                        .onTapGesture(count: 2) { doubles += 1 }.allowsHitTesting(false)
+                    Text(panStatus).accessibilityIdentifier("touch.swiftui.pan.status")
+                }
+                ScrollView {
+                    VStack { ForEach(1...20, id: \.self) { Text("Scroll row \($0)").padding(8) } }
+                }
+                .frame(height: 100)
+                .accessibilityIdentifier("touch.swiftui.scroll")
+            }
+            .padding(.horizontal, 24)
+        }
+    }
+}
+
+private final class TouchTextFixtureField: UITextField {
+    override var textInputMode: UITextInputMode? {
+        UITextInputMode.activeInputModes.first { $0.primaryLanguage?.hasPrefix("ko") == true }
+            ?? super.textInputMode
     }
 }
