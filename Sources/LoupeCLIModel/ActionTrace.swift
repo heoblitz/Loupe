@@ -59,6 +59,8 @@ package struct LoupeCLIActionTrace: Codable, Equatable {
     package var selector: String?
     package var point: LoupePoint?
     package var endPoint: LoupePoint?
+    package var holdDuration: Double?
+    package var tapCount: Int?
     package var duration: Double?
     package var text: String?
     package var press: String?
@@ -80,6 +82,8 @@ package struct LoupeCLIActionTrace: Codable, Equatable {
         point: LoupePoint?,
         endPoint: LoupePoint?,
         duration: Double?,
+        tapCount: Int? = nil,
+        holdDuration: Double? = nil,
         text: String?,
         press: String? = nil,
         resolvedPoint: LoupePoint?,
@@ -98,6 +102,8 @@ package struct LoupeCLIActionTrace: Codable, Equatable {
         self.selector = selector
         self.point = point
         self.endPoint = endPoint
+        self.holdDuration = holdDuration
+        self.tapCount = tapCount
         self.duration = duration
         self.text = text
         self.press = press

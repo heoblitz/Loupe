@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import urllib.parse
 
@@ -15,8 +16,12 @@ identity = {'launchID': 'cli-contract', 'startedAt': '2026-01-01T00:00:00Z',
             'platform': 'macOS', 'bundleIdentifier': 'fixture.app', 'processIdentifier': 1}
 requests = []
 ax_status = 200
+ax_delay = 0
 status_delay = 0
 snapshot_delay = 0
+runtime_input = False
+text_status = 200
+input_bodies = []
 wait_snapshot = {
     'id': 'wait-snapshot', 'capturedAt': '2026-01-01T00:00:00Z',
     'screen': screen, 'rootRefs': ['wait-node'],
@@ -41,12 +46,15 @@ class Runtime(http.server.BaseHTTPRequestHandler):
         if url.path == '/status':
             time.sleep(status_delay)
             status, body = 200, {'identity': identity, 'retainedLogCount': 0}
+        elif url.path == '/input/focus':
+            status, body = 200, {'focused': True}
         elif url.path == '/snapshot':
             time.sleep(snapshot_delay)
             status, body = 200, wait_snapshot
         elif url.path == '/observation':
             status, body = 200, {'fixture': 'compact'}
         elif url.path == '/accessibility':
+            time.sleep(ax_delay)
             node = {'ref': 'ax-native', 'sourceRef': 'native-owner', 'role': 'button',
                     'label': 'Open', 'testID': 'native.button', 'traits': [],
                     'isVisible': True, 'isEnabled': True, 'isInteractive': True, 'children': []}
@@ -60,7 +68,10 @@ class Runtime(http.server.BaseHTTPRequestHandler):
                     'actions': [{'name': 'press'}]}
             snapshot = {'id': 'action', 'capturedAt': '2026-01-01T00:00:00Z',
                         'screen': screen, 'rootRefs': [], 'nodes': {}}
-            tree = {'snapshotID': 'action', 'screen': screen,
+            if runtime_input:
+                snapshot = wait_snapshot
+                node.update(ref='ax-input', sourceRef='wait-node', testID='wait.node', role='textField')
+            tree = {'snapshotID': snapshot['id'], 'screen': screen,
                     'rootRefs': [node['ref']], 'nodes': {node['ref']: node}}
             status, body = 200, {'snapshot': snapshot, 'tree': tree}
         data = json.dumps(body).encode()
@@ -74,6 +85,22 @@ class Runtime(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         requests.append(('POST', self.path))
+        if runtime_input:
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            input_bodies.append((self.path, body))
+            if self.path == '/input/touch':
+                response = dict(command=body['command'], start=body['start'], actionElapsed=0.05,
+                                beforeSnapshotID='before', afterSnapshotID='after')
+                status = 200
+            else:
+                response = {'inserted': True} if text_status == 200 else {'error': 'text_input_not_focused'}
+                status = text_status
+            data = json.dumps(response).encode()
+            self.send_response(status)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         # Simulate a transport failure after the server may have applied a write.
         self.close_connection = True
 
@@ -134,6 +161,18 @@ try:
     assert requests == [('GET', '/snapshot')], requests
     snapshot_delay = 0
 
+    # Native accessibility capture shares the overall wait deadline, just like
+    # view capture. A slow successful response must not be canceled at 3s.
+    ax_delay = 3.2
+    result = run(['act', 'wait', 'visible', '--test-id', 'native.button', '--timeout', '5'])
+    assert result.returncode == 0 and 'ax-native' in result.stdout, result.stderr
+    assert requests == [('GET', '/snapshot'), ('GET', '/accessibility')], requests
+    started = time.monotonic()
+    result = run(['act', 'wait', 'visible', '--test-id', 'native.button', '--timeout', '0.3'])
+    assert result.returncode != 0 and 'timed out' in result.stderr, result.stderr
+    assert time.monotonic() - started < 0.7, 'accessibility wait exceeded its overall timeout'
+    ax_delay = 0
+
     result = run(['act', 'targets', '--search', 'native.button'])
     assert result.returncode == 0 and '#1' in result.stdout, result.stderr
     assert requests == [('GET', '/status'), ('GET', '/accessibility/action-observation')], requests
@@ -146,12 +185,95 @@ try:
     result = run(['ui', 'tree', '--accessibility'])
     assert result.returncode != 0 and 'HTTP 503' in result.stderr, result.stderr
     assert requests == [('GET', '/accessibility')], requests
+    ax_status = 404
+    result = run(['ui', 'tree', '--accessibility'])
+    assert result.returncode == 0 and 'wait.node' in result.stdout, result.stderr
+    assert requests == [('GET', '/accessibility'), ('GET', '/snapshot')], requests
+    # Compatibility fallback shares the original request budget, rather than
+    # granting another full timeout after a slow missing-endpoint response.
+    ax_delay = 0.2
+    snapshot_delay = 0.2
+    started = time.monotonic()
+    result = run(['ui', 'tree', '--accessibility', '--timeout', '0.3'])
+    assert result.returncode != 0 and 'timed out' in result.stderr, result.stderr
+    assert time.monotonic() - started < 0.7, 'accessibility fallback exceeded its overall timeout'
+    ax_delay = snapshot_delay = 0
     status_delay = 0.8
     started = time.monotonic()
     result = run(['act', 'targets', '--bundle-id', 'fixture.app', '--timeout', '0.05'])
     assert result.returncode != 0 and 'timed out' in result.stderr, result.stderr
     assert time.monotonic() - started < 0.6, 'runtime selection ignored --timeout'
     assert requests == [('GET', '/status')], requests
+    # Physical act input must focus through touch and insert literal text in
+    # the same runtime. It must never try to resolve this device with simctl.
+    identity.update(platform='iOS', deviceIdentifier='physical-device')
+    status_delay = 0
+    ax_status = 200
+    wait_snapshot['nodes']['wait-node'].update(
+        typeName='UITextField', isInteractive=True, frame={'x': 20, 'y': 100, 'width': 160, 'height': 40})
+    runtime_input = True
+    literal = 'Hello 123! 한글 👋🏼'
+    input_bodies.clear()
+    result = run(['act', 'input', '--test-id', 'wait.node', '--text', literal])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch', '/input/text'], input_bodies
+    assert input_bodies[-1][1] == {'text': literal}, input_bodies
+    wait_snapshot['nodes']['gesture'] = dict(
+        ref='gesture', kind='view', typeName='GestureView', testID='wait.gesture',
+        isVisible=True, isEnabled=True, isInteractive=True, children=[],
+        frame={'x': 20, 'y': 150, 'width': 160, 'height': 40})
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.gesture'])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    assert input_bodies[0][1]['start'] == {'x': 100, 'y': 170}, input_bodies
+    assert ('GET', '/snapshot') in requests and ('GET', '/accessibility') in requests, requests
+    # A pre-dispatch trace failure must preserve its first snapshot and error.
+    # Recapturing an unchanged app only delays the original failure.
+    ax_status = 503
+    input_bodies.clear()
+    with tempfile.TemporaryDirectory(prefix='loupe-pre-action-failure-') as trace:
+        result = run(['act', 'tap', '--test-id', 'wait.gesture', '--trace-dir', trace])
+        assert result.returncode != 0 and 'HTTP 503' in result.stderr, result.stderr
+        assert input_bodies == [], input_bodies
+        assert requests == [('GET', '/status'), ('GET', '/snapshot'), ('GET', '/accessibility')], requests
+        assert (pathlib.Path(trace) / 'before-snapshot.json').exists()
+        assert 'HTTP 503' in json.loads((pathlib.Path(trace) / 'error.json').read_text())['message']
+        assert not (pathlib.Path(trace) / 'action-target.json').exists()
+    ax_status = 200
+    ax_delay = 3.2
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.gesture', '--expect-visible', 'native.button', '--timeout', '5'])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    ax_delay = 0
+    # Verifying a completed tap must not depend on a full style/layout capture
+    # when the expected screen is already present in native accessibility.
+    snapshot_delay = 0.8
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.node', '--expect-visible', 'native.button', '--timeout', '0.3'])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    assert ('GET', '/accessibility') in requests and ('GET', '/snapshot') not in requests, requests
+    snapshot_delay = 0
+    # A view-only expectation still uses the full snapshot fallback.
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.node', '--expect-visible', 'wait.node', '--timeout', '1'])
+    assert result.returncode == 0, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    assert requests[-2:] == [('GET', '/accessibility'), ('GET', '/snapshot')], requests
+    ax_status = 503
+    input_bodies.clear()
+    result = run(['act', 'tap', '--test-id', 'wait.node', '--expect-visible', 'wait.node'])
+    assert result.returncode != 0 and 'HTTP 503' in result.stderr, result.stderr
+    assert [path for path, _ in input_bodies] == ['/input/touch'], input_bodies
+    ax_status = 200
+    for text_status in [400, 404, 503]:
+        input_bodies.clear()
+        result = run(['act', 'input', '--test-id', 'wait.node', '--text', literal])
+        assert result.returncode != 0 and f'HTTP {text_status}' in result.stderr, result.stderr
+        assert [path for path, _ in input_bodies] == ['/input/touch', '/input/text'], input_bodies
+    runtime_input = False
     print('CLI contract checks passed: runtime identity, live accessibility, action capture, timeout, and error propagation')
 finally:
     server.shutdown()

@@ -42,6 +42,7 @@ extension LoupeCLI {
         timeout: TimeInterval = 5,
         includeHidden: Bool = false
     ) async throws -> LoupeAccessibilityTree {
+        let deadline = Date().addingTimeInterval(timeout)
         guard var components = URLComponents(url: host.appendingPathComponent("accessibility"), resolvingAgainstBaseURL: false) else {
             throw CLIError("Invalid runtime host: \(host)")
         }
@@ -56,7 +57,9 @@ extension LoupeCLI {
         if let fallbackSnapshot {
             snapshot = fallbackSnapshot
         } else {
-            snapshot = try await fetchSnapshot(host: host, timeout: timeout)
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { throw CLIError("accessibility fetch timed out before snapshot fallback") }
+            snapshot = try await fetchSnapshot(host: host, timeout: remaining)
         }
         return LoupeAccessibilityTree.build(from: snapshot, includeHidden: includeHidden)
     }

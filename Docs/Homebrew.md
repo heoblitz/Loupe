@@ -1,6 +1,7 @@
 # Homebrew Distribution
 
-Loupe is distributed from this repository as a Homebrew tap formula.
+Loupe is distributed from this repository as a Homebrew tap formula for Apple
+Silicon Macs. Intel Macs are not supported.
 
 ## Install
 
@@ -77,16 +78,18 @@ commit the Formula change to `main`.
 4. In GitHub Actions, run **Homebrew Bottles** from `main` and enter `X.Y.Z`.
 The workflow verifies the Formula and immutable source tag, then:
 
-- builds Apple Silicon and Intel bottles;
+- builds the Apple Silicon bottle;
 - installs each generated bottle and requires `poured_from_bottle: true`;
 - runs the Formula test and verifies the CLI and both injector code signatures
   on Apple Silicon;
 - verifies that the matching GitHub Release is still a draft before uploading;
-- uploads both bottles to the draft Release; and
+- uploads the bottle to the draft Release; and
 - generates and commits the new Formula `bottle do` block.
 
 Pull requests that change the Formula or bottle workflow run the build and pour
-checks but never upload assets or modify `main`.
+checks plus UIKit/SwiftUI touch and input E2E with the poured CLI and injector.
+The harness builds only the fixture app. It never rebuilds the installed CLI
+or injector, uploads release assets, or modifies `main` during PR checks.
 
 5. After the bottle workflow completes, run **Verify** from `main`. The workflow's
 Formula commit uses `GITHUB_TOKEN`, so its push does not start another workflow
@@ -123,7 +126,7 @@ loupe injector-path --macos
 ## Current Status
 
 The stable formula currently points at `v0.4.0`. The workflow above publishes
-Apple Silicon and Intel bottles built on macOS 15; compatible installs avoid local Swift
+Apple Silicon bottles built on macOS 15; compatible installs avoid local Swift
 compilation. Other supported source-build environments retain that path. Xcode
 is still needed for simulator/device tooling during Loupe use.
 
@@ -133,5 +136,7 @@ and embed LoupeInjector through SwiftPM in their own signed development build.
 
 PR checks package the PR source and prove a bottle can be poured, so they do
 not accidentally test an older tagged release. Release publication uses the
-immutable source tag in the formula. Both architectures must pass before the
-manual publication job uploads any package.
+immutable source tag in the formula. The Apple Silicon bottle must pass its macOS 15 build/pour checks and separate
+UIKit/SwiftUI runtime checks with Xcode 26.3 on macOS 26/iOS 26.2,
+using that same downloaded bottle, before
+the manual publication job uploads any package.

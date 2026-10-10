@@ -26,32 +26,9 @@ run_with_timeout() {
   return 124
 }
 
-simctl_list_timeout() {
-  ruby -e 'value = ENV.fetch("LOUPE_SIMCTL_LIST_TIMEOUT", "60").to_f; puts(value.positive? ? value.to_i : 60)'
-}
-
-booted_udid() {
-  local list_path="/tmp/loupe-runtime-booted-devices.json"
-  run_with_timeout "$(simctl_list_timeout)" xcrun simctl list devices booted --json >"$list_path"
-  ruby -rjson -e '
-    devices = JSON.parse(STDIN.read).fetch("devices").values.flatten
-    booted = devices.find { |device| device["state"] == "Booted" && device["name"].include?("iPhone") }
-    puts booted && booted["udid"]
-  ' <"$list_path"
-}
-
-DEVICE="${LOUPE_DEVICE:-$(booted_udid)}"
-if [[ -z "$DEVICE" ]]; then
-  DEVICES_PATH="/tmp/loupe-runtime-available-devices.txt"
-  run_with_timeout "$(simctl_list_timeout)" xcrun simctl list devices available >"$DEVICES_PATH"
-  FIRST_DEVICE="$(awk -F '[()]' '/iPhone/ { print $2; exit }' "$DEVICES_PATH")"
-  if [[ -z "$FIRST_DEVICE" ]]; then
-    echo "error: no available iPhone simulator found" >&2
-    exit 1
-  fi
-  xcrun simctl boot "$FIRST_DEVICE" >/dev/null 2>&1 || true
-  DEVICE="$FIRST_DEVICE"
-fi
+configure_loupe_ios_verification
+DEVICE="$(loupe_ios_verification_device)"
+prepare_loupe_ios_preferences
 
 terminate_app() {
   xcrun simctl terminate "$DEVICE" dev.loupe.example >/dev/null 2>&1 &
@@ -67,24 +44,7 @@ terminate_app() {
   wait "$pid" >/dev/null 2>&1 || true
 }
 
-assert_device_ready() {
-  local log_path="/tmp/loupe-runtime-bootstatus.log"
-  if run_with_timeout 90 xcrun simctl bootstatus "$DEVICE" -b >"$log_path" 2>&1; then
-    return
-  fi
-
-  if run_with_timeout 5 xcrun simctl spawn "$DEVICE" launchctl print system >/dev/null 2>&1; then
-    echo "warning: bootstatus timed out, but simulator launchd responds; continuing" >&2
-    return
-  fi
-
-  xcrun simctl io "$DEVICE" screenshot /tmp/loupe-runtime-boot-not-ready.png >/dev/null 2>&1 || true
-  echo "error: simulator $DEVICE did not finish booting; see $log_path and /tmp/loupe-runtime-boot-not-ready.png" >&2
-  tail -40 "$log_path" >&2 || true
-  exit 124
-}
-
-assert_device_ready
+boot_loupe_ios_verification_device
 swift build
 build_loupe_example_simulator_artifacts "$ROOT_DIR" "platform=iOS Simulator,id=$DEVICE"
 

@@ -223,6 +223,24 @@ final class LoupeRequestHandler: Sendable {
             } catch {
                 return ResponsePayload(status: 400, body: errorBody("activation_failed", error: error))
             }
+        case "/input/text":
+            guard request.method == "POST" else {
+                return ResponsePayload(status: 405, body: #"{"error":"method_not_allowed"}"#)
+            }
+            do {
+                let input = try JSONDecoder().decode(LoupeRuntimeTextInputRequest.self, from: request.body)
+                #if canImport(UIKit) && os(iOS) && (DEBUG || targetEnvironment(simulator))
+                return jsonPayload(try await captureUI(execution) {
+                    try LoupeTextInputDispatcher.perform(input)
+                }, failureCode: "text_input_encoding_failed")
+                #else
+                throw LoupeMutationError(code: "text_backend_unavailable", message: "Text input requires an iOS debug runtime.")
+                #endif
+            } catch let error as LoupeMutationError {
+                return ResponsePayload(status: error.status, body: errorBody(error.code, message: error.message))
+            } catch {
+                return ResponsePayload(status: 400, body: errorBody("text_input_failed", error: error))
+            }
         case "/input/touch":
             guard request.method == "POST" else {
                 return ResponsePayload(status: 405, body: #"{"error":"method_not_allowed"}"#)

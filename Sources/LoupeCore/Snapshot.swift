@@ -774,6 +774,7 @@ public struct LoupeNode: Codable, Equatable, Sendable {
     public var isEnabled: Bool
     public var isInteractive: Bool
     public var style: LoupeStyle?
+    public var touchActions: [LoupeTouchAction]?
     public var accessibility: LoupeAccessibility?
     public var runtime: LoupeNodeRuntimeProperties?
     public var uikit: LoupeUIKitProperties?
@@ -804,6 +805,7 @@ public struct LoupeNode: Codable, Equatable, Sendable {
         case isEnabled
         case isInteractive
         case style
+        case touchActions
         case accessibility
         case runtime
         case uikit
@@ -831,6 +833,7 @@ public struct LoupeNode: Codable, Equatable, Sendable {
         isEnabled: Bool,
         isInteractive: Bool,
         style: LoupeStyle? = nil,
+        touchActions: [LoupeTouchAction]? = nil,
         accessibility: LoupeAccessibility? = nil,
         runtime: LoupeNodeRuntimeProperties? = nil,
         uikit: LoupeUIKitProperties? = nil,
@@ -856,6 +859,7 @@ public struct LoupeNode: Codable, Equatable, Sendable {
         self.isEnabled = isEnabled
         self.isInteractive = isInteractive
         self.style = style
+        self.touchActions = touchActions
         self.accessibility = accessibility
         self.runtime = runtime
         self.uikit = uikit
@@ -885,6 +889,7 @@ public struct LoupeNode: Codable, Equatable, Sendable {
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
         isInteractive = try container.decode(Bool.self, forKey: .isInteractive)
         style = try container.decodeIfPresent(LoupeStyle.self, forKey: .style)
+        touchActions = try container.decodeIfPresent([LoupeTouchAction].self, forKey: .touchActions)
         accessibility = try container.decodeIfPresent(LoupeAccessibility.self, forKey: .accessibility)
         runtime = try container.decodeIfPresent(LoupeNodeRuntimeProperties.self, forKey: .runtime)
         uikit = try container.decodeIfPresent(LoupeUIKitProperties.self, forKey: .uikit)

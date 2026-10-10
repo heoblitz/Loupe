@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -12,7 +13,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             return
         }
 
-        let window = UIWindow(windowScene: windowScene)
+        let isTouchFixture = ProcessInfo.processInfo.environment["LOUPE_EXAMPLE_ROUTE"]?.hasPrefix("touch") == true
+        let window = isTouchFixture ? TouchEvidenceWindow(windowScene: windowScene) : UIWindow(windowScene: windowScene)
         if ProcessInfo.processInfo.environment["LOUPE_EXAMPLE_ROUTE"] == "bookmarks" {
             window.rootViewController = BookmarkTabController()
             window.makeKeyAndVisible()
@@ -33,6 +35,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         switch route {
         case "touch":
             navigationController.setViewControllers([TouchFixtureViewController()], animated: false)
+        case "touch.swiftui":
+            let controller = UIHostingController(rootView: TouchSwiftUIFixture())
+            controller.navigationItem.largeTitleDisplayMode = .never
+            navigationController.setViewControllers([controller], animated: false)
         case "detail":
             navigationController.pushViewController(
                 DetailViewController(
@@ -66,6 +72,25 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             navigationController.pushViewController(FixtureTabController(initialSelectedIndex: 3), animated: false)
         default:
             break
+        }
+    }
+}
+
+// Transport acknowledgement alone does not prove UIKit received a contact.
+// Record delivery in the fixture so a failed counter can be distinguished
+// from input that never reached the app, without replaying the action.
+private final class TouchEvidenceWindow: UIWindow {
+    override func sendEvent(_ event: UIEvent) {
+        super.sendEvent(event)
+        for touch in event.allTouches ?? [] where touch.phase == .began || touch.phase == .ended || touch.phase == .cancelled {
+            let point = touch.location(in: self)
+            NotificationCenter.default.post(name: Notification.Name("dev.loupe.log"), object: nil, userInfo: [
+                "level": "info", "message": "fixture_touch_received",
+                "metadata": ["phase": touch.phase.rawValue, "x": point.x, "y": point.y,
+                             "target": touch.view?.accessibilityIdentifier ?? String(describing: type(of: touch.view)),
+                             "age": ProcessInfo.processInfo.systemUptime - touch.timestamp,
+                             "applicationState": UIApplication.shared.applicationState.rawValue] as [String: Any],
+            ])
         }
     }
 }

@@ -9,10 +9,10 @@ class Loupe < Formula
   bottle do
     root_url "https://github.com/heoblitz/Loupe/releases/download/v0.4.0"
     sha256 arm64_sequoia: "20dc71dde908e9a8ca0afd6ca83a2549a137fab2f7a6aa0cbb16d7028a835290"
-    sha256 sequoia:       "f72f49b227768f8cf99749a9c0f196ca16a00ed4296d11e35c9ebbd2171d34fe"
   end
 
   depends_on xcode: ["16.0", :build]
+  depends_on arch: :arm64
 
   def swift_build(*args)
     build_args = ["build", "--configuration", "release", "--disable-sandbox", *args]
@@ -31,7 +31,7 @@ class Loupe < Formula
     bin.install cli_bin_path/"loupe"
     (pkgshare/"skills").install "skills/loupe" => "loupe"
 
-    simulator_triple = Hardware::CPU.arm? ? "arm64-apple-ios15.0-simulator" : "x86_64-apple-ios15.0-simulator"
+    simulator_triple = "arm64-apple-ios15.0-simulator"
     simulator_sdk = Utils.safe_popen_read("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path").strip
     injector_bin_path = swift_build(
       "--scratch-path", buildpath/".build/homebrew-loupe-injector",

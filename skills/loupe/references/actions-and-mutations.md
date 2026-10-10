@@ -8,11 +8,13 @@ source reflection.
 ```bash
 $LOUPE act targets --host <host>
 $LOUPE act tap '#2' --host <host>
+$LOUPE act tap --test-id gesture.double --count 2 --host <host>
 $LOUPE act perform '#4' increment --host <host>
 $LOUPE act tap --host <host> --snapshot <snapshot.json> --ref n21 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act tap --host <host> --x 201 --y 274 --width 438 --height 954 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act swipe --host <host> --from 219,760 --to 219,190 --udid <sim-udid> --trace-dir <trace-dir>
 $LOUPE act drag --host <host> --from 350,240 --to 80,240 --udid <sim-udid> --trace-dir <trace-dir>
+$LOUPE act drag --host <host> --from 80,300 --to 250,300 --hold-duration 0.6 --duration 0.4
 $LOUPE act input --test-id search.field --text "hello" --host <host> --udid <sim-udid>
 $LOUPE act wait value --host <host> --test-id feed.list --key uikit.scrollView.contentOffset.y --equals 80 --output <wait.json>
 $LOUPE debug trace summary <trace-dir>
@@ -21,7 +23,9 @@ $LOUPE debug trace summary <trace-dir>
 Use one fresh trace directory per attempt.
 
 Use `act targets` for movement and `ui report` for view analysis. `#N` aliases
-come from visible, enabled, interactive accessibility nodes. Quote the alias;
+come from visible, enabled accessibility actions or observed touch contracts.
+Non-accessibility gesture surfaces can appear with `[double-tap]`, `[long-press]`
+or `[drag]`; these capabilities do not invent accessibility callbacks. Quote the alias;
 it is consumed after a successful dispatch, so list targets again before the
 next alias action.
 
@@ -48,13 +52,16 @@ next alias action.
 - Use the same tap/swipe/drag commands on simulators and physical iOS devices.
   Loupe selects simulator HID or in-app touch from the runtime identity.
   The existing `--backend runtime` and `act perform` retain their declared
-  accessibility actions. No touch-specific CLI options are required.
+  accessibility actions. Defaults are unchanged; `tap --count 2` explicitly
+  requests a double tap.
 - The existing `--duration` controls touch duration; a longer tap can exercise
-  a long-press recognizer. The internal touch dispatcher also supports holding
-  before a drag. Touch requests validate coordinates, screen size, timing,
+  a long-press recognizer. `drag --hold-duration` keeps the same finger down
+  before movement; `drag --duration` controls movement time only. A separate
+  long tap followed by drag uses separate contacts. Touch requests validate coordinates, screen size, timing,
   foreground state, and private API availability. Failed/partial touches are
-  cancelled and never retried through a different backend. Runtime touch
-  requires a Debug injector.
+  cancelled and never retried through a different backend. Physical runtime touch
+  requires a Debug injector; the packaged Release simulator injector also
+  supports observation and input.
 - macOS tap is AppKit activation. watchOS, visionOS,
   and custom SwiftUI surfaces may correctly fail without stronger evidence.
 
