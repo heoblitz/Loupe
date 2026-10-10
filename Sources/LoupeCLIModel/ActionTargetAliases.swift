@@ -15,11 +15,13 @@ package struct ActionTargetAliasEntry: Codable, Equatable {
     package var isEnabled: Bool
     package var isInteractive: Bool
     package var actions: [LoupeAccessibilityAction] = []
+    package var touchActions: [LoupeTouchAction]? = nil
 
     package init(
         index: Int, ref: String, sourceRef: String, role: String?, text: String?, testID: String?,
         frame: LoupeRect?, activationPoint: LoupePoint?, point: LoupePoint, isVisible: Bool,
-        isEnabled: Bool, isInteractive: Bool, actions: [LoupeAccessibilityAction] = []
+        isEnabled: Bool, isInteractive: Bool, actions: [LoupeAccessibilityAction] = [],
+        touchActions: [LoupeTouchAction]? = nil
     ) {
         self.index = index
         self.ref = ref
@@ -34,6 +36,15 @@ package struct ActionTargetAliasEntry: Codable, Equatable {
         self.isEnabled = isEnabled
         self.isInteractive = isInteractive
         self.actions = actions
+        self.touchActions = touchActions
+    }
+
+    package func supportsTap(count: Int, duration: Double?) -> Bool {
+        if actions.contains(.activate) || actions.contains(.press) { return true }
+        let touch = touchActions ?? []
+        if count == 2 { return touch.contains(.doubleTap) }
+        if duration != nil { return touch.contains(.longPress) || touch.contains(.tap) }
+        return touch.contains(.tap)
     }
 
     package var queryResult: LoupeAccessibilityQueryResult {
@@ -56,7 +67,7 @@ package struct ActionTargetAliasEntry: Codable, Equatable {
 }
 
 package struct ActionTargetAliasCache: Codable, Equatable {
-    package static let currentSchemaVersion = 3
+    package static let currentSchemaVersion = 4
 
     package var schemaVersion: Int
     package var cacheID: String
@@ -102,13 +113,13 @@ package struct ActionTargetAliasCache: Codable, Equatable {
         }
         guard target.isVisible,
               target.isEnabled,
-              !target.actions.isEmpty,
+              !target.actions.isEmpty || !(target.touchActions?.isEmpty ?? true),
               target.point.x.isFinite,
               target.point.y.isFinite,
               target.point.x >= 0,
               target.point.y >= 0,
-              target.point.x <= screen.size.width,
-              target.point.y <= screen.size.height else {
+              target.point.x < screen.size.width,
+              target.point.y < screen.size.height else {
             throw CLIError("Saved action target '#\(index)' is invalid. Rerun `loupe act targets`")
         }
         return target
@@ -162,7 +173,7 @@ package enum ActionTargetAliasPlanner {
         let totalTargetCount = results.count
         let boundedLimit = min(max(1, limit), maximumTargetCount)
         let targets = results.prefix(boundedLimit).enumerated().map { offset, result in
-            entry(result, index: offset + 1, accessibilityTree: accessibilityTree)
+            entry(result, index: offset + 1, accessibilityTree: accessibilityTree, snapshot: snapshot)
         }
 
         return ActionTargetAliasCache(
@@ -190,7 +201,9 @@ package enum ActionTargetAliasPlanner {
         let matches = candidates(snapshot: snapshot, accessibilityTree: accessibilityTree,
                                  search: nil, includeAll: true).filter { candidate in
             let actions = accessibilityTree.nodes[candidate.ref]?.actions ?? []
-            return actions.contains(where: { $0 == .activate || $0 == .press })
+            let touchActions = touchActions(for: candidate, snapshot: snapshot)
+            return (actions.contains(where: { $0 == .activate || $0 == .press }) ||
+                    touchActions.contains(where: { [.tap, .doubleTap, .longPress].contains($0) }))
                 && candidate.role == saved.role
                 && candidate.text == saved.text
                 && (saved.testID == nil || candidate.testID == saved.testID)
@@ -198,7 +211,7 @@ package enum ActionTargetAliasPlanner {
         guard matches.count == 1, let match = matches.first else {
             throw CLIError("Saved action target '#\(saved.index)' no longer resolves uniquely. Rerun `loupe act targets`")
         }
-        return entry(match, index: saved.index, accessibilityTree: accessibilityTree)
+        return entry(match, index: saved.index, accessibilityTree: accessibilityTree, snapshot: snapshot)
     }
 
     private static func candidates(
@@ -214,7 +227,31 @@ package enum ActionTargetAliasPlanner {
             .filter { actionPoint(for: $0, screen: accessibilityTree.screen) != nil }
             .sorted(by: visualOrder)
 
+        // Native accessibility remains preferred. Add concrete touch contracts
+        // from the view tree only when there is no matching native target.
+        for node in snapshot.nodes.values.sorted(by: { $0.ref < $1.ref }) {
+            guard node.isVisible, node.isEnabled, !(node.touchActions?.isEmpty ?? true),
+                  !node.isLoupeProbeMarker else { continue }
+            let result = LoupeAccessibilityQueryResult(node: LoupeAccessibilityNode(
+                ref: node.ref, sourceRef: node.ref, role: node.role ?? "gesture",
+                label: node.label ?? node.text ?? node.semanticText,
+                testID: node.testID, frame: node.frame, activationPoint: node.frame?.center,
+                isVisible: true, isEnabled: true, isInteractive: true, actions: []
+            ))
+            guard actionPoint(for: result, screen: accessibilityTree.screen) != nil else { continue }
+            if !results.contains(where: { equivalentTouchSource($0, node: node) }) { results.append(result) }
+        }
+        results.sort(by: visualOrder)
         results = preferPlatformBacked(results, snapshot: snapshot)
+        results = results.filter { candidate in
+            guard candidate.testID == nil, let frame = candidate.frame else { return true }
+            return !results.contains { preferred in
+                guard preferred.testID != nil, preferred.role == candidate.role,
+                      preferred.text == candidate.text, let other = preferred.frame else { return false }
+                return abs(frame.x - other.x) < 1 && abs(frame.y - other.y) < 1
+                    && abs(frame.width - other.width) < 1 && abs(frame.height - other.height) < 1
+            }
+        }
         results = exactDedupe(results)
         if let search = nonEmpty(search)?.lowercased() {
             results = results.filter { result in
@@ -230,7 +267,8 @@ package enum ActionTargetAliasPlanner {
     private static func entry(
         _ result: LoupeAccessibilityQueryResult,
         index: Int,
-        accessibilityTree: LoupeAccessibilityTree
+        accessibilityTree: LoupeAccessibilityTree,
+        snapshot: LoupeSnapshot
     ) -> ActionTargetAliasEntry {
         ActionTargetAliasEntry(
             index: index,
@@ -245,8 +283,26 @@ package enum ActionTargetAliasPlanner {
             isVisible: result.isVisible,
             isEnabled: result.isEnabled,
             isInteractive: result.isInteractive,
-            actions: accessibilityTree.nodes[result.ref]?.actions ?? []
+            actions: accessibilityTree.nodes[result.ref]?.actions ?? [],
+            touchActions: touchActions(for: result, snapshot: snapshot)
         )
+    }
+
+    private static func equivalentTouchSource(_ result: LoupeAccessibilityQueryResult, node: LoupeNode) -> Bool {
+        if result.sourceRef == node.ref { return true }
+        guard let frame = result.frame, let other = node.frame,
+              abs(frame.x - other.x) < 1, abs(frame.y - other.y) < 1,
+              abs(frame.width - other.width) < 1, abs(frame.height - other.height) < 1 else { return false }
+        if let id = node.testID { return result.testID == id }
+        return result.text == (node.label ?? node.text ?? node.semanticText)
+    }
+
+    private static func touchActions(for result: LoupeAccessibilityQueryResult, snapshot: LoupeSnapshot) -> [LoupeTouchAction] {
+        var actions: [LoupeTouchAction] = []
+        for node in snapshot.nodes.values where equivalentTouchSource(result, node: node) {
+            actions.append(contentsOf: node.touchActions ?? [])
+        }
+        return LoupeTouchAction.allObservedOrder.filter(actions.contains)
     }
 
     private static func actionPoint(
@@ -264,8 +320,8 @@ package enum ActionTargetAliasPlanner {
         guard let point,
               point.x.isFinite, point.y.isFinite,
               point.x >= 0, point.y >= 0,
-              point.x <= screen.size.width,
-              point.y <= screen.size.height else {
+              point.x < screen.size.width,
+              point.y < screen.size.height else {
             return nil
         }
         return point
@@ -362,9 +418,10 @@ package enum ActionTargetAliasText {
         var lines = ["App: \(cache.bundleIdentifier)", ""]
         lines.append(contentsOf: cache.targets.map { target in
             let role = nonEmpty(target.role) ?? "element"
-            let label = nonEmpty(target.text) ?? ""
+            let label = nonEmpty(target.text) ?? nonEmpty(target.testID) ?? ""
             let text = escaped(label.count > 80 ? String(label.prefix(80)) + "…" : label)
-            var actions = target.actions
+            var actions = (target.touchActions ?? []).map(\.rawValue)
+            actions += target.actions
                 .filter { $0 != .activate && $0 != .press }
                 .map(\.commandName)
             if target.actions.contains(.activate) || target.actions.contains(.press) {

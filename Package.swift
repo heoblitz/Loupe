@@ -45,13 +45,17 @@ let package = Package(
         ),
         .target(
             name: "LoupeInjectionBootstrap",
-            publicHeadersPath: "include"
+            publicHeadersPath: "include",
+            cSettings: [.define("DEBUG", .when(configuration: .debug))]
         ),
         .target(
             name: "LoupeHID",
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("CoreImage"),
+                .linkedFramework("IOSurface"),
+                .linkedFramework("ImageIO"),
             ]
         ),
         .target(

@@ -3,6 +3,25 @@ import LoupeCLIModel
 import LoupeCore
 
 extension LoupeCLI {
+    static func dispatchRuntimeTextInput(_ options: ActionOptions) async throws {
+        var request = URLRequest(url: options.host.appendingPathComponent("input/text"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(LoupeRuntimeTextInputRequest(text: options.text ?? ""))
+        let (data, response) = try await RuntimeHTTPClient.shared.data(
+            for: request, timeout: options.timeout, label: "runtime text input"
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw CLIError("runtime text input expected an HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw CLIError("runtime text input failed with HTTP \(http.statusCode): \(String(decoding: data, as: UTF8.self))")
+        }
+        guard try JSONDecoder().decode(LoupeRuntimeTextInputResponse.self, from: data).inserted else {
+            throw CLIError("runtime text input was not inserted")
+        }
+    }
+
     static func performAccessibilityAction(_ arguments: [String]) async throws {
         var options = try AccessibilityActionOptions(arguments: arguments)
         options.host = try await resolvedRuntimeHost(

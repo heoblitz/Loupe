@@ -66,8 +66,11 @@ public final class LoupeAgent {
             LoupeAccessibilityPreparation.prepare()
         }
         #endif
-        let capture = captureSnapshotWithViewRefs()
-        guard ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1" else {
+        let usesNativeAccessibility = ProcessInfo.processInfo.environment["LOUPE_NATIVE_ACCESSIBILITY"] == "1"
+        // Native accessibility needs stable view refs/visibility, not a second
+        // full style/layout/private-property capture beside the trace snapshot.
+        let capture = captureSnapshotWithViewRefs(actionTargetsOnly: usesNativeAccessibility)
+        guard usesNativeAccessibility else {
             return LoupeAccessibilityTree.build(from: LoupeSnapshotContext(snapshot: capture.snapshot), includeHidden: includeHidden)
         }
         return captureNativeAccessibilityTree(
@@ -400,6 +403,14 @@ public final class LoupeAgent {
         let visible = directlyVisible
             && (inheritedVisible || isAppAuthoredProbe(customMetadata))
 
+        #if os(iOS)
+        if visible, typeName(of: view).contains("UIHostingView") {
+            // Full snapshots read SwiftUI native semantics too. Prepare before
+            // visiting descendants, just as the native action observation does.
+            LoupeAccessibilityPreparation.prepare()
+        }
+        #endif
+
         var childRefs: [String] = []
         for subview in view.subviews {
             let childRef = captureView(
@@ -431,6 +442,36 @@ public final class LoupeAgent {
         )
 
         let accessibility = accessibility(for: view)
+        #if os(iOS)
+        let touchFrame = frameInScreen(for: view)
+        let declaredTouchActions = visible ? loupeTouchActions(for: view) : []
+        let touchActions = declaredTouchActions.isEmpty ? [] :
+            touchFrame.map { loupeTouchable($0, in: view) ? declaredTouchActions : [] } ?? []
+        if visible, typeName(of: view).contains("UIHostingView") {
+            let targets = loupeSwiftUITouchDeclarations(in: view) {
+                var visited = Set<ObjectIdentifier>()
+                var elements: [NSObject] = []
+                @MainActor func collect(in current: UIView) {
+                    elements.append(current)
+                    elements.append(contentsOf: nativeAccessibilityElements(in: current, visitedContainers: &visited))
+                    current.subviews.forEach { collect(in: $0) }
+                }
+                collect(in: view)
+                return elements
+            }
+            for target in targets {
+                let targetRef = makeRef()
+                nodes[targetRef] = LoupeNode(ref: targetRef, parentRef: ref, kind: .view,
+                    typeName: "SwiftUI.Gesture", role: "gesture", testID: target.testID,
+                    label: target.label, text: target.label, frame: target.frame,
+                    isVisible: true, isEnabled: true, isInteractive: true,
+                    touchActions: target.actions)
+                childRefs.append(targetRef)
+            }
+        }
+        #else
+        let touchActions: [LoupeTouchAction] = []
+        #endif
         if actionTargetsOnly {
             nodes[ref] = LoupeNode(
                 ref: ref,
@@ -447,6 +488,7 @@ public final class LoupeAgent {
                 isVisible: visible,
                 isEnabled: isEnabled(view),
                 isInteractive: isInteractive(view),
+                touchActions: touchActions.isEmpty ? nil : touchActions,
                 accessibility: accessibility,
                 children: childRefs
             )
@@ -474,6 +516,23 @@ public final class LoupeAgent {
             )
         }
 
+        #if os(iOS)
+        for gestureRef in childRefs where nodes[gestureRef]?.typeName == "SwiftUI.Gesture" {
+            guard let gesture = nodes[gestureRef], let id = gesture.testID,
+                  let semanticRef = childRefs.sorted(by: {
+                      (nodes[$0]?.typeName == "SwiftUI.Gesture" ? 1 : 0)
+                          < (nodes[$1]?.typeName == "SwiftUI.Gesture" ? 1 : 0)
+                  }).first(where: {
+                      $0 != gestureRef && nodes[$0]?.testID == id && nodes[$0]?.frame == gesture.frame
+                  }) else { continue }
+            let combined = (nodes[semanticRef]?.touchActions ?? []) + (gesture.touchActions ?? [])
+            nodes[semanticRef]?.touchActions = LoupeTouchAction.allObservedOrder.filter(combined.contains)
+            nodes[semanticRef]?.isInteractive = true
+            nodes.removeValue(forKey: gestureRef)
+        }
+        childRefs.removeAll { nodes[$0] == nil }
+        #endif
+
         nodes[ref] = LoupeNode(
             ref: ref,
             parentRef: parentRef,
@@ -492,6 +551,7 @@ public final class LoupeAgent {
             isEnabled: isEnabled(view),
             isInteractive: isInteractive(view),
             style: style(for: view),
+            touchActions: touchActions.isEmpty ? nil : touchActions,
             accessibility: accessibility,
             runtime: runtimeProperties,
             uikit: uiKitProperties,
@@ -1254,7 +1314,7 @@ private func mergedMetadata(
 }
 
 @MainActor
-private func accessibilityIdentifier(for element: NSObject) -> String? {
+func accessibilityIdentifier(for element: NSObject) -> String? {
     if let identifier = (element as? UIAccessibilityIdentification)?.accessibilityIdentifier {
         return nonEmpty(identifier)
     }
@@ -1345,9 +1405,22 @@ private func accessibilityActions(
         blockActions = (false, false, false, false, false)
     }
 
-    if element is UIControl
-        || role.map(standardActivatingRoles.contains) == true
-        || blockActions.activate {
+    var hasActivationContract: Bool
+    if let control = element as? UIControl {
+        hasActivationContract = !control.allControlEvents.isEmpty || control is UITextField
+            || control is UISegmentedControl || control is UIPageControl
+        #if os(iOS)
+        hasActivationContract = hasActivationContract || control is UISwitch
+            || control is UISlider || control is UIStepper || (control as? UIButton)?.menu != nil
+        #endif
+    } else if element is UIView {
+        let selector = #selector(NSObject.accessibilityActivate)
+        hasActivationContract = class_getInstanceMethod(type(of: element), selector).map(method_getImplementation)
+            != class_getInstanceMethod(UIView.self, selector).map(method_getImplementation)
+    } else {
+        hasActivationContract = role.map(standardActivatingRoles.contains) == true
+    }
+    if hasActivationContract || blockActions.activate {
         actions.append(.activate)
     }
     #if os(iOS)
@@ -1417,7 +1490,7 @@ private func accessibilityVisualOrder(
 }
 
 func typeName(of value: AnyObject) -> String {
-    String(describing: type(of: value))
+    _typeName(type(of: value), qualified: false)
 }
 
 private func interfaceStyleName(_ style: UIUserInterfaceStyle) -> String {
