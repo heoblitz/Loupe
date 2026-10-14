@@ -33,6 +33,9 @@ jobs:
       - name: Run SwiftPM tests
         run: swift test
 
+      - name: Verify SimulatorKit framework loading
+        run: scripts/verify-hid-framework-loading.sh
+
   release-and-platform-builds:
     name: Release and Platform Builds
     runs-on: macos-26
