@@ -12,6 +12,7 @@ run_step() {
 }
 
 run_step "swift test" swift test
+run_step "HID framework loading" bash scripts/verify-hid-framework-loading.sh
 run_step "release CLI build" swift build --configuration release --disable-sandbox --product loupe
 run_step "CLI contracts" xcrun python3 scripts/verify-cli-contracts.py .build/release/loupe
 run_step "platform builds" scripts/verify-platform-builds.sh

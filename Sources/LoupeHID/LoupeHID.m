@@ -97,10 +97,13 @@ static void LoupeHIDSetError(char **errorMessage, NSString *message)
     *errorMessage = strdup(message.UTF8String);
 }
 
-static NSString *LoupeSimulatorKitPath(void)
+static NSArray<NSString *> *LoupeSimulatorKitPaths(void)
 {
-    NSString *developerDir = LoupeDeveloperDir();
-    return [developerDir stringByAppendingPathComponent:@"Library/PrivateFrameworks/SimulatorKit.framework"];
+    NSString *developerDir = [LoupeDeveloperDir() stringByStandardizingPath];
+    return @[
+        [developerDir stringByAppendingPathComponent:@"Library/PrivateFrameworks/SimulatorKit.framework"],
+        [[developerDir stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"SharedFrameworks/SimulatorKit.framework"],
+    ];
 }
 
 static NSString *LoupeDeveloperDir(void)
@@ -150,14 +153,19 @@ static bool LoupeLoadCoreSimulator(char **errorMessage)
 static bool LoupeHIDLoadFrameworks(char **errorMessage)
 {
     if (!LoupeLoadCoreSimulator(errorMessage)) return false;
-    NSString *simulatorKitPath = LoupeSimulatorKitPath();
-    NSBundle *simulatorKit = [NSBundle bundleWithPath:simulatorKitPath];
-    if (![simulatorKit load]) {
-        LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to load %@", simulatorKitPath]);
-        return false;
+    NSMutableArray<NSString *> *failures = [NSMutableArray array];
+    for (NSString *path in LoupeSimulatorKitPaths()) {
+        NSBundle *simulatorKit = [NSBundle bundleWithPath:path];
+        NSError *loadError = nil;
+        if ([simulatorKit loadAndReturnError:&loadError]) {
+            return true;
+        }
+        NSString *reason = loadError.localizedDescription ?: @"framework bundle not found or invalid";
+        [failures addObject:[NSString stringWithFormat:@"%@: %@", path, reason]];
     }
 
-    return true;
+    LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to load SimulatorKit; tried:\n%@", [failures componentsJoinedByString:@"\n"]]);
+    return false;
 }
 
 static bool LoupeHIDLoadFunctions(LoupeHIDFunctions *functions, char **errorMessage)

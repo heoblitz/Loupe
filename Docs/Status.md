@@ -23,6 +23,9 @@ runtime servers.
 - Dispatch simulator-visible `tap`, `swipe`, `drag`, and tvOS remote
   `press` through Loupe's native host-side action backend where the simulator
   platform supports it.
+- Load SimulatorKit from either the selected Xcode's
+  `Contents/Developer/Library/PrivateFrameworks` or `Contents/SharedFrameworks`.
+  Loading failures report both attempted paths and bundle errors.
 - Dispatch `tap`, `swipe`, and `drag` through the linked runtime's UIKit touch
   dispatcher on physical iOS devices, selected automatically from the runtime
   identity, using the existing CLI commands and options. The touch
@@ -76,6 +79,8 @@ scripts/verify-agent-work.sh
 It runs:
 
 - `swift test`
+- isolated SimulatorKit loading fixtures for legacy/shared framework paths,
+  an unloadable legacy bundle, and missing-framework diagnostics
 - benchmark helper syntax, case contracts, prompt generation,
   transcript-diagnosis, usage parsing, and replay-matrix freshness checks
 - release CLI build
