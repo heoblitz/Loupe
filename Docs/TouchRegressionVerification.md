@@ -61,6 +61,18 @@ Local and self-hosted runs restore the selected device's saved preferences and
 state. GitHub-hosted VMs are discarded after the job; their live guest is left
 available for diagnostics rather than shut down solely to restore temporary
 preferences. Cleanup preserves the original test exit status.
+The three hosted touch jobs also suppress four background widget services on
+their disposable selected Simulator: PosterBoard, chronod, liveactivitiesd,
+and navd. Prepare while that device is shut down; preserve unrelated launchd
+overrides, and verify the four overrides after the full input suite. Local and
+self-hosted execution is refused. This follows the per-device override format
+and widget-only subset reviewed in [SimSlim](https://github.com/MobAI-App/simslim/tree/6518ba7eab1123d7e1d7797b0e05f51043b42a5b).
+With identical source artifacts and deadlines, stock iOS 26.2 and 27.0 guests
+failed keyboard/status or snapshot checks in the four-host comparison, while
+both widget profiles passed the complete suite. The iOS 26.2 comparison reduced
+peak compressed-memory occupancy by approximately 317 MiB. The iOS 27.0 hosts'
+peak wired memory was 4,191 MiB stock versus 1,648 MiB with the widget profile.
+App input, keyboard, HID, and accessibility services retain their defaults.
 Scroll assertions observe the required directional movement within the same
 four-second state-check budget as label assertions, instead of assuming a
 fixed 200–300 ms animation delay. Input is sent once; offset samples are saved.

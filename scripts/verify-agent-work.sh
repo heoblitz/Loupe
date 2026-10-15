@@ -16,6 +16,7 @@ run_step "native work with one cooperative thread" env DISPATCH_COOPERATIVE_POOL
 run_step "HID framework loading" bash scripts/verify-hid-framework-loading.sh
 run_step "HID touch messages" bash scripts/verify-hid-touch-messages.sh
 run_step "simulator preference lifecycle" scripts/verify-simulator-preferences-lifecycle.sh
+run_step "hosted Simulator widget safeguards" python3 scripts/verify-ci-simulator-widgets.py
 run_step "release CLI build" swift build --configuration release --disable-sandbox --product loupe
 run_step "CLI contracts" xcrun python3 scripts/verify-cli-contracts.py .build/release/loupe
 run_step "platform builds" scripts/verify-platform-builds.sh

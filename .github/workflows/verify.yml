@@ -70,6 +70,7 @@ jobs:
           xcrun simctl list runtimes
           device="$(loupe_ios_verification_device)"
           echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
+          python3 scripts/ci-simulator-widgets.py "$device" prepare
       - name: Verify HID framework loading and messages
         run: |
           bash scripts/verify-hid-framework-loading.sh
@@ -90,7 +91,9 @@ jobs:
           echo 'LOUPE_EXAMPLE_PREBUILT_INJECTOR=/tmp/loupe-ci-ios-runtime/LoupeInjector' >> "$GITHUB_ENV"
           echo 'LOUPE_EXAMPLE_PREBUILT_APP=/tmp/loupe-ci-ios-runtime/LoupeExample.app' >> "$GITHUB_ENV"
       - name: Verify iOS touch and input with Xcode 27
-        run: Examples/LoupeExample/run-touch-e2e.sh
+        run: |
+          Examples/LoupeExample/run-touch-e2e.sh
+          python3 scripts/ci-simulator-widgets.py "$LOUPE_DEVICE" verify
       - name: Collect Xcode 27 app crash diagnostics
         if: failure()
         timeout-minutes: 2
@@ -146,6 +149,8 @@ jobs:
 
       - name: Verify simulator preference lifecycle
         run: scripts/verify-simulator-preferences-lifecycle.sh
+      - name: Verify hosted Simulator widget safeguards
+        run: python3 scripts/verify-ci-simulator-widgets.py
 
   release-and-platform-builds:
     name: Release and Platform Builds

@@ -12,6 +12,7 @@ on:
       - Sources/**
       - Examples/LoupeExample/**
       - scripts/build-ci-ios-artifacts.sh
+      - scripts/ci-simulator-widgets.py
       - skills/loupe/**
   workflow_dispatch:
     inputs:
@@ -332,18 +333,18 @@ jobs:
         run: |
           set -euo pipefail
           prefix="$LOUPE_BOTTLE_PREFIX"
-          if [[ "$LOUPE_TOUCH_XCODE_VERSION" == "27.0" ]]; then
-            source Examples/LoupeExample/build-simulator-artifacts.sh
-            configure_loupe_ios_verification
-            LOUPE_DEVICE="$(loupe_ios_verification_device)"
-            export LOUPE_DEVICE
-            export LOUPE_EXAMPLE_DESTINATION='generic/platform=iOS Simulator'
-          fi
+          source Examples/LoupeExample/build-simulator-artifacts.sh
+          configure_loupe_ios_verification
+          LOUPE_DEVICE="$(loupe_ios_verification_device)"
+          export LOUPE_DEVICE
+          export LOUPE_EXAMPLE_DESTINATION='generic/platform=iOS Simulator'
+          python3 scripts/ci-simulator-widgets.py "$LOUPE_DEVICE" prepare
           LOUPE_HID_DIAGNOSTICS=1 \
           LOUPE_TOUCH_CLI="$prefix/bin/loupe" \
           LOUPE_EXAMPLE_PREBUILT_INJECTOR="$prefix/libexec/LoupeInjector.framework/LoupeInjector" \
           LOUPE_EXAMPLE_BUILD_ROOT=/tmp/loupe-bottle-runtime \
             Examples/LoupeExample/run-touch-e2e.sh
+          python3 scripts/ci-simulator-widgets.py "$LOUPE_DEVICE" verify
 
       - name: Upload bottled runtime diagnostics
         if: failure() || cancelled()
