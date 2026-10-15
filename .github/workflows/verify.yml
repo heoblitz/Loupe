@@ -67,7 +67,15 @@ jobs:
           launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env LOUPE_EXAMPLE_ROUTE=touch.swiftui --timeout 30)"
           HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
           test -n "$HOST"
-          .build/debug/loupe ui snapshot --host "$HOST" --output /tmp/loupe-xcode27-cold-swiftui.json
+          .build/debug/loupe ui snapshot --host "$HOST" --timeout 30 --output /tmp/loupe-xcode27-cold-swiftui.json > /tmp/loupe-touch-snapshot-probe.log 2>&1 &
+          snapshot_pid=$!
+          sleep 3
+          mkdir -p /tmp/loupe-xcode27-crashes
+          while IFS= read -r loupe_app_pid; do
+            sample "$loupe_app_pid" 5 -file "/tmp/loupe-xcode27-crashes/during-snapshot-$loupe_app_pid.txt" || true
+          done < <(pgrep -x LoupeExample || true)
+          wait "$snapshot_pid"
+          cat /tmp/loupe-touch-snapshot-probe.log
 
       - name: Collect Xcode 27 app crash diagnostics
         if: failure()
@@ -75,9 +83,13 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p /tmp/loupe-xcode27-crashes
-          xcrun simctl spawn "$LOUPE_DEVICE" log show --last 5m --style compact --predicate 'process == "LoupeExample"' > /tmp/loupe-xcode27-crashes/app-system.log 2>&1 || true
+          xcrun simctl spawn "$LOUPE_DEVICE" log show --last 5m --style compact --predicate 'process == "LoupeExample" OR eventMessage CONTAINS "LoupeExample"' > /tmp/loupe-xcode27-crashes/app-system.log 2>&1 || true
+          ps -axo pid,ppid,pcpu,rss,command > /tmp/loupe-xcode27-crashes/processes.txt
+          while IFS= read -r loupe_app_pid; do
+            sample "$loupe_app_pid" 3 -file "/tmp/loupe-xcode27-crashes/app-$loupe_app_pid-sample.txt" || true
+          done < <(pgrep -x LoupeExample || true)
           shopt -s nullglob
-          for loupe_report in "$HOME"/Library/Logs/DiagnosticReports/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/Retired/LoupeExample* "$HOME"/Library/Developer/CoreSimulator/Devices/"$LOUPE_DEVICE"/data/Library/Logs/CrashReporter/LoupeExample*; do
+          for loupe_report in "$HOME"/Library/Logs/DiagnosticReports/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/Retired/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/JetsamEvent* "$HOME"/Library/Developer/CoreSimulator/Devices/"$LOUPE_DEVICE"/data/Library/Logs/CrashReporter/LoupeExample*; do
             cp "$loupe_report" /tmp/loupe-xcode27-crashes/ || true
           done
       - name: Upload Xcode 27 evidence
@@ -93,4 +105,3 @@ jobs:
             /tmp/loupe-touch-*.log
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
-
