@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """Verify CLI and internal touch results in the same simulator or linked device fixture."""
-import concurrent.futures, json, os, pathlib, re, subprocess, sys, time, urllib.request, urllib.error
+import concurrent.futures, json, os, pathlib, re, subprocess, sys, threading, time, urllib.request, urllib.error
 host = sys.argv[1]
 device = (sys.argv[2] or None) if len(sys.argv) > 2 else None
 cli = str(pathlib.Path(os.environ.get('LOUPE_TOUCH_CLI', '.build/debug/loupe')).resolve())
 out = pathlib.Path('/tmp') / f'loupe-touch-evidence-{time.time_ns()}'
 out.mkdir(exist_ok=True)
 print(f'evidence: {out}', flush=True)
-
-import atexit
-resource_probe = subprocess.Popen([sys.executable, "-u", "-c", "import json,os,pathlib,subprocess,sys,time\nparent=int(sys.argv[1]);output=pathlib.Path(sys.argv[2])\nfor index in range(50):\n    try:os.kill(parent,0)\n    except ProcessLookupError:break\n    record={'time':time.time(),'index':index}\n    for name,args in [('memory',['/usr/bin/vm_stat']),('host',['/usr/sbin/sysctl','hw.memsize','hw.ncpu','vm.swapusage']),('processes',['/bin/ps','-axo','pid,ppid,pcpu,rss,command'])]:\n        try:record[name]=subprocess.check_output(args,text=True,timeout=10)\n        except Exception as error:record[name]=str(error)\n    with output.open('a') as stream:stream.write(json.dumps(record)+'\\n')\n    time.sleep(10)\n", str(os.getpid()), str(out / "resources.jsonl")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-atexit.register(resource_probe.terminate)
 with urllib.request.urlopen(host + '/status', timeout=5) as response:
     identity = json.load(response)['identity']
 (out / 'runtime-identity.json').write_text(json.dumps(identity, indent=2))
@@ -48,43 +44,6 @@ def point(test_id, fraction_x=0.5, fraction_y=0.5):
     f = node(test_id)['frame']
     return f'{f["x"] + f["width"] * fraction_x},{f["y"] + f["height"] * fraction_y}'
 
-def run_action_probe(arguments, command_budget, trace):
-    import concurrent.futures, datetime
-    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    try:
-        stdout, stderr = process.communicate(timeout=command_budget)
-        return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
-    except subprocess.TimeoutExpired as failure:
-        (out / (trace + '-process-state.json')).write_text(json.dumps({'pid': process.pid, 'returncode': process.poll(), 'captured': str(failure.output), 'stderr': str(failure.stderr), 'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}, indent=2))
-        def sample(pid, name):
-            with (out / (trace + '-' + name + '-sample-command.log')).open('w') as log:
-                try:
-                    subprocess.run(['/usr/bin/sudo', '/usr/bin/sample', str(pid), '2', '10', '-file', str(out / (trace + '-' + name + '-hang.txt'))], stdout=log, stderr=log, timeout=55)
-                except Exception as error: log.write(str(error))
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            futures = [pool.submit(sample, process.pid, 'host')]
-            try:
-                pids = subprocess.check_output(['/bin/ps', '-axo', 'pid,command'], text=True, timeout=30)
-                (out / (trace + '-processes.txt')).write_text(pids)
-                for row in pids.splitlines():
-                    if 'CoreSimulatorService.xpc/Contents/MacOS' in row:
-                        futures.append(pool.submit(sample, row.split()[0], 'service'))
-            except Exception as error:
-                (out / (trace + '-service-sample-error.txt')).write_text(str(error))
-            for future in futures: future.result()
-        if not (out / (trace + '-host-hang.txt')).exists() and process.poll() is None:
-            with (out / (trace + '-host-lldb.log')).open('w') as log:
-                try:
-                    subprocess.run(['/usr/bin/xcrun', 'lldb', '-b', '-f', arguments[0], '-o', 'process attach --pid '+str(process.pid), '-o', 'thread backtrace all', '-o', 'process detach', '-o', 'quit'], stdout=log, stderr=log, timeout=55)
-                except Exception as error: log.write(str(error))
-        if process.poll() is None:
-            process.kill()
-            try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired: pass
-        process.stdout.close()
-        process.stderr.close()
-        raise failure
-
 def act(command, args, trace, expect_rejection=False):
     trace_path = out / trace
     selection = ['--udid', device] if device else []
@@ -95,7 +54,7 @@ def act(command, args, trace, expect_rejection=False):
     # diagnostic capture errors are recorded; app-state checks remain mandatory.
     command_budget = 15 + (2 * 10 if trace_arguments else 0)
     try:
-        result = run_action_probe(arguments, command_budget, trace)
+        result = subprocess.run(arguments, capture_output=True, text=True, timeout=command_budget)
     except subprocess.TimeoutExpired as error:
         (out / (trace + '.log')).write_text(
             (error.stdout or b'').decode(errors='replace') + (error.stderr or b'').decode(errors='replace'))
@@ -247,15 +206,23 @@ def verify_uikit():
     screen = snapshot()['screen']['size']
     x, y = map(float, point('touch.hold').split(','))
     body = {'command': 'tap', 'start': {'x': x, 'y': y}, 'holdDuration': 2.0, 'screen': screen}
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        active = pool.submit(post, body)
-        expect('touch.hold.status', 'Holds 3')
+    # Send both requests before waiting for UI observations. A full snapshot
+    # can outlast the held touch, so observing its counter first does not prove
+    # that a later request actually competes with it.
+    ready = threading.Barrier(2)
+    def competing_touch():
+        ready.wait(timeout=5)
         try:
-            post(dict(body, holdDuration=0))
-            raise AssertionError('Competing touch succeeded')
+            return 200, post(body)
         except urllib.error.HTTPError as error:
-            assert error.code == 409 and 'touch_in_progress' in error.read().decode()
-        active.result(timeout=5)
+            return error.code, error.read()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        attempts = [pool.submit(competing_touch) for _ in range(2)]
+        responses = [attempt.result(timeout=5) for attempt in attempts]
+    assert sorted(code for code, _ in responses) == [200, 409], responses
+    assert any(code == 409 and b'touch_in_progress' in response
+               for code, response in responses), responses
+    expect('touch.hold.status', 'Holds 3')
     act('tap', ['--test-id', 'touch.tap'], 'cli-after-concurrency')
     expect('touch.tap.status', 'Taps 4')
     try:

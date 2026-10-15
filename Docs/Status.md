@@ -1,6 +1,6 @@
 # Loupe Status
 
-Touch/input scope updated: 2026-10-15; current-source validation runs in Verify
+Touch/input scope updated: 2026-10-16; current-source validation runs in Verify
 and Homebrew Bottles, including Xcode 27 / iOS 27 touch and poured-bottle input.
 
 Loupe is a runtime diagnostic and E2E harness for Apple-platform apps. The
