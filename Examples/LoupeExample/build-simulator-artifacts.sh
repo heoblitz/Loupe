@@ -62,6 +62,11 @@ prepare_loupe_ios_preferences() {
 
 restore_loupe_ios_preferences() {
   local result=$?
+  # GitHub discards hosted VMs after the job. Keep the live guest available
+  # for diagnostics instead of blocking completion on a redundant shutdown.
+  if [[ "${GITHUB_ACTIONS:-}" == "true" && "${RUNNER_ENVIRONMENT:-}" == "github-hosted" ]]; then
+    exit "$result"
+  fi
   if [[ -s "$KEYBOARD_BACKUP" ]]; then
     if ! python3 "$ROOT_DIR/Examples/LoupeExample/touch-keyboard.py" "$DEVICE" restore "$KEYBOARD_BACKUP"; then
       echo "Simulator preferences restore failed; saved preferences: $KEYBOARD_BACKUP" >&2

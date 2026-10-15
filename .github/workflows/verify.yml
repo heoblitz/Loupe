@@ -144,6 +144,9 @@ jobs:
       - name: Verify SimulatorKit touch message layout
         run: bash scripts/verify-hid-touch-messages.sh
 
+      - name: Verify simulator preference lifecycle
+        run: scripts/verify-simulator-preferences-lifecycle.sh
+
   release-and-platform-builds:
     name: Release and Platform Builds
     runs-on: macos-26

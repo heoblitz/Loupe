@@ -56,6 +56,10 @@ The source job opens Device Hub after boot and verifies its active input route;
 set `LOUPE_TOUCH_OPEN_DEVICE_HUB=1` to exercise that path locally. Bottle jobs
 verify headless input.
 The local and hosted commands use the same launch and action deadlines.
+Local and self-hosted runs restore the selected device's saved preferences and
+state. GitHub-hosted VMs are discarded after the job; their live guest is left
+available for diagnostics rather than shut down solely to restore temporary
+preferences. Cleanup preserves the original test exit status.
 The iOS simulator launcher waits for an initial native action observation within
 its existing launch deadline, preparing accessibility before input begins.
 Both use the Python interpreter shipped with the selected Xcode for the
