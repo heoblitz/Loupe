@@ -3087,7 +3087,15 @@ struct LoupeCLI {
 
         repeat {
             do {
-                try await validateRuntimeIdentity(host: host, expectedUDID: expectedUDID, timeout: min(1, timeout))
+                let state = try await fetchRuntimeState(host: host, timeout: min(1, timeout))
+                try validateRuntimeIdentity(state: state, expectedUDID: expectedUDID, host: host)
+                // Identity can respond before native accessibility finishes
+                // initializing. Return only once input targeting can observe it.
+                if state.identity.platform == "iOS" {
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else { throw CLIError("Runtime observation readiness timed out") }
+                    _ = try await fetchAccessibilityActionObservation(host: host, timeout: remaining)
+                }
                 return
             } catch {
                 lastError = error

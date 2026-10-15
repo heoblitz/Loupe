@@ -3,17 +3,6 @@ import LoupeCore
 
 #if canImport(Darwin) && ((canImport(UIKit) && !os(watchOS)) || canImport(AppKit) || os(watchOS))
 
-
-func loupeProbeServer(_ value: String) {
-    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("loupe-touch-server-probe.log")
-    let data = Data("\(Date().timeIntervalSince1970) \(value)\n".utf8)
-    if let handle = try? FileHandle(forWritingTo: url) {
-        try? handle.seekToEnd()
-        try? handle.write(contentsOf: data)
-        try? handle.close()
-    } else { try? data.write(to: url) }
-}
-
 /// Owns request deadlines, routing, UI handoff, and JSON response formation.
 /// Socket admission and descriptor lifetime stay in `LoupeServer`.
 final class LoupeRequestHandler: Sendable {
@@ -22,7 +11,6 @@ final class LoupeRequestHandler: Sendable {
             return ResponsePayload(status: 200, body: #"{"status":"ok","name":"LoupeKit"}"#)
         }
 
-        loupeProbeServer("request " + request.path)
         let execution = RequestExecution()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -107,12 +95,7 @@ final class LoupeRequestHandler: Sendable {
                 LoupeRuntime.shared.runtimeLifetimeProbes(aliveOnly: aliveOnly)
             }, failureCode: "leaks_encoding_failed")
         case "/snapshot":
-            loupeProbeServer("capture begin")
-            let snapshot = try await captureUI(execution) { LoupeAgent().captureSnapshot() }
-            loupeProbeServer("capture done nodes=\(snapshot.nodes.count)")
-            let payload = jsonPayload(snapshot, failureCode: "snapshot_encoding_failed")
-            loupeProbeServer("json done bytes=\(payload.body.utf8.count)")
-            return payload
+            return jsonPayload(try await captureUI(execution) { LoupeAgent().captureSnapshot() }, failureCode: "snapshot_encoding_failed")
         case "/accessibility":
             let includeHidden = request.queryItems["includeHidden"] == "true"
             #if canImport(AppKit) && !canImport(UIKit)
