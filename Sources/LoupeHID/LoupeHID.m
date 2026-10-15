@@ -489,7 +489,7 @@ static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *
         return false;
     }
     uint32_t screenID = ((uint32_t (*)(id, SEL))objc_msgSend)(properties, NSSelectorFromString(@"screenID"));
-    functions->touchTarget = screenID | 0x40000000;
+    functions->touchTarget = screenID | 0x40100000;
     // Registration is idempotent for the same target/UID. Do not remove the
     // guest service afterwards: Simulator.app and other clients can share it.
     if (!LoupeHIDSendTouchMessage(client, LoupeHIDScreenMessage(functions->mouseMessage, functions->touchTarget, displayUID), errorMessage)) return false;
