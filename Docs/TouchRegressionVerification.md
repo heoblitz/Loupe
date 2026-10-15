@@ -50,8 +50,9 @@ locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
 The iOS 27 jobs use the image's existing iPhone 17. A separate build job
 produces the CLI, injector, and fixture without booting a device. Runtime jobs
 verify the artifact source commit and reuse its binaries on fresh hosts.
-The bottle job uses only the fixture from that archive; its CLI and injector
-must still come from the installed bottle. Local builds finish before boot.
+Both iOS bottle runtime jobs use a fixture compiled on a separate host with
+their matching SDK. Their CLI and injector must still come from the installed
+bottle. Local builds finish before boot.
 The source job opens Device Hub after boot and verifies its active input route;
 set `LOUPE_TOUCH_OPEN_DEVICE_HUB=1` to exercise that path locally. Bottle jobs
 verify headless input.

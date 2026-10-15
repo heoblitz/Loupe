@@ -11,6 +11,7 @@ on:
       - Package.swift
       - Sources/**
       - Examples/LoupeExample/**
+      - scripts/build-ci-ios-artifacts.sh
       - skills/loupe/**
   workflow_dispatch:
     inputs:
@@ -95,15 +96,27 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "root_url=$root_url" >> "$GITHUB_OUTPUT"
 
-  xcode27-artifacts:
+  ios-artifacts:
     needs: metadata
-    name: Build iOS 27 artifacts
-    runs-on: xcode-27
+    name: Build iOS ${{ matrix.runtime }} artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            xcode: "26.3"
+            runtime: "26.2"
+            developer_dir: /Applications/Xcode_26.3.app/Contents/Developer
+          - runner: xcode-27
+            xcode: "27.0"
+            runtime: "27.0"
+            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
-      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
-      LOUPE_TOUCH_XCODE_VERSION: "27.0"
-      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
+      LOUPE_TOUCH_XCODE_VERSION: ${{ matrix.xcode }}
+      LOUPE_TOUCH_RUNTIME_VERSION: ${{ matrix.runtime }}
       LOUPE_TOUCH_ARCHITECTURE: arm64
     steps:
       - uses: actions/checkout@v4
@@ -112,14 +125,14 @@ jobs:
       - name: Upload matching iOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          name: loupe-ios${{ matrix.runtime }}-artifacts-${{ github.run_attempt }}
           path: /tmp/loupe-ci-ios-artifacts.tar.gz
           if-no-files-found: error
       - name: Upload build diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-ios27-build-diagnostics-${{ github.run_attempt }}
+          name: loupe-ios${{ matrix.runtime }}-build-diagnostics-${{ github.run_attempt }}
           path: |
             /tmp/loupe-ci-*.log
             /tmp/loupe-example-build.log
@@ -238,7 +251,7 @@ jobs:
 
   bottle-runtime:
     name: Bottled iOS runtime (Apple Silicon / iOS ${{ matrix.runtime }})
-    needs: [metadata, bottle, xcode27-artifacts]
+    needs: [metadata, bottle, ios-artifacts]
     strategy:
       fail-fast: false
       matrix:
@@ -301,14 +314,12 @@ jobs:
           test "$("$prefix/bin/loupe" --version)" = "loupe $VERSION"
           echo "LOUPE_BOTTLE_PREFIX=$prefix" >> "$GITHUB_ENV"
 
-      - name: Download matching iOS 27 fixture
-        if: matrix.runtime == '27.0'
+      - name: Download matching iOS fixture
         uses: actions/download-artifact@v4
         with:
-          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          name: loupe-ios${{ matrix.runtime }}-artifacts-${{ github.run_attempt }}
           path: /tmp/loupe-ci-artifact-download
       - name: Use the fixture built from this checkout
-        if: matrix.runtime == '27.0'
         shell: bash
         run: |
           set -euo pipefail
