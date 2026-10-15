@@ -27,8 +27,9 @@ runtime servers.
 - Load SimulatorKit from either the selected Xcode's
   `Contents/Developer/Library/PrivateFrameworks` or `Contents/SharedFrameworks`.
   Loading failures report both attempted paths and bundle errors.
-- Register Xcode 27 simulator touch input against the actual main screen ID
-  and display UID, preserving SimulatorKit's native message bytes. Earlier
+- Register Xcode 27 simulator touch input through a separate virtual digitizer
+  bound to the actual main display UID, preserving SimulatorKit's native message
+  bytes. Earlier
   SimulatorKit retains its legacy main-digitizer input convention.
 - Dispatch `tap`, `swipe`, and `drag` through the linked runtime's UIKit touch
   dispatcher on physical iOS devices, selected automatically from the runtime
