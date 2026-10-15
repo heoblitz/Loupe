@@ -44,6 +44,33 @@ def point(test_id, fraction_x=0.5, fraction_y=0.5):
     f = node(test_id)['frame']
     return f'{f["x"] + f["width"] * fraction_x},{f["y"] + f["height"] * fraction_y}'
 
+def run_action_probe(arguments, command_budget, trace):
+    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        stdout, stderr = process.communicate(timeout=command_budget)
+        return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired as failure:
+        (out / (trace + '-process-state.json')).write_text(json.dumps({'pid': process.pid, 'returncode': process.poll(), 'captured': str(failure.output)}, indent=2))
+        def sample(pid, name):
+            with (out / (trace + '-' + name + '-sample-command.log')).open('w') as log:
+                try:
+                    subprocess.run(['/usr/bin/sample', str(pid), '2', '-file', str(out / (trace + '-' + name + '-hang.txt'))], stdout=log, stderr=log, timeout=20)
+                except Exception as error: log.write(str(error))
+        sample(process.pid, 'host')
+        try:
+            pids = subprocess.check_output(['/usr/bin/pgrep', '-f', 'CoreSimulatorService.xpc/Contents/MacOS'], text=True, timeout=5).split()
+            for pid in pids[:1]: sample(pid, 'service')
+        except Exception as error:
+            (out / (trace + '-service-sample-error.txt')).write_text(str(error))
+        if process.poll() is None:
+            process.kill()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: pass
+        # Do not wait for EOF from a descriptor inherited by another process.
+        process.stdout.close()
+        process.stderr.close()
+        raise failure
+
 def act(command, args, trace, expect_rejection=False):
     trace_path = out / trace
     selection = ['--udid', device] if device else []
@@ -54,7 +81,7 @@ def act(command, args, trace, expect_rejection=False):
     # diagnostic capture errors are recorded; app-state checks remain mandatory.
     command_budget = 15 + (2 * 10 if trace_arguments else 0)
     try:
-        result = subprocess.run(arguments, capture_output=True, text=True, timeout=command_budget)
+        result = run_action_probe(arguments, command_budget, trace)
     except subprocess.TimeoutExpired as error:
         (out / (trace + '.log')).write_text(
             (error.stdout or b'').decode(errors='replace') + (error.stderr or b'').decode(errors='replace'))
