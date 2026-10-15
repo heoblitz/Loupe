@@ -61,6 +61,9 @@ Local and self-hosted runs restore the selected device's saved preferences and
 state. GitHub-hosted VMs are discarded after the job; their live guest is left
 available for diagnostics rather than shut down solely to restore temporary
 preferences. Cleanup preserves the original test exit status.
+Scroll assertions observe the required directional movement within the same
+four-second state-check budget as label assertions, instead of assuming a
+fixed 200–300 ms animation delay. Input is sent once; offset samples are saved.
 The iOS simulator launcher waits for an initial native action observation within
 its existing launch deadline, preparing accessibility before input begins.
 Both use the Python interpreter shipped with the selected Xcode for the
