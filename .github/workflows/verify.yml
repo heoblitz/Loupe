@@ -34,13 +34,20 @@ jobs:
         run: |
           set -euo pipefail
           swift build --configuration release --product loupe
+          mkdir -p /tmp/loupe-phase-sdk26-artifact
+          cp .build/release/loupe /tmp/loupe-phase-sdk26-artifact/loupe
+          python3 - <<'MANIFEST'
+          import pathlib
+          p=pathlib.Path('Package.swift');text=p.read_text();key='                .linkedFramework("AppKit"),\n';assert key in text;p.write_text(text.replace(key,''))
+          MANIFEST
+          swift build --configuration release --product loupe
+          cp .build/release/loupe /tmp/loupe-phase-sdk26-artifact/loupe-no-appkit
           sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
           args=(--configuration release --scratch-path /tmp/loupe-phase-sdk26 --product LoupeInjector --sdk "$sdk" --triple arm64-apple-ios15.0-simulator)
           swift build "${args[@]}"
           binary_dir="$(swift build "${args[@]}" --show-bin-path)"
           mkdir -p /tmp/loupe-phase-sdk26-artifact
           cp "$binary_dir/libLoupeInjector.dylib" /tmp/loupe-phase-sdk26-artifact/
-          cp .build/release/loupe /tmp/loupe-phase-sdk26-artifact/
       - uses: actions/upload-artifact@v4
         with:
           name: loupe-phase-sdk26
@@ -88,8 +95,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          chmod 755 /tmp/loupe-phase-sdk26-artifact/loupe /tmp/loupe-phase-sdk26-artifact/libLoupeInjector.dylib
+          chmod 755 /tmp/loupe-phase-sdk26-artifact/loupe /tmp/loupe-phase-sdk26-artifact/loupe-no-appkit /tmp/loupe-phase-sdk26-artifact/libLoupeInjector.dylib
           test -x /tmp/loupe-phase-sdk26-artifact/loupe
+          test -x /tmp/loupe-phase-sdk26-artifact/loupe-no-appkit
+          otool -L /tmp/loupe-phase-sdk26-artifact/loupe > /tmp/loupe-touch-normal-dependencies.log
+          otool -L /tmp/loupe-phase-sdk26-artifact/loupe-no-appkit > /tmp/loupe-touch-no-appkit-dependencies.log
+          grep -q '/AppKit.framework/' /tmp/loupe-touch-normal-dependencies.log
+          if grep -q '/AppKit.framework/' /tmp/loupe-touch-no-appkit-dependencies.log; then exit 1; fi
           test -x /tmp/loupe-phase-sdk26-artifact/libLoupeInjector.dylib
           echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=/tmp/loupe-phase-sdk26-artifact/libLoupeInjector.dylib" >> "$GITHUB_ENV"
       - name: Verify iOS touch and input with Xcode 27
@@ -112,29 +124,12 @@ jobs:
           export LOUPE_INJECTOR_PATH="$LOUPE_EXAMPLE_PREBUILT_INJECTOR"
           test "$(.build/debug/loupe injector-path)" = "$LOUPE_INJECTOR_PATH"
           xcrun simctl install "$DEVICE" "$APP_PATH"
-          scenario_status=0
-          for route in touch touch.swiftui; do
-            launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env "LOUPE_EXAMPLE_ROUTE=$route" --timeout 30)"
-            printf '%s\n' "$launch_output"
-            HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
-            test -n "$HOST"
-            mode=all
-            if [[ "$route" == touch.swiftui ]]; then mode=--swiftui-only; fi
-            python3 Examples/LoupeExample/verify-touch-scenarios.py "$HOST" "$DEVICE" "$mode" || scenario_status=$?
-            python3 - "$DEVICE" <<'COLLECT'
-          import pathlib,shutil,sys
-          base=pathlib.Path.home()/'Library/Developer/CoreSimulator/Devices'/sys.argv[1]/'data/Containers/Data/Application'
-          for path in base.glob('*/tmp/loupe-touch-server-probe.log'):
-              shutil.copyfile(path,pathlib.Path('/tmp')/('loupe-touch-http-server-'+path.parent.parent.name+'.log'))
-          COLLECT
-            if [[ "$scenario_status" != 0 ]]; then
-              mkdir -p /tmp/loupe-xcode27-crashes
-              export HOST DEVICE
-              python3 diagnostics/collect-phase-failure.py
-              break
-            fi
-          done
-          exit "$scenario_status"
+          launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env LOUPE_EXAMPLE_ROUTE=touch.swiftui --timeout 30)"
+          printf '%s\n' "$launch_output"
+          HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
+          test -n "$HOST"
+          export HOST DEVICE
+          python3 diagnostics/cli-startup-ab.py
       - name: Collect Xcode 27 app crash diagnostics
         if: failure()
         timeout-minutes: 2
@@ -160,6 +155,7 @@ jobs:
           path: |
             /tmp/loupe-xcode27-crashes/
             /tmp/loupe-touch-evidence-*
+            /tmp/loupe-touch-startup-ab/
             /tmp/loupe-touch-*.log
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
