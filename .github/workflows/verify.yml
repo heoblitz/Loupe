@@ -98,6 +98,9 @@ jobs:
       - name: Run SwiftPM tests
         run: swift test
 
+      - name: Verify native work with one cooperative thread
+        run: DISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter SimulatorNativeWorkTests
+
       - name: Verify SimulatorKit framework loading
         run: scripts/verify-hid-framework-loading.sh
 

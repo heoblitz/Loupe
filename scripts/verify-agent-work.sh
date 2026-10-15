@@ -12,6 +12,7 @@ run_step() {
 }
 
 run_step "swift test" swift test
+run_step "native work with one cooperative thread" env DISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter SimulatorNativeWorkTests
 run_step "HID framework loading" bash scripts/verify-hid-framework-loading.sh
 run_step "HID touch messages" bash scripts/verify-hid-touch-messages.sh
 run_step "release CLI build" swift build --configuration release --disable-sandbox --product loupe

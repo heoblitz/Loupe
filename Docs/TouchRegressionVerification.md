@@ -85,6 +85,10 @@ The Xcode 27 registration includes its built-in-display flag at wire offset
 `0x44` and the display UID at `0x45`. The main display uses that built-in flag.
 The Xcode 27 fixture compiles for a generic arm64 simulator destination and is
 installed and exercised on the explicitly selected runtime/device.
+Host HID dispatch and framebuffer captures use Dispatch workers while the CLI
+task suspends. Blocking SimulatorKit calls must not occupy Swift's cooperative
+executor; a detached Swift task still uses that executor.
+
 SwiftUI debug-graph traversal holds SwiftUI's update scope while evaluating
 graph attributes; main-actor isolation alone does not satisfy the iOS 27 graph
 precondition. Resolve iOS 27's `ViewGraphHostUpdate` entry points and the earlier
