@@ -11,6 +11,7 @@ def sample(pid,name):
         try:subprocess.run(['/usr/bin/sudo','/usr/bin/sample',str(pid),'2','10','-file',str(out/(name+'-stack.txt'))],stdout=stream,stderr=stream,timeout=55)
         except Exception as error:stream.write(str(error))
 for index in range(12):
+    if sum(r.get('timeout',False) for r in results) >= 2: break
     for mode in (['baseline','async'] if index%2==0 else ['async','baseline']):
         name=f'{index:02d}-{mode}';begin=time.monotonic()
         with (out/(name+'.log')).open('w') as stream:
