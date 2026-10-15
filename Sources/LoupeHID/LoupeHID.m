@@ -461,7 +461,7 @@ static LoupeIndigoMessage *LoupeHIDScreenMessage(LoupeMouseMessageFunction mouse
     LoupeIndigoScreenEvent *event = (void *)&message->payload.event;
     event->operation = 1;
     event->target = target;
-    event->isBuiltIn = 1;
+    event->isBuiltIn = 0;
     memcpy(event->displayUID, uid.bytes, uid.length);
     return message;
 }
