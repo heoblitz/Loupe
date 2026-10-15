@@ -7,6 +7,10 @@ cli = str(pathlib.Path(os.environ.get('LOUPE_TOUCH_CLI', '.build/debug/loupe')).
 out = pathlib.Path('/tmp') / f'loupe-touch-evidence-{time.time_ns()}'
 out.mkdir(exist_ok=True)
 print(f'evidence: {out}', flush=True)
+
+import atexit
+resource_probe = subprocess.Popen([sys.executable, "-u", "-c", "import json,os,pathlib,subprocess,sys,time\nparent=int(sys.argv[1]);output=pathlib.Path(sys.argv[2])\nfor index in range(50):\n    try:os.kill(parent,0)\n    except ProcessLookupError:break\n    record={'time':time.time(),'index':index}\n    for name,args in [('memory',['/usr/bin/vm_stat']),('host',['/usr/sbin/sysctl','hw.memsize','hw.ncpu','vm.swapusage']),('processes',['/bin/ps','-axo','pid,ppid,pcpu,rss,command'])]:\n        try:record[name]=subprocess.check_output(args,text=True,timeout=10)\n        except Exception as error:record[name]=str(error)\n    with output.open('a') as stream:stream.write(json.dumps(record)+'\\n')\n    time.sleep(10)\n", str(os.getpid()), str(out / "resources.jsonl")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+atexit.register(resource_probe.terminate)
 with urllib.request.urlopen(host + '/status', timeout=5) as response:
     identity = json.load(response)['identity']
 (out / 'runtime-identity.json').write_text(json.dumps(identity, indent=2))
