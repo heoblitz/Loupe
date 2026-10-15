@@ -30,7 +30,6 @@ if [[ -n "${LOUPE_TOUCH_ARCHITECTURE:-}" ]]; then
   test "$(xcrun lipo -archs "$APP_PATH/LoupeExample")" = "$LOUPE_TOUCH_ARCHITECTURE"
 fi
 boot_loupe_ios_verification_device
-python3 diagnostics/widget-profile.py "$DEVICE" verify
 if [[ "${LOUPE_TOUCH_OPEN_DEVICE_HUB:-0}" == "1" ]]; then
   frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
   if [[ ! -d "$frontend" ]]; then

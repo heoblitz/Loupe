@@ -84,6 +84,9 @@ jobs:
           set -euo pipefail
           python3 -u diagnostics/resources.py > /tmp/loupe-touch-resources.log 2>&1 &
           Examples/LoupeExample/run-touch-e2e.sh
+      - name: Read back the profile after input verification
+        if: always()
+        run: python3 diagnostics/widget-profile.py "$LOUPE_DEVICE" verify
       - name: Upload comparison evidence
         if: always()
         uses: actions/upload-artifact@v4

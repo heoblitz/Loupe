@@ -24,6 +24,6 @@ else:
  result=subprocess.check_output(['xcrun','simctl','spawn',device,'launchctl','print-disabled','system'],text=True,timeout=10)
  pathlib.Path('/tmp/loupe-touch-widget-disabled.log').write_text(result)
  for label in labels:
-  off=bool(re.search(r'"'+re.escape(label)+r'"\s*=>\s*true',result))
+  off=bool(re.search(r'"'+re.escape(label)+r'"\s*=>\s*(?:true|disabled)\b',result))
   assert off==(mode=='widgets'),(mode,label,result)
  print('Verified widget-only profile:',mode,flush=True)
