@@ -3,34 +3,28 @@ on:
   workflow_dispatch:
 jobs:
   swiftui-probe:
-    name: Inspect Xcode 27 SwiftUI update exports
+    name: Read Xcode 27 SwiftUI SDK exports
     runs-on: xcode-27
-    timeout-minutes: 8
+    timeout-minutes: 5
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
-      - name: Read simulator exports
+      - name: Read SDK exports
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/loupe-swiftui-probe
-          device="$(xcrun simctl create 'Loupe SwiftUI Exports' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
-          xcrun simctl bootstatus "$device" -b
-          cat > /tmp/loupe-swiftui-probe/loader.c <<'C'
-          #include <dlfcn.h>
-          #include <stdio.h>
-          int main(void) {
-           void *handle=dlopen("/System/Library/Frameworks/SwiftUICore.framework/SwiftUICore",RTLD_NOW);
-           printf("framework: %p\n",handle);
-           const char *names[]={"$s7SwiftUI6UpdateO5beginyyFZ","$s7SwiftUI6UpdateO3endyyFZ","$s11SwiftUICore6UpdateO5beginyyFZ","$s11SwiftUICore6UpdateO3endyyFZ","$s11SwiftUICore6UpdateO4lockyyFZ","$s11SwiftUICore6UpdateO6unlockyyFZ","$s7SwiftUI6UpdateO4lockyyFZ","$s7SwiftUI6UpdateO6unlockyyFZ"};
-           for(int i=0;i<8;i++) printf("%s: %p\n",names[i],dlsym(handle,names[i]));
-          }
-          C
-          xcrun clang -target arm64-apple-ios17.0-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" /tmp/loupe-swiftui-probe/loader.c -o /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe
-          xcrun simctl spawn "$device" /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe > /tmp/loupe-swiftui-probe/loader.log 2>&1
-          cat /tmp/loupe-swiftui-probe/loader.log
+          python3 - <<'SDK'
+          import pathlib,subprocess
+          sdk=pathlib.Path(subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip())
+          output=[]
+          for framework in ['SwiftUICore','SwiftUI']:
+              path=sdk/f'System/Library/Frameworks/{framework}.framework/{framework}.tbd'
+              output.append(str(path))
+              output.extend(line for line in path.read_text().splitlines() if any(word in line for word in ['UpdateO', 'syncMainIfReferences', 'viewDebugData']))
+          pathlib.Path('/tmp/loupe-swiftui-sdk.txt').write_text('\n'.join(output))
+          print('\n'.join(output))
+          SDK
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: loupe-swiftui-probe
-          path: /tmp/loupe-swiftui-probe/
+          name: loupe-swiftui-sdk
+          path: /tmp/loupe-swiftui-sdk.txt
