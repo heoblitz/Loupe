@@ -41,7 +41,16 @@ jobs:
           set -euo pipefail
           xcodebuild -version
           xcrun simctl list runtimes
-          device="$(xcrun simctl create 'Loupe Xcode 27 Touch' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+          device="$(python3 - <<'SELECT'
+          import json,pathlib,subprocess
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','--json'],text=True,timeout=30))
+          selected=[d for key,devices in inventory['devices'].items() if key.endswith('.iOS-27-0') for d in devices if d['name']=='iPhone 17' and d.get('isAvailable')]
+          assert len(selected)==1,selected
+          d=selected[0];data=pathlib.Path(d['dataPath']);d['preexisting_preference_count']=len(list((data/'Library/Preferences').glob('*')))
+          pathlib.Path('/tmp/loupe-touch-selected-device.log').write_text(json.dumps(d,indent=2))
+          print(d['udid'])
+          SELECT
+          )"
           echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
       - name: Verify HID framework loading and messages
         run: |
@@ -55,15 +64,34 @@ jobs:
           run-id: 38755624600
           name: loupe-xcode27-touch-1
           path: /tmp/loupe-fixture-download
-      - name: Build the simulator injector with SwiftPM
+      - name: Download the actual SDK 26 PR bottle
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 38795524864
+          name: loupe-bottles-arm64-2
+          path: /tmp/loupe-pr-bottle
+      - name: Install and verify the actual bottle
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_FROM_API: "1"
+          HOMEBREW_NO_BOOTSNAP: "1"
         shell: bash
         run: |
           set -euo pipefail
-          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
-          args=(--scratch-path /tmp/loupe-xcode27-injector --product LoupeInjector --sdk "$sdk" --triple arm64-apple-ios15.0-simulator)
-          swift build "${args[@]}"
-          binary_dir="$(swift build "${args[@]}" --show-bin-path)"
-          echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$binary_dir/libLoupeInjector.dylib" >> "$GITHUB_ENV"
+          tap_dir="$(brew --repository)/Library/Taps/heoblitz/homebrew-loupe"
+          mkdir -p "$(dirname "$tap_dir")"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir"
+          brew trust heoblitz/loupe
+          bottle="$(find /tmp/loupe-pr-bottle -name '*.bottle.tar.gz' -print -quit)"
+          test -n "$bottle"
+          HOMEBREW_DEVELOPER=1 brew install --force-bottle "$bottle"
+          prefix="$(brew --prefix heoblitz/loupe/loupe)"
+          jq -e '.poured_from_bottle == true' "$prefix/INSTALL_RECEIPT.json"
+          test "$("$prefix/bin/loupe" --version)" = 'loupe 0.5.1'
+          echo "LOUPE_TOUCH_CLI=$prefix/bin/loupe" >> "$GITHUB_ENV"
+          echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$prefix/libexec/LoupeInjector.framework/LoupeInjector" >> "$GITHUB_ENV"
       - name: Verify iOS touch and input with Xcode 27
         shell: bash
         run: |
@@ -72,21 +100,10 @@ jobs:
           source Examples/LoupeExample/build-simulator-artifacts.sh
           configure_loupe_ios_verification
           export LOUPE_HID_DIAGNOSTICS=1
-          export LOUPE_TOUCH_OPEN_DEVICE_HUB=1
-          swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
           DEVICE="$LOUPE_DEVICE"
           python3 -u diagnostics/resources.py > /tmp/loupe-touch-resources.log 2>&1 &
           prepare_loupe_ios_preferences
           boot_loupe_ios_verification_device
-          cp /tmp/loupe-touch-boot.log /tmp/loupe-touch-first-boot.log
-          python3 - "$DEVICE" <<'REBOOT'
-          import subprocess,sys
-          subprocess.run(['xcrun','simctl','shutdown',sys.argv[1]],check=True,timeout=30)
-          REBOOT
-          boot_loupe_ios_verification_device
-          frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
-          test -d "$frontend"
-          /usr/bin/open -a "$frontend" "devices://device/open?id=$DEVICE"
           mkdir -p "$RUNNER_TEMP/loupe-fixture"
           ditto -x -k /tmp/loupe-fixture-download/loupe-touch-fixture.zip "$RUNNER_TEMP/loupe-fixture"
           APP_PATH="$RUNNER_TEMP/loupe-fixture/LoupeExample.app"
@@ -94,7 +111,7 @@ jobs:
           xcrun simctl install "$DEVICE" "$APP_PATH"
           scenario_status=0
           for route in touch touch.swiftui; do
-            launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env "LOUPE_EXAMPLE_ROUTE=$route" --timeout 30)"
+            launch_output="$("$LOUPE_TOUCH_CLI" app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env "LOUPE_EXAMPLE_ROUTE=$route" --timeout 30)"
             HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
             test -n "$HOST"
             mode=all
