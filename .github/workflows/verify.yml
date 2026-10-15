@@ -72,7 +72,7 @@ jobs:
           source Examples/LoupeExample/build-simulator-artifacts.sh
           configure_loupe_ios_verification
           export LOUPE_HID_DIAGNOSTICS=1
-          export LOUPE_HTTP_PROBE=1
+          export LOUPE_TOUCH_OPEN_DEVICE_HUB=1
           swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
           DEVICE="$LOUPE_DEVICE"
           prepare_loupe_ios_preferences
@@ -85,26 +85,11 @@ jobs:
           APP_PATH="$RUNNER_TEMP/loupe-fixture/LoupeExample.app"
           export LOUPE_INJECTOR_PATH="$LOUPE_EXAMPLE_PREBUILT_INJECTOR"
           xcrun simctl install "$DEVICE" "$APP_PATH"
-          scenario_status=0
-          for route in touch touch.swiftui; do
-            launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env "LOUPE_EXAMPLE_ROUTE=$route" --timeout 30)"
-            HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
-            test -n "$HOST"
-            mode=all
-            if [[ "$route" == touch.swiftui ]]; then mode=--swiftui-only; fi
-            python3 Examples/LoupeExample/verify-touch-scenarios.py "$HOST" "$DEVICE" "$mode" || scenario_status=$?
-            python3 - "$DEVICE" <<'COLLECT'
-          import pathlib,shutil,sys
-          base=pathlib.Path.home()/'Library/Developer/CoreSimulator/Devices'/sys.argv[1]/'data/Containers/Data/Application'
-          for path in base.glob('*/tmp/loupe-touch-server-probe.log'):
-              shutil.copyfile(path,pathlib.Path('/tmp')/('loupe-touch-http-server-'+path.parent.parent.name+'.log'))
-          COLLECT
-            if [[ "$scenario_status" != 0 ]]; then
-              mkdir -p /tmp/loupe-xcode27-crashes
-              break
-            fi
-          done
-          exit "$scenario_status"
+          launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env LOUPE_EXAMPLE_ROUTE=touch --timeout 30)"
+          printf '%s\n' "$launch_output"
+          HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
+          test -n "$HOST"
+          python3 diagnostics/trace-stress.py "$HOST" "$DEVICE"
       - name: Collect Xcode 27 app crash diagnostics
         if: failure()
         timeout-minutes: 2

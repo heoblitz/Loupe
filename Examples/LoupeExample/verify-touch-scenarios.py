@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify CLI and internal touch results in the same simulator or linked device fixture."""
-import concurrent.futures, json, os, pathlib, re, subprocess, sys, threading, time, urllib.request, urllib.error
+import concurrent.futures, json, os, pathlib, re, signal, subprocess, sys, threading, time, urllib.request, urllib.error
 host = sys.argv[1]
 device = (sys.argv[2] or None) if len(sys.argv) > 2 else None
 cli = str(pathlib.Path(os.environ.get('LOUPE_TOUCH_CLI', '.build/debug/loupe')).resolve())
@@ -11,15 +11,19 @@ with urllib.request.urlopen(host + '/status', timeout=5) as response:
     identity = json.load(response)['identity']
 (out / 'runtime-identity.json').write_text(json.dumps(identity, indent=2))
 expected_backend = 'auto' if identity.get('simulatorUDID') else 'touch'
+if os.environ.get('LOUPE_TOUCH_OPEN_DEVICE_HUB') == '1':
+    assert device, 'Device Hub verification requires an exact simulator device'
+    state = subprocess.run(['xcrun', 'simctl', 'spawn', device, 'notifyutil', '-g',
+                            'com.apple.coredevice.dtuhidd.active'],
+                           capture_output=True, text=True, check=True, timeout=10)
+    (out / 'device-hub-state.log').write_text(state.stdout + state.stderr)
+    values = state.stdout.split()
+    assert values and values[-1] == '1', ('Device Hub input route is not active', state.stdout)
+    print('Device Hub input route is active', flush=True)
 
-snapshot_counter = 0
 def snapshot():
-    global snapshot_counter
-    snapshot_counter += 1
-    started = time.time()
     path = out / 'snapshot.json'
     result = subprocess.run([cli, 'ui', 'snapshot', '--host', host, '--output', str(path)], capture_output=True, text=True, timeout=15)
-    (out / f"snapshot-{snapshot_counter:03d}.log").write_text(f"started={started}\n" + result.stdout + result.stderr)
     if result.returncode: raise RuntimeError(result.stdout + result.stderr)
     return json.loads(path.read_text())
 
@@ -58,12 +62,32 @@ def act(command, args, trace, expect_rejection=False):
     # original 15s input budget. CLI request/capture deadlines stay unchanged;
     # diagnostic capture errors are recorded; app-state checks remain mandatory.
     command_budget = 15 + (2 * 10 if trace_arguments else 0)
+    started = time.time()
+    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        result = subprocess.run(arguments, capture_output=True, text=True, timeout=command_budget)
+        stdout, stderr = process.communicate(timeout=command_budget)
+        result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as error:
-        (out / (trace + '.log')).write_text(
-            (error.stdout or b'').decode(errors='replace') + (error.stderr or b'').decode(errors='replace'))
-        raise RuntimeError(f'Action and requested trace did not complete within {command_budget}s: {trace}') from error
+        def decoded(value): return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
+        (out / (trace + '.log')).write_text(f'started={started} pid={process.pid} failed_at={time.time()} poll={process.poll()}\n' + decoded(error.stdout) + decoded(error.stderr))
+        try:
+            if process.poll() is None:
+                process.send_signal(signal.SIGSTOP)
+                with (out / (trace + '-sample.log')).open('w') as stream:
+                    try: subprocess.run(['/usr/bin/sudo', '/usr/bin/sample', str(process.pid), '1', '10', '-file', str(out / (trace + '-host-stack.txt'))], stdout=stream, stderr=stream, timeout=55)
+                    except Exception as capture_error: stream.write(repr(capture_error))
+            with (out / (trace + '-processes.txt')).open('w') as stream:
+                subprocess.run(['/bin/ps', '-axo', 'pid,ppid,pcpu,rss,command'], stdout=stream, stderr=stream, timeout=10)
+            with (out / (trace + '-vm.txt')).open('w') as stream:
+                subprocess.run(['/usr/bin/vm_stat'], stdout=stream, stderr=stream, timeout=10)
+        finally:
+            if process.poll() is None:
+                process.send_signal(signal.SIGCONT)
+                process.kill()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: pass
+            process.stdout.close(); process.stderr.close()
+        raise RuntimeError(f'Action and requested trace failed at original {command_budget}s deadline; captured CLI stack: {trace}') from error
     (out / (trace + '.log')).write_text(result.stdout + result.stderr)
     if expect_rejection:
         assert result.returncode != 0, result.stdout + result.stderr

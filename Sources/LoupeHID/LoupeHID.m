@@ -100,6 +100,7 @@ static int const LoupeHIDDirectionDown = 1;
 static int const LoupeHIDDirectionUp = 2;
 
 static NSString *LoupeDeveloperDir(void);
+static void LoupeHIDLookupStage(const char *stage);
 static id LoupeSimulatorObject(id target, NSString *name);
 
 static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *functions, char **errorMessage);
@@ -167,12 +168,16 @@ static bool LoupeLoadCoreSimulator(char **errorMessage)
 
 static bool LoupeHIDLoadFrameworks(char **errorMessage)
 {
+    LoupeHIDLookupStage("load-core-begin");
     if (!LoupeLoadCoreSimulator(errorMessage)) return false;
+    LoupeHIDLookupStage("load-core-end");
     NSMutableArray<NSString *> *failures = [NSMutableArray array];
     for (NSString *path in LoupeSimulatorKitPaths()) {
         NSBundle *simulatorKit = [NSBundle bundleWithPath:path];
         NSError *loadError = nil;
+        LoupeHIDLookupStage("load-kit-begin");
         if ([simulatorKit loadAndReturnError:&loadError]) {
+            LoupeHIDLookupStage("load-kit-end");
             return true;
         }
         NSString *reason = loadError.localizedDescription ?: @"framework bundle not found or invalid";
@@ -489,9 +494,9 @@ static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *
         return false;
     }
     uint32_t screenID = ((uint32_t (*)(id, SEL))objc_msgSend)(properties, NSSelectorFromString(@"screenID"));
+    // Device Hub owns the screen's built-in digitizer. Bind a separate virtual
+    // target to the actual display UID and reuse it across CLI invocations.
     functions->touchTarget = screenID | 0x40100000;
-    // Registration is idempotent for the same target/UID. Do not remove the
-    // guest service afterwards: Simulator.app and other clients can share it.
     if (!LoupeHIDSendTouchMessage(client, LoupeHIDScreenMessage(functions->mouseMessage, functions->touchTarget, displayUID), errorMessage)) return false;
     const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
     if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {

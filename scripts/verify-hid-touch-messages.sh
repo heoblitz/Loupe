@@ -13,7 +13,7 @@ static size_t fixtureStride;
 static size_t fixtureBytes;
 static unsigned char expectedMessage[512];
 static LoupeIndigoMessage *fixtureMessage;
-static uint32_t fixtureTarget = 0x40000007;
+static uint32_t fixtureTarget = 0x40100007;
 
 static LoupeIndigoMessage *messageFixture(CGPoint *point0, CGPoint *point1,
     uint32_t target, NSEventType eventType, NSSize size, uint32_t edge)
@@ -39,7 +39,7 @@ int main(void)
         for (size_t stride = 144; stride <= 192; stride += 16) {
             fixtureStride = stride;
             fixtureBytes = payloadOffset + 2 * stride;
-            LoupeIndigoMessage *message = LoupeHIDTouchMessage(messageFixture, 0x40000007, CGPointMake(0.25, 0.75), 1);
+            LoupeIndigoMessage *message = LoupeHIDTouchMessage(messageFixture, 0x40100007, CGPointMake(0.25, 0.75), 1);
             assert(message != NULL);
             assert(message->innerSize == stride);
             assert(message->eventType == 2);
@@ -53,9 +53,9 @@ int main(void)
         // Reject an undersized stride and a payload extending past its allocation.
         fixtureStride = 128;
         fixtureBytes = sizeof(LoupeIndigoMessage);
-        assert(LoupeHIDTouchMessage(messageFixture, 0x40000007, CGPointMake(0.25, 0.75), 1) == NULL);
+        assert(LoupeHIDTouchMessage(messageFixture, 0x40100007, CGPointMake(0.25, 0.75), 1) == NULL);
         fixtureStride = 512;
-        assert(LoupeHIDTouchMessage(messageFixture, 0x40000007, CGPointMake(0.25, 0.75), 1) == NULL);
+        assert(LoupeHIDTouchMessage(messageFixture, 0x40100007, CGPointMake(0.25, 0.75), 1) == NULL);
         fixtureStride = 160;
         fixtureBytes = payloadOffset + fixtureStride;
         fixtureTarget = 0x32;
@@ -71,8 +71,8 @@ int main(void)
         assert(second->event.touch.field1 == 1);
         assert(second->event.touch.field2 == 2);
         free(legacy);
-        fixtureTarget = 0x40000007;
-        LoupeIndigoMessage *screen = LoupeHIDScreenMessage(messageFixture, 0x40000007, @"main-display-uid");
+        fixtureTarget = 0x40100007;
+        LoupeIndigoMessage *screen = LoupeHIDScreenMessage(messageFixture, 0x40100007, @"main-display-uid");
         assert(screen != NULL);
         assert(screen->innerSize == fixtureStride);
         assert(screen->eventType == 1);
@@ -80,16 +80,16 @@ int main(void)
         assert(screen->payload.timestamp != 0);
         LoupeIndigoScreenEvent *event = (void *)&screen->payload.event;
         assert(event->operation == 1);
-        assert(event->target == 0x40000007);
+        assert(event->target == 0x40100007);
         assert(event->isBuiltIn == 0);
         assert(strcmp(event->displayUID, "main-display-uid") == 0);
-        assert(*((uint32_t *)((char *)screen + 0x40)) == 0x40000007);
+        assert(*((uint32_t *)((char *)screen + 0x40)) == 0x40100007);
         assert(*((uint8_t *)screen + 0x44) == 0);
         assert(strcmp((char *)screen + 0x45, "main-display-uid") == 0);
         free(screen);
         assert(LoupeHIDScreenMessage(messageFixture, 0x32, @"main-display-uid") == NULL);
-        assert(LoupeHIDScreenMessage(messageFixture, 0x40000007, @"") == NULL);
-        assert(LoupeHIDScreenMessage(messageFixture, 0x40000007,
+        assert(LoupeHIDScreenMessage(messageFixture, 0x40100007, @"") == NULL);
+        assert(LoupeHIDScreenMessage(messageFixture, 0x40100007,
             [@"x" stringByPaddingToLength:64 withString:@"x" startingAtIndex:0]) == NULL);
         puts("HID touch messages passed: dynamic stride, complete event bytes, screen registration, malformed payload rejection");
     }
