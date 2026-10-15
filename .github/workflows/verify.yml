@@ -72,14 +72,11 @@ jobs:
           source Examples/LoupeExample/build-simulator-artifacts.sh
           configure_loupe_ios_verification
           export LOUPE_HID_DIAGNOSTICS=1
-          export LOUPE_TOUCH_OPEN_DEVICE_HUB=1
           swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
           DEVICE="$LOUPE_DEVICE"
+          python3 -u diagnostics/resources.py > /tmp/loupe-touch-resources.log 2>&1 &
           prepare_loupe_ios_preferences
           boot_loupe_ios_verification_device
-          frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
-          test -d "$frontend"
-          /usr/bin/open -a "$frontend" "devices://device/open?id=$DEVICE"
           mkdir -p "$RUNNER_TEMP/loupe-fixture"
           ditto -x -k /tmp/loupe-fixture-download/loupe-touch-fixture.zip "$RUNNER_TEMP/loupe-fixture"
           APP_PATH="$RUNNER_TEMP/loupe-fixture/LoupeExample.app"
