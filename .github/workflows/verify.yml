@@ -22,7 +22,29 @@ permissions:
   actions: read
 
 jobs:
+  sdk26:
+    name: Build instrumented SDK 26 injector
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the release injector
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          args=(--configuration release --scratch-path /tmp/loupe-phase-sdk26 --product LoupeInjector --sdk "$sdk" --triple arm64-apple-ios15.0-simulator)
+          swift build "${args[@]}"
+          binary_dir="$(swift build "${args[@]}" --show-bin-path)"
+          mkdir -p /tmp/loupe-phase-sdk26-artifact
+          cp "$binary_dir/libLoupeInjector.dylib" /tmp/loupe-phase-sdk26-artifact/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loupe-phase-sdk26
+          path: /tmp/loupe-phase-sdk26-artifact/
   xcode27-touch-e2e:
+    needs: sdk26
     name: Xcode 27 iOS Touch E2E
     runs-on: xcode-27
     timeout-minutes: 30
@@ -55,15 +77,13 @@ jobs:
           run-id: 38755624600
           name: loupe-xcode27-touch-1
           path: /tmp/loupe-fixture-download
-      - name: Build the simulator injector with SwiftPM
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
-          args=(--scratch-path /tmp/loupe-xcode27-injector --product LoupeInjector --sdk "$sdk" --triple arm64-apple-ios15.0-simulator)
-          swift build "${args[@]}"
-          binary_dir="$(swift build "${args[@]}" --show-bin-path)"
-          echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$binary_dir/libLoupeInjector.dylib" >> "$GITHUB_ENV"
+      - name: Download the SDK 26 release injector
+        uses: actions/download-artifact@v4
+        with:
+          name: loupe-phase-sdk26
+          path: /tmp/loupe-phase-sdk26-artifact
+      - name: Select the SDK 26 release injector
+        run: echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=/tmp/loupe-phase-sdk26-artifact/libLoupeInjector.dylib" >> "$GITHUB_ENV"
       - name: Verify iOS touch and input with Xcode 27
         shell: bash
         run: |
@@ -98,6 +118,8 @@ jobs:
           COLLECT
             if [[ "$scenario_status" != 0 ]]; then
               mkdir -p /tmp/loupe-xcode27-crashes
+              export HOST DEVICE
+              python3 diagnostics/collect-phase-failure.py
               break
             fi
           done

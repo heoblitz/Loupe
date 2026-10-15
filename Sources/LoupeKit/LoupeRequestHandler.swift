@@ -7,7 +7,7 @@ import LoupeCore
 private let loupeProbeWriteLock = NSLock()
 func loupeProbeServer(_ value: String) {
     let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("loupe-touch-server-probe.log")
-    let data = Data("\(Date().timeIntervalSince1970) \(value)\n".utf8)
+    let data = Data("\(Date().timeIntervalSince1970) pid=\(ProcessInfo.processInfo.processIdentifier) \(value)\n".utf8)
     loupeProbeWriteLock.lock()
     defer { loupeProbeWriteLock.unlock() }
     if let handle = try? FileHandle(forWritingTo: url) {
