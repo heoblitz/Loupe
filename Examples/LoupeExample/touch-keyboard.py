@@ -39,7 +39,7 @@ if mode == 'prepare':
     # Use the same English-default input environment on every host; restore
     # these keys afterward instead of inheriting local language/keyboard order.
     target = {
-        'AppleLocale': 'en_US', 'AppleLanguages': ['en-US'],
+        'AppleLocale': 'en_US', 'AppleLanguages': ['en-US', 'ko-KR'],
         'AppleKeyboards': ['en_US@sw=QWERTY;hw=Automatic', 'ko_KR@sw=Korean;hw=Automatic'],
         'AppleKeyboardsExpanded': 1,
     }

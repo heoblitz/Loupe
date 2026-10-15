@@ -78,6 +78,12 @@ jobs:
           python3 -u diagnostics/resources.py > /tmp/loupe-touch-resources.log 2>&1 &
           prepare_loupe_ios_preferences
           boot_loupe_ios_verification_device
+          cp /tmp/loupe-touch-boot.log /tmp/loupe-touch-first-boot.log
+          python3 - "$DEVICE" <<'REBOOT'
+          import subprocess,sys
+          subprocess.run(['xcrun','simctl','shutdown',sys.argv[1]],check=True,timeout=30)
+          REBOOT
+          boot_loupe_ios_verification_device
           frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
           test -d "$frontend"
           /usr/bin/open -a "$frontend" "devices://device/open?id=$DEVICE"
