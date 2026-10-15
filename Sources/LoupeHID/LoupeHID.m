@@ -461,7 +461,7 @@ static LoupeIndigoMessage *LoupeHIDScreenMessage(LoupeMouseMessageFunction mouse
     LoupeIndigoScreenEvent *event = (void *)&message->payload.event;
     event->operation = 1;
     event->target = target;
-    event->isBuiltIn = 1;
+    event->isBuiltIn = 0;
     memcpy(event->displayUID, uid.bytes, uid.length);
     return message;
 }
@@ -489,9 +489,9 @@ static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *
         return false;
     }
     uint32_t screenID = ((uint32_t (*)(id, SEL))objc_msgSend)(properties, NSSelectorFromString(@"screenID"));
-    functions->touchTarget = screenID | 0x40000000;
-    // Registration is idempotent for the same target/UID. Do not remove the
-    // guest service afterwards: Simulator.app and other clients can share it.
+    // Device Hub owns the screen's built-in digitizer. Bind a separate virtual
+    // target to the actual display UID and reuse it across CLI invocations.
+    functions->touchTarget = screenID | 0x40100000;
     if (!LoupeHIDSendTouchMessage(client, LoupeHIDScreenMessage(functions->mouseMessage, functions->touchTarget, displayUID), errorMessage)) return false;
     const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
     if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {

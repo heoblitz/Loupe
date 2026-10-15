@@ -47,6 +47,9 @@ coverage, explicitly set `LOUPE_TOUCH_RUNTIME_VERSION` in either environment.
 An additional Xcode 27.0 / iOS 27.0 job verifies screen-routed input. Select it
 locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
 `LOUPE_TOUCH_RUNTIME_VERSION=27.0`, plus `DEVELOPER_DIR` for that Xcode.
+The source job opens Device Hub after boot and verifies its active input route;
+set `LOUPE_TOUCH_OPEN_DEVICE_HUB=1` to exercise that path locally. Bottle jobs
+verify headless input.
 The local and hosted commands use the same launch and action deadlines.
 The iOS simulator launcher waits for an initial native action observation within
 its existing launch deadline, preparing accessibility before input begins.
@@ -74,15 +77,17 @@ discovery. Simulator setup is skipped; action assertions are shared.
 
 ## Assertions and evidence
 
-SimulatorKit's Xcode 27 screen input uses the actual main screen ID and display
-UID. Loupe registers that digitizer before input, waits for its acknowledgement,
+SimulatorKit's Xcode 27 screen input uses a separate virtual digitizer target
+derived from the actual main screen ID and bound to its display UID. Loupe
+registers that digitizer before input, waits for its acknowledgement,
 and sends the native touch allocation without repacking its contacts or timestamp.
 Older SimulatorKit retains its main-digitizer envelope with the native payload
 stride and complete event bytes. `scripts/verify-hid-touch-messages.sh` checks
 144–192 byte payloads, full native-message preservation, legacy contact layout,
 screen registration offsets and invalid registration data.
-The Xcode 27 registration includes its built-in-display flag at wire offset
-`0x44` and the display UID at `0x45`. The main display uses that built-in flag.
+The Xcode 27 registration includes its external-input flag (`isBuiltIn = 0`) at
+wire offset `0x44` and the display UID at `0x45`. A separate external target
+stays connected while Device Hub manages the built-in digitizer.
 The Xcode 27 fixture compiles for a generic arm64 simulator destination and is
 installed and exercised on the explicitly selected runtime/device.
 Host HID dispatch and framebuffer captures use Dispatch workers while the CLI

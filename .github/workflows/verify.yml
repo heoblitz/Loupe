@@ -26,6 +26,7 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       LOUPE_TOUCH_XCODE_VERSION: "27.0"
       LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      LOUPE_TOUCH_OPEN_DEVICE_HUB: "1"
       LOUPE_EXAMPLE_BUILD_ROOT: /tmp/loupe-xcode27-touch-build
       LOUPE_EXAMPLE_DESTINATION: generic/platform=iOS Simulator
 

@@ -11,6 +11,15 @@ with urllib.request.urlopen(host + '/status', timeout=5) as response:
     identity = json.load(response)['identity']
 (out / 'runtime-identity.json').write_text(json.dumps(identity, indent=2))
 expected_backend = 'auto' if identity.get('simulatorUDID') else 'touch'
+if os.environ.get('LOUPE_TOUCH_OPEN_DEVICE_HUB') == '1':
+    assert device, 'Device Hub verification requires an exact simulator device'
+    state = subprocess.run(['xcrun', 'simctl', 'spawn', device, 'notifyutil', '-g',
+                            'com.apple.coredevice.dtuhidd.active'],
+                           capture_output=True, text=True, check=True, timeout=10)
+    (out / 'device-hub-state.log').write_text(state.stdout + state.stderr)
+    values = state.stdout.split()
+    assert values and values[-1] == '1', ('Device Hub input route is not active', state.stdout)
+    print('Device Hub input route is active', flush=True)
 
 def snapshot():
     path = out / 'snapshot.json'

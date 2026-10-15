@@ -21,6 +21,14 @@ echo "touch E2E: device=$DEVICE architecture=$(uname -m) CLI=$CLI"
 xcodebuild -version
 prepare_loupe_ios_preferences
 boot_loupe_ios_verification_device
+if [[ "${LOUPE_TOUCH_OPEN_DEVICE_HUB:-0}" == "1" ]]; then
+  frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
+  if [[ ! -d "$frontend" ]]; then
+    echo "error: Device Hub not found at $frontend" >&2
+    exit 1
+  fi
+  /usr/bin/open -a "$frontend" "devices://device/open?id=$DEVICE"
+fi
 destination="${LOUPE_EXAMPLE_DESTINATION:-platform=iOS Simulator,id=$DEVICE}"
 if [[ -n "${LOUPE_TOUCH_ARCHITECTURE:-}" && "$destination" != generic/* ]]; then
   destination="$destination,arch=$LOUPE_TOUCH_ARCHITECTURE"

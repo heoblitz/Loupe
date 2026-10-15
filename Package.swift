@@ -52,7 +52,6 @@ let package = Package(
             name: "LoupeHID",
             publicHeadersPath: "include",
             linkerSettings: [
-                .linkedFramework("AppKit"),
                 .linkedFramework("CoreImage"),
                 .linkedFramework("IOSurface"),
                 .linkedFramework("ImageIO"),
