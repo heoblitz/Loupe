@@ -279,6 +279,7 @@ jobs:
           prefix="$LOUPE_BOTTLE_PREFIX"
           if [[ "$LOUPE_TOUCH_XCODE_VERSION" == "27.0" ]]; then
             export LOUPE_DEVICE="$(xcrun simctl create 'Loupe Xcode 27 Bottle' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+            export LOUPE_EXAMPLE_DESTINATION='generic/platform=iOS Simulator'
           fi
           LOUPE_HID_DIAGNOSTICS=1 \
           LOUPE_TOUCH_CLI="$prefix/bin/loupe" \

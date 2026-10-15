@@ -1,24 +1,96 @@
 name: Verify
+
 on:
+  pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+  LOUPE_SIMCTL_LIST_TIMEOUT: "120"
+  LOUPE_CI_SIMCTL_LIST_ATTEMPTS: "3"
+  LOUPE_SIMCTL_TERMINATE_TIMEOUT: "20"
+
 jobs:
-  inspect:
-    name: Inspect Xcode 27 guest digitizer registration
+  xcode27-touch-e2e:
+    name: Xcode 27 iOS Touch E2E
     runs-on: xcode-27
-    timeout-minutes: 8
+    timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      LOUPE_TOUCH_XCODE_VERSION: "27.0"
+      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      LOUPE_EXAMPLE_BUILD_ROOT: /tmp/loupe-xcode27-touch-build
+      LOUPE_EXAMPLE_DESTINATION: generic/platform=iOS Simulator
+
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect guest HID protocol
+      - name: Prepare Xcode 27 touch verification
         shell: bash
         run: |
           set -euo pipefail
-          binary=/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/Platforms/iphoneos/Library/Frameworks/SimulatorHID.framework/SimulatorHID
-          xcrun otool -arch arm64 -tvV "$binary" > /tmp/loupe-xcode27-guest-asm.txt
-          xcrun otool -ov "$binary" > /tmp/loupe-xcode27-guest-objc.txt
-          strings "$binary" > /tmp/loupe-xcode27-guest-strings.txt
-      - uses: actions/upload-artifact@v4
+          xcodebuild -version
+          xcrun simctl list runtimes
+          device="$(xcrun simctl create 'Loupe Xcode 27 Touch' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+          echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
+      - name: Verify HID framework loading and messages
+        run: |
+          bash scripts/verify-hid-framework-loading.sh
+          bash scripts/verify-hid-touch-messages.sh
+      - name: Build the simulator injector with SwiftPM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          args=(--scratch-path /tmp/loupe-xcode27-injector --product LoupeInjector --sdk "$sdk" --triple arm64-apple-ios15.0-simulator)
+          swift build "${args[@]}"
+          binary_dir="$(swift build "${args[@]}" --show-bin-path)"
+          echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$binary_dir/libLoupeInjector.dylib" >> "$GITHUB_ENV"
+      - name: Verify iOS touch and input with Xcode 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT_DIR="$GITHUB_WORKSPACE"
+          source Examples/LoupeExample/build-simulator-artifacts.sh
+          configure_loupe_ios_verification
+          swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
+          DEVICE="$LOUPE_DEVICE"
+          boot_loupe_ios_verification_device
+          build_loupe_example_simulator_artifacts "$ROOT_DIR" "$LOUPE_EXAMPLE_DESTINATION"
+          xcrun simctl install "$DEVICE" "$APP_PATH"
+          launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env LOUPE_EXAMPLE_ROUTE=touch.swiftui --timeout 30)"
+          HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
+          test -n "$HOST"
+          .build/debug/loupe ui snapshot --host "$HOST" --output /tmp/loupe-xcode27-cold-swiftui.json
+
+      - name: Collect Xcode 27 app crash diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/loupe-xcode27-crashes
+          xcrun simctl spawn "$LOUPE_DEVICE" log show --last 5m --style compact --predicate 'process == "LoupeExample"' > /tmp/loupe-xcode27-crashes/app-system.log 2>&1 || true
+          shopt -s nullglob
+          for loupe_report in "$HOME"/Library/Logs/DiagnosticReports/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/Retired/LoupeExample* "$HOME"/Library/Developer/CoreSimulator/Devices/"$LOUPE_DEVICE"/data/Library/Logs/CrashReporter/LoupeExample*; do
+            cp "$loupe_report" /tmp/loupe-xcode27-crashes/ || true
+          done
+      - name: Upload Xcode 27 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: loupe-xcode27-guest-interface
-          path: /tmp/loupe-xcode27-guest-*.txt
+          name: loupe-xcode27-touch-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          path: |
+            /tmp/loupe-xcode27-cold-swiftui.json
+            /tmp/loupe-xcode27-crashes/
+            /tmp/loupe-touch-evidence-*
+            /tmp/loupe-touch-*.log
+            /tmp/loupe-example-build.log
+            /tmp/loupe-injector-build.log
+
