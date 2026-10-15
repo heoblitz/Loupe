@@ -19,6 +19,8 @@ jobs:
           xcrun nm -gU "$binary" | xcrun swift-demangle > /tmp/loupe-xcode27-symbols.txt
           xcrun otool -ov "$binary" > /tmp/loupe-xcode27-objc.txt
           xcrun otool -tvV "$binary" > /tmp/loupe-xcode27-asm.txt
+          xcrun otool -ov /Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator > /tmp/loupe-xcode27-core-objc.txt
+          xcrun nm -gU /Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator | xcrun swift-demangle > /tmp/loupe-xcode27-core-symbols.txt
           xcrun simctl list devices available --json > /tmp/loupe-xcode27-devices.json
       - uses: actions/upload-artifact@v4
         with:
