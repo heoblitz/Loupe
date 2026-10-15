@@ -9,25 +9,36 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
-      - name: Inspect simulator framework symbols
+      - name: Inspect loaded simulator symbols
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/loupe-swiftui-probe
-          xcrun simctl list runtimes --json > /tmp/loupe-swiftui-probe/runtimes.json
-          python3 - <<'PY'
-          import json,pathlib,subprocess
-          out=pathlib.Path('/tmp/loupe-swiftui-probe')
-          runtime=next(r for r in json.loads((out/'runtimes.json').read_text())['runtimes'] if r['identifier']=='com.apple.CoreSimulator.SimRuntime.iOS-27-0')
-          root=pathlib.Path(runtime['bundlePath'])/'Contents/Resources/RuntimeRoot'
-          for framework in ['SwiftUICore','SwiftUI']:
-              binary=root/f'System/Library/Frameworks/{framework}.framework/{framework}'
-              symbols=subprocess.check_output(['xcrun','nm','-arch','arm64',str(binary)],text=True)
-              (out/(framework+'-symbols.txt')).write_text(symbols)
-              selected=[line.split()[-1] for line in symbols.splitlines() if any(k in line for k in ['syncMainIfReferences','ViewListTransitionV11updateValue','viewDebugData','viewDebugData','UpdateO','UpdateV']) and ' t ' in line]
-              disasm=subprocess.check_output(['xcrun','llvm-objdump','--arch=arm64','--disassemble-symbols='+','.join(selected),str(binary)],text=True)
-              (out/(framework+'-asm.txt')).write_text(disasm)
+          device="$(xcrun simctl create 'Loupe SwiftUI Symbols' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+          xcrun simctl bootstatus "$device" -b
+          cat > /tmp/loupe-swiftui-probe/loader.c <<'C'
+          #include <dlfcn.h>
+          #include <stdio.h>
+          #include <unistd.h>
+          int main(void) {
+            void *handle = dlopen("/System/Library/Frameworks/SwiftUICore.framework/SwiftUICore", RTLD_NOW);
+            printf("SwiftUI core loaded %p\n", handle); fflush(stdout);
+            sleep(180);
+          }
+          C
+          xcrun clang -target arm64-apple-ios17.0-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" /tmp/loupe-swiftui-probe/loader.c -o /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe
+          xcrun simctl spawn "$device" /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe > /tmp/loupe-swiftui-probe/loader.log 2>&1 &
+          sleep 3
+          cat > /tmp/loupe-swiftui-probe/inspect.py <<'PY'
+          import lldb
+          m=next(m for m in lldb.target.module_iter() if m.GetFileSpec().GetFilename()=='SwiftUICore')
+          for symbol in m:
+              name=symbol.GetName() or ''
+              if any(k in name for k in ['syncMainIfReferences', 'ViewGraph.viewDebugData()', 'ViewListTransition.updateValue()', 'Update.begin()', 'Update.end()', 'Update.lock()', 'Update.unlock()']):
+                  print(name)
+                  print(symbol.GetInstructions(lldb.target))
           PY
+          xcrun lldb --batch --attach-name LoupeSwiftUIProbe --one-line 'command script import /tmp/loupe-swiftui-probe/inspect.py' --one-line detach > /tmp/loupe-swiftui-probe/asm.txt 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
