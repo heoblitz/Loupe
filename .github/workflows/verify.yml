@@ -74,37 +74,40 @@ jobs:
           export LOUPE_HID_DIAGNOSTICS=1
           export LOUPE_HTTP_PROBE=1
           swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
+          cp .build/debug/loupe /tmp/loupe-gui-normal
+          cp Sources/LoupeHID/LoupeHID.m /tmp/loupe-hid-original.m
+          python3 - <<'VARIANT'
+          import pathlib
+          path=pathlib.Path('Sources/LoupeHID/LoupeHID.m');text=path.read_text()
+          key='    if (!LoupeHIDSendTouchMessage(client, LoupeHIDScreenMessage(functions->mouseMessage, functions->touchTarget, displayUID), errorMessage)) return false;'
+          assert key in text
+          path.write_text(text.replace(key,'    return true; // diagnostic: use the existing screen service'))
+          VARIANT
+          swift build --product loupe > /tmp/loupe-touch-skip-register-build.log 2>&1
+          cp .build/debug/loupe /tmp/loupe-gui-skip-register
+          python3 - <<'VARIANT'
+          import pathlib
+          path=pathlib.Path('Sources/LoupeHID/LoupeHID.m');text=pathlib.Path('/tmp/loupe-hid-original.m').read_text()
+          key='    functions->touchTarget = screenID | 0x40000000;'
+          assert key in text
+          path.write_text(text.replace(key,'    functions->touchTarget = 0x32; return true; // diagnostic legacy target'))
+          VARIANT
+          swift build --product loupe > /tmp/loupe-touch-legacy-build.log 2>&1
+          cp .build/debug/loupe /tmp/loupe-gui-legacy
+          cp /tmp/loupe-hid-original.m Sources/LoupeHID/LoupeHID.m
+          cp /tmp/loupe-gui-normal .build/debug/loupe
           DEVICE="$LOUPE_DEVICE"
           prepare_loupe_ios_preferences
           boot_loupe_ios_verification_device
-          frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
-          test -d "$frontend"
-          /usr/bin/open -a "$frontend" "devices://device/open?id=$DEVICE"
           mkdir -p "$RUNNER_TEMP/loupe-fixture"
           ditto -x -k /tmp/loupe-fixture-download/loupe-touch-fixture.zip "$RUNNER_TEMP/loupe-fixture"
           APP_PATH="$RUNNER_TEMP/loupe-fixture/LoupeExample.app"
           export LOUPE_INJECTOR_PATH="$LOUPE_EXAMPLE_PREBUILT_INJECTOR"
           xcrun simctl install "$DEVICE" "$APP_PATH"
-          scenario_status=0
-          for route in touch touch.swiftui; do
-            launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env "LOUPE_EXAMPLE_ROUTE=$route" --timeout 30)"
-            HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
-            test -n "$HOST"
-            mode=all
-            if [[ "$route" == touch.swiftui ]]; then mode=--swiftui-only; fi
-            python3 Examples/LoupeExample/verify-touch-scenarios.py "$HOST" "$DEVICE" "$mode" || scenario_status=$?
-            python3 - "$DEVICE" <<'COLLECT'
-          import pathlib,shutil,sys
-          base=pathlib.Path.home()/'Library/Developer/CoreSimulator/Devices'/sys.argv[1]/'data/Containers/Data/Application'
-          for path in base.glob('*/tmp/loupe-touch-server-probe.log'):
-              shutil.copyfile(path,pathlib.Path('/tmp')/('loupe-touch-http-server-'+path.parent.parent.name+'.log'))
-          COLLECT
-            if [[ "$scenario_status" != 0 ]]; then
-              mkdir -p /tmp/loupe-xcode27-crashes
-              break
-            fi
-          done
-          exit "$scenario_status"
+          launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env LOUPE_EXAMPLE_ROUTE=touch --timeout 30)"
+          export LOUPE_PROBE_HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
+          test -n "$LOUPE_PROBE_HOST"
+          python3 diagnostics/gui-input-ab.py
       - name: Collect Xcode 27 app crash diagnostics
         if: failure()
         timeout-minutes: 2
@@ -130,6 +133,7 @@ jobs:
           path: |
             /tmp/loupe-xcode27-crashes/
             /tmp/loupe-touch-evidence-*
+            /tmp/loupe-touch-gui-ab/
             /tmp/loupe-touch-*.log
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
