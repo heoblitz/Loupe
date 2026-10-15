@@ -21,6 +21,40 @@ if os.environ.get('LOUPE_TOUCH_OPEN_DEVICE_HUB') == '1':
     assert values and values[-1] == '1', ('Device Hub input route is not active', state.stdout)
     print('Device Hub input route is active', flush=True)
 
+original_subprocess_run = subprocess.run
+probe_command_counter = 0
+def probe_run(arguments, *args, **kwargs):
+    global probe_command_counter
+    if not isinstance(arguments, list) or not arguments or arguments[0] != cli:
+        return original_subprocess_run(arguments, *args, **kwargs)
+    probe_command_counter += 1
+    name = f'probe-cli-{probe_command_counter:03d}'
+    started = time.time()
+    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    def decoded(value): return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
+    try:
+        stdout, stderr = process.communicate(timeout=kwargs.get('timeout'))
+        result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+        (out / (name + '.log')).write_text(f'started={started} pid={process.pid} elapsed={time.time()-started} args={arguments}\n' + stdout + stderr)
+        if kwargs.get('check'): result.check_returncode()
+        return result
+    except subprocess.TimeoutExpired as error:
+        (out / (name + '.log')).write_text(f'started={started} pid={process.pid} failed_at={time.time()} args={arguments}\n' + decoded(error.stdout) + decoded(error.stderr))
+        try:
+            if process.poll() is None:
+                process.send_signal(signal.SIGSTOP)
+                with (out / (name + '-sample.log')).open('w') as stream:
+                    try: original_subprocess_run(['/usr/bin/sudo','/usr/bin/sample',str(process.pid),'1','10','-file',str(out / (name + '-host-stack.txt'))],stdout=stream,stderr=stream,timeout=55)
+                    except Exception as capture_error: stream.write(repr(capture_error))
+        finally:
+            if process.poll() is None:
+                process.send_signal(signal.SIGCONT); process.kill()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: pass
+            process.stdout.close(); process.stderr.close()
+        raise
+subprocess.run = probe_run
+
 def snapshot():
     path = out / 'snapshot.json'
     result = subprocess.run([cli, 'ui', 'snapshot', '--host', host, '--output', str(path)], capture_output=True, text=True, timeout=15)

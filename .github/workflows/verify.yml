@@ -75,6 +75,7 @@ jobs:
           export LOUPE_TOUCH_OPEN_DEVICE_HUB=1
           swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
           DEVICE="$LOUPE_DEVICE"
+          python3 -u diagnostics/resources.py > /tmp/loupe-touch-resources.log 2>&1 &
           prepare_loupe_ios_preferences
           boot_loupe_ios_verification_device
           frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
@@ -92,7 +93,7 @@ jobs:
             test -n "$HOST"
             mode=all
             if [[ "$route" == touch.swiftui ]]; then mode=--swiftui-only; fi
-            python3 Examples/LoupeExample/verify-touch-scenarios.py "$HOST" "$DEVICE" "$mode" || scenario_status=$?
+            LOUPE_PROBE_HOLD_HTTP_TIMEOUT=1 python3 Examples/LoupeExample/verify-touch-scenarios.py "$HOST" "$DEVICE" "$mode" || scenario_status=$?
             python3 - "$DEVICE" <<'COLLECT'
           import pathlib,shutil,sys
           base=pathlib.Path.home()/'Library/Developer/CoreSimulator/Devices'/sys.argv[1]/'data/Containers/Data/Application'
