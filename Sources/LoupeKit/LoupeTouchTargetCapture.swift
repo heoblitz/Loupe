@@ -99,6 +99,34 @@ struct LoupeSwiftUITouchDeclarations {
 
 }
 
+// iOS 27 can place native semantics in a hosting view's descendant container.
+// Keep one observed element when its gesture declaration has the same ID/frame.
+func loupeMergeSwiftUIGestureNodes(childRefs: inout [String], nodes: inout [String: LoupeNode]) {
+    var subtree = Set<String>()
+    var pending = childRefs
+    while let ref = pending.popLast() {
+        guard subtree.insert(ref).inserted, let node = nodes[ref] else { continue }
+        pending.append(contentsOf: node.children)
+    }
+    let gestures = childRefs.filter { nodes[$0]?.typeName == "SwiftUI.Gesture" }
+    for ref in gestures {
+        guard let gesture = nodes[ref], let id = gesture.testID, let frame = gesture.frame else { continue }
+        let semantics = subtree.filter {
+            guard let node = nodes[$0] else { return false }
+            return node.typeName != "SwiftUI.Gesture" && node.testID == id && node.frame == frame
+        }
+        // Distinct semantic elements sharing an ID remain ambiguous.
+        guard semantics.count <= 1 else { continue }
+        let targetRef = semantics.first ?? ref
+        let matching = gestures.filter { nodes[$0]?.testID == id && nodes[$0]?.frame == frame }
+        let actions = (nodes[targetRef]?.touchActions ?? []) + matching.flatMap { nodes[$0]?.touchActions ?? [] }
+        nodes[targetRef]?.touchActions = LoupeTouchAction.allObservedOrder.filter(actions.contains)
+        nodes[targetRef]?.isInteractive = true
+        for duplicate in matching where duplicate != targetRef { nodes.removeValue(forKey: duplicate) }
+    }
+    childRefs.removeAll { nodes[$0] == nil }
+}
+
 #if os(iOS)
 import UIKit
 import LoupeSyntheticEvents

@@ -25,10 +25,16 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
     // hold SwiftUI's update scope, including when called from the main actor.
     // Resolve the no-argument Swift entry points so an unavailable private ABI
     // omits debug declarations instead of calling an incompatible function.
-    guard let beginSymbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "$s7SwiftUI6UpdateO5beginyyFZ"),
-          let endSymbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "$s7SwiftUI6UpdateO3endyyFZ") else { return nil }
-    let begin = unsafeBitCast(beginSymbol, to: (@convention(thin) () -> Void).self)
-    let end = unsafeBitCast(endSymbol, to: (@convention(thin) () -> Void).self)
+    typealias UpdateFunction = @convention(thin) () -> Void
+    // iOS 27 renamed Update to ViewGraphHostUpdate. Resolve a complete pair
+    // from one ABI so begin/end always operate on the same update scope.
+    let scope = ["$s7SwiftUI19ViewGraphHostUpdateV", "$s7SwiftUI6UpdateO"].lazy.compactMap {
+        prefix -> (UpdateFunction, UpdateFunction)? in
+        guard let begin = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "5beginyyFZ"),
+              let end = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "3endyyFZ") else { return nil }
+        return (unsafeBitCast(begin, to: UpdateFunction.self), unsafeBitCast(end, to: UpdateFunction.self))
+    }.first
+    guard let (begin, end) = scope else { return nil }
     let roots = {
         begin()
         defer { end() }

@@ -48,6 +48,8 @@ An additional Xcode 27.0 / iOS 27.0 job verifies screen-routed input. Select it
 locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
 `LOUPE_TOUCH_RUNTIME_VERSION=27.0`, plus `DEVELOPER_DIR` for that Xcode.
 The local and hosted commands use the same launch and action deadlines.
+The iOS simulator launcher waits for an initial native action observation within
+its existing launch deadline, preparing accessibility before input begins.
 Both use the Python interpreter shipped with the selected Xcode for the
 standard-library harness, rather than a separately updated Homebrew Python.
 
@@ -85,7 +87,12 @@ The Xcode 27 fixture compiles for a generic arm64 simulator destination and is
 installed and exercised on the explicitly selected runtime/device.
 SwiftUI debug-graph traversal holds SwiftUI's update scope while evaluating
 graph attributes; main-actor isolation alone does not satisfy the iOS 27 graph
-precondition. Missing update entry points omit private touch declarations.
+precondition. Resolve iOS 27's `ViewGraphHostUpdate` entry points and the earlier
+`Update` entry points as complete begin/end pairs. Missing entry points omit
+private touch declarations.
+Gesture declarations merge with matching native semantic nodes throughout the
+same host subtree, preserving unique selectors across iOS container layouts.
+Distinct semantic elements sharing an identifier remain ambiguous.
 
 Separate UIKit and SwiftUI screens verify button counters through selectors,
 one-shot aliases, coordinates and saved refs; gesture-only taps, double taps,

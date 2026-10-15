@@ -517,20 +517,7 @@ public final class LoupeAgent {
         }
 
         #if os(iOS)
-        for gestureRef in childRefs where nodes[gestureRef]?.typeName == "SwiftUI.Gesture" {
-            guard let gesture = nodes[gestureRef], let id = gesture.testID,
-                  let semanticRef = childRefs.sorted(by: {
-                      (nodes[$0]?.typeName == "SwiftUI.Gesture" ? 1 : 0)
-                          < (nodes[$1]?.typeName == "SwiftUI.Gesture" ? 1 : 0)
-                  }).first(where: {
-                      $0 != gestureRef && nodes[$0]?.testID == id && nodes[$0]?.frame == gesture.frame
-                  }) else { continue }
-            let combined = (nodes[semanticRef]?.touchActions ?? []) + (gesture.touchActions ?? [])
-            nodes[semanticRef]?.touchActions = LoupeTouchAction.allObservedOrder.filter(combined.contains)
-            nodes[semanticRef]?.isInteractive = true
-            nodes.removeValue(forKey: gestureRef)
-        }
-        childRefs.removeAll { nodes[$0] == nil }
+        loupeMergeSwiftUIGestureNodes(childRefs: &childRefs, nodes: &nodes)
         #endif
 
         nodes[ref] = LoupeNode(
