@@ -13,18 +13,17 @@ jobs:
         shell: bash
         run: |
           python3 - <<'SDK'
-          import pathlib,subprocess
+          import pathlib,subprocess,shutil
           sdk=pathlib.Path(subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-path'],text=True).strip())
-          output=[]
+          out=pathlib.Path('/tmp/loupe-swiftui-sdk');out.mkdir()
           for framework in ['SwiftUICore','SwiftUI']:
-              path=sdk/f'System/Library/Frameworks/{framework}.framework/{framework}.tbd'
-              output.append(str(path))
-              output.extend(line for line in path.read_text().splitlines() if any(word in line for word in ['UpdateO', 'syncMainIfReferences', 'viewDebugData']))
-          pathlib.Path('/tmp/loupe-swiftui-sdk.txt').write_text('\n'.join(output))
-          print('\n'.join(output))
+              base=sdk/f'System/Library/Frameworks/{framework}.framework'
+              shutil.copyfile(base/f'{framework}.tbd',out/f'{framework}.tbd')
+              for path in base.glob('Modules/*.swiftmodule/arm64-apple-ios-simulator*.swiftinterface'):
+                  shutil.copyfile(path,out/(framework+'-'+path.name))
           SDK
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: loupe-swiftui-sdk
-          path: /tmp/loupe-swiftui-sdk.txt
+          path: /tmp/loupe-swiftui-sdk/
