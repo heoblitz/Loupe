@@ -3,9 +3,10 @@
 # Keep local E2E and hosted source/bottle jobs on the same toolchain.
 configure_loupe_ios_verification() {
   local version
+  local expected_version="${LOUPE_TOUCH_XCODE_VERSION:-26.3}"
   version="$(xcodebuild -version | sed -n '1p')"
-  if [[ "$version" != "Xcode 26.3" ]]; then
-    echo "error: iOS verification requires Xcode 26.3; selected $version. Set DEVELOPER_DIR explicitly." >&2
+  if [[ "$version" != "Xcode $expected_version" ]]; then
+    echo "error: iOS verification requires Xcode $expected_version; selected $version. Set DEVELOPER_DIR explicitly." >&2
     return 1
   fi
   # Use the interpreter shipped with the selected Xcode, not Homebrew's
@@ -32,7 +33,7 @@ candidates = [d for d in inventory['devices'].get(runtime, [])
               if d['udid'] == requested] if requested else [d for d in inventory['devices'].get(runtime, []) if d['name'] == model]
 assert candidates, f'No {requested or model} for iOS {version}; install/select the required runtime explicitly'
 device = next((d for d in candidates if d['state'] == 'Booted'), candidates[0])
-print(f'iOS verification: Xcode=26.3 runtime={version} architecture={architecture} device={device["name"]} ({device["udid"]})', file=sys.stderr)
+print(f'iOS verification: Xcode={os.environ.get("LOUPE_TOUCH_XCODE_VERSION", "26.3")} runtime={version} architecture={architecture} device={device["name"]} ({device["udid"]})', file=sys.stderr)
 print(device['udid'])
 DEVICE_PY
 }
