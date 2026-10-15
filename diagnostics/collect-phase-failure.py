@@ -1,4 +1,4 @@
-import concurrent.futures,json,os,pathlib,re,subprocess,time
+import concurrent.futures,json,os,pathlib,re,shutil,subprocess,time
 out=pathlib.Path('/tmp/loupe-xcode27-crashes');out.mkdir(exist_ok=True)
 device=os.environ['DEVICE'];host=os.environ['HOST']
 def command(name,args,timeout=20):
@@ -18,3 +18,9 @@ with concurrent.futures.ThreadPoolExecutor() as pool:
     work=[pool.submit(command,'app-'+pid,['/usr/bin/sudo','/usr/bin/sample',pid,'2','10','-file',str(out/('app-'+pid+'-stack.txt'))],55) for pid in pids]
     work+=[pool.submit(command,'processes',['/bin/ps','-axo','pid,ppid,pcpu,rss,comm']),pool.submit(command,'memory',['/usr/bin/vm_stat']),pool.submit(command,'status',['/usr/bin/curl','--max-time','3','--silent','--show-error','-w',' status=%{http_code} connect=%{time_connect} first=%{time_starttransfer} total=%{time_total}',host+'/status'],8),pool.submit(command,'app-unified',['/usr/bin/log','show','--last','2m','--style','compact','--predicate','process == "LoupeExample"'],25)]
     for future in work:future.result()
+for path in base.glob('*/tmp/loupe-touch-server-probe.log'):
+    shutil.copyfile(path,out/('post-sample-server-'+path.parent.parent.name+'.log'))
+for directory in [pathlib.Path.home()/'Library/Logs/DiagnosticReports',pathlib.Path.home()/'Library/Developer/CoreSimulator/Devices'/device/'data/Library/Logs/CrashReporter']:
+    for path in directory.glob('*'):
+        if path.is_file() and time.time()-path.stat().st_mtime<600 and path.name.startswith(('LoupeExample','SpringBoard','backboardd','CoreSimulator','SimHID','JetsamEvent')):
+            shutil.copyfile(path,out/path.name)
