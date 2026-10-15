@@ -27,6 +27,7 @@ jobs:
       LOUPE_TOUCH_XCODE_VERSION: "27.0"
       LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
       LOUPE_EXAMPLE_BUILD_ROOT: /tmp/loupe-xcode27-touch-build
+      LOUPE_EXAMPLE_DESTINATION: generic/platform=iOS Simulator
 
     steps:
       - uses: actions/checkout@v4

@@ -76,6 +76,7 @@ build_loupe_example_simulator_artifacts() {
   local root_dir="${1:?root dir is required}"
   local destination="${2:-${LOUPE_EXAMPLE_DESTINATION:-generic/platform=iOS Simulator}}"
   local build_root="${LOUPE_EXAMPLE_BUILD_ROOT:-/tmp/loupe-example-build}"
+  local build_architecture="${LOUPE_TOUCH_ARCHITECTURE:-$(uname -m)}"
   local injector_derived_data="$build_root/LoupeInjector"
   local app_derived_data="$build_root/LoupeExample"
 
@@ -92,6 +93,7 @@ build_loupe_example_simulator_artifacts() {
       -configuration Debug \
       -derivedDataPath "$injector_derived_data" \
       ONLY_ACTIVE_ARCH=YES \
+      ARCHS="$build_architecture" \
       build >/tmp/loupe-injector-build.log
     LOUPE_INJECTOR_PATH="$injector_derived_data/Build/Products/Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector"
   fi
@@ -103,6 +105,7 @@ build_loupe_example_simulator_artifacts() {
     -configuration Debug \
     -derivedDataPath "$app_derived_data" \
     ONLY_ACTIVE_ARCH=YES \
+    ARCHS="$build_architecture" \
     build >/tmp/loupe-example-build.log
 
   APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
