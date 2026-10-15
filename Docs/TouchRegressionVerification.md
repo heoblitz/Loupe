@@ -47,6 +47,9 @@ coverage, explicitly set `LOUPE_TOUCH_RUNTIME_VERSION` in either environment.
 An additional Xcode 27.0 / iOS 27.0 job verifies screen-routed input. Select it
 locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
 `LOUPE_TOUCH_RUNTIME_VERSION=27.0`, plus `DEVELOPER_DIR` for that Xcode.
+The iOS 27 jobs use the image's existing iPhone 17. Build the fixture before
+booting the selected simulator so compilation does not compete with guest
+startup on the hosted runner.
 The source job opens Device Hub after boot and verifies its active input route;
 set `LOUPE_TOUCH_OPEN_DEVICE_HUB=1` to exercise that path locally. Bottle jobs
 verify headless input.

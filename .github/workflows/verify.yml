@@ -36,9 +36,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -version
+          source Examples/LoupeExample/build-simulator-artifacts.sh
+          configure_loupe_ios_verification
           xcrun simctl list runtimes
-          device="$(xcrun simctl create 'Loupe Xcode 27 Touch' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+          device="$(loupe_ios_verification_device)"
           echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
       - name: Verify HID framework loading and messages
         run: |

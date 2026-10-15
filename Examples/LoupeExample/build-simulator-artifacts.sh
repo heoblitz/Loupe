@@ -28,7 +28,7 @@ runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-' + version.replace('.', '-')
 inventory = json.loads(subprocess.check_output(
     ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'], timeout=60))
 requested = sys.argv[1]
-model = 'iPhone 17 Pro' if version.startswith('26.') else 'iPhone 16 Pro'
+model = 'iPhone 17 Pro' if version.startswith('26.') else 'iPhone 17'
 candidates = [d for d in inventory['devices'].get(runtime, [])
               if d['udid'] == requested] if requested else [d for d in inventory['devices'].get(runtime, []) if d['name'] == model]
 assert candidates, f'No {requested or model} for iOS {version}; install/select the required runtime explicitly'
