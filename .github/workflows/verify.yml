@@ -72,6 +72,7 @@ jobs:
           source Examples/LoupeExample/build-simulator-artifacts.sh
           configure_loupe_ios_verification
           export LOUPE_HID_DIAGNOSTICS=1
+          export LOUPE_HTTP_PROBE=1
           swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
           DEVICE="$LOUPE_DEVICE"
           prepare_loupe_ios_preferences
@@ -89,10 +90,14 @@ jobs:
             mode=all
             if [[ "$route" == touch.swiftui ]]; then mode=--swiftui-only; fi
             python3 Examples/LoupeExample/verify-touch-scenarios.py "$HOST" "$DEVICE" "$mode" || scenario_status=$?
+            python3 - "$DEVICE" <<'COLLECT'
+          import pathlib,shutil,sys
+          base=pathlib.Path.home()/'Library/Developer/CoreSimulator/Devices'/sys.argv[1]/'data/Containers/Data/Application'
+          for path in base.glob('*/tmp/loupe-touch-server-probe.log'):
+              shutil.copyfile(path,pathlib.Path('/tmp')/('loupe-touch-http-server-'+path.parent.parent.name+'.log'))
+          COLLECT
             if [[ "$scenario_status" != 0 ]]; then
               mkdir -p /tmp/loupe-xcode27-crashes
-              for pid in $(pgrep -x LoupeExample || true); do sample "$pid" 3 -file "/tmp/loupe-xcode27-crashes/live-$pid.txt" || true; done
-              xcrun simctl spawn "$DEVICE" log show --last 3m --style compact --predicate 'process == "LoupeExample"' > /tmp/loupe-xcode27-crashes/live-app-system.log 2>&1 || true
               break
             fi
           done
@@ -125,4 +130,3 @@ jobs:
             /tmp/loupe-touch-*.log
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
-

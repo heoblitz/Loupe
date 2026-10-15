@@ -3,12 +3,15 @@ import Testing
 @testable import LoupeCLI
 
 struct SimulatorNativeWorkTests {
-    @Test @MainActor func nativeWaitAllowsCallerActorToServiceCallbacks() async throws {
+    @Test func nativeWaitRunsOutsideSwiftTasksAndAllowsCallbacks() async throws {
         let callback = DispatchSemaphore(value: 0)
-        let completed = try await SimulatorNativeWork.run {
-            DispatchQueue.main.async { callback.signal() }
-            return callback.wait(timeout: .now() + 5) == .success
+        let result = try await SimulatorNativeWork.run {
+            let occupiesSwiftTask = withUnsafeCurrentTask { $0 != nil }
+            Task { callback.signal() }
+            return (occupiesSwiftTask: occupiesSwiftTask,
+                    completed: callback.wait(timeout: .now() + 5) == .success)
         }
-        #expect(completed, "Blocking native work must release the caller's actor for callbacks")
+        #expect(!result.occupiesSwiftTask, "Blocking native work must run outside Swift tasks")
+        #expect(result.completed, "Blocking native work must leave Swift's executor free for callbacks")
     }
 }

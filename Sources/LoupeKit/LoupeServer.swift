@@ -208,6 +208,7 @@ public final class LoupeServer: @unchecked Sendable {
                 break
             }
 
+            loupeProbeServer("accept fd=\(clientFD)")
             guard configureClientSocket(clientFD) else {
                 Darwin.shutdown(clientFD, SHUT_RDWR)
                 Darwin.close(clientFD)
@@ -245,6 +246,7 @@ public final class LoupeServer: @unchecked Sendable {
         ioQueue: DispatchQueue,
         requestHandler: LoupeRequestHandler
     ) {
+        loupeProbeServer("read begin fd=\(connection.fileDescriptor)")
         let request: HTTPRequest
         switch LoupeHTTP.readRequest(from: connection.fileDescriptor, deadlineNanoseconds: connection.deadlineNanoseconds) {
         case let .success(data):
@@ -264,6 +266,7 @@ public final class LoupeServer: @unchecked Sendable {
             return
         }
 
+        loupeProbeServer("read done " + request.path)
         let task = Task { [weak connection] in
             guard let connection else { return }
             let payload = await requestHandler.responsePayload(for: request, deadlineNanoseconds: connection.deadlineNanoseconds)
@@ -313,6 +316,7 @@ public final class LoupeServer: @unchecked Sendable {
     }
 
     private static func writeResponse(_ payload: ResponsePayload, to clientFD: Int32) {
+        loupeProbeServer("write begin status=\(payload.status) bytes=\(payload.body.utf8.count)")
         let responseText = """
         HTTP/1.1 \(payload.status) \(reasonPhrase(for: payload.status))\r
         Content-Type: application/json; charset=utf-8\r
@@ -322,6 +326,7 @@ public final class LoupeServer: @unchecked Sendable {
         \(payload.body)
         """
         write(Data(responseText.utf8), to: clientFD)
+        loupeProbeServer("write done")
     }
 
     private static func write(_ data: Data, to fd: Int32) {

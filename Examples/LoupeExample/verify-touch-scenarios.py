@@ -12,9 +12,14 @@ with urllib.request.urlopen(host + '/status', timeout=5) as response:
 (out / 'runtime-identity.json').write_text(json.dumps(identity, indent=2))
 expected_backend = 'auto' if identity.get('simulatorUDID') else 'touch'
 
+snapshot_counter = 0
 def snapshot():
+    global snapshot_counter
+    snapshot_counter += 1
+    started = time.time()
     path = out / 'snapshot.json'
     result = subprocess.run([cli, 'ui', 'snapshot', '--host', host, '--output', str(path)], capture_output=True, text=True, timeout=15)
+    (out / f"snapshot-{snapshot_counter:03d}.log").write_text(f"started={started}\n" + result.stdout + result.stderr)
     if result.returncode: raise RuntimeError(result.stdout + result.stderr)
     return json.loads(path.read_text())
 
