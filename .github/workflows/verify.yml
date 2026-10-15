@@ -95,6 +95,8 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/loupe-xcode27-cold-swiftui.json
+            /tmp/loupe-touch-swiftui-debug.json
+            /tmp/loupe-touch-targets.txt
             /tmp/loupe-xcode27-crashes/
             /tmp/loupe-touch-evidence-*
             /tmp/loupe-touch-*.log
