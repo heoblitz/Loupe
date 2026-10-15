@@ -29,16 +29,18 @@ jobs:
           xcrun clang -target arm64-apple-ios17.0-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" /tmp/loupe-swiftui-probe/loader.c -o /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe
           xcrun simctl spawn "$device" /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe > /tmp/loupe-swiftui-probe/loader.log 2>&1 &
           sleep 3
-          cat > /tmp/loupe-swiftui-probe/inspect.py <<'PY'
+          cat > /tmp/loupe-swiftui-probe/loupe_symbols.py <<'PY'
           import lldb
-          m=next(m for m in lldb.target.module_iter() if m.GetFileSpec().GetFilename()=='SwiftUICore')
-          for symbol in m:
-              name=symbol.GetName() or ''
-              if any(k in name for k in ['syncMainIfReferences', 'ViewGraph.viewDebugData()', 'ViewListTransition.updateValue()', 'Update.begin()', 'Update.end()', 'Update.lock()', 'Update.unlock()']):
-                  print(name)
-                  print(symbol.GetInstructions(lldb.target))
+          def __lldb_init_module(debugger, internal_dict):
+              target=debugger.GetSelectedTarget()
+              m=next(m for m in target.module_iter() if m.GetFileSpec().GetFilename()=='SwiftUICore')
+              for symbol in m:
+                  name=symbol.GetName() or ''
+                  if any(k in name for k in ['syncMainIfReferences', 'ViewGraph.viewDebugData()', 'ViewListTransition.updateValue()', 'Update.begin()', 'Update.end()', 'Update.lock()', 'Update.unlock()']):
+                      print(name)
+                      print(symbol.GetInstructions(target))
           PY
-          xcrun lldb --batch --attach-name LoupeSwiftUIProbe --one-line 'command script import /tmp/loupe-swiftui-probe/inspect.py' --one-line detach > /tmp/loupe-swiftui-probe/asm.txt 2>&1 || true
+          xcrun lldb --batch --attach-name LoupeSwiftUIProbe --one-line 'command script import /tmp/loupe-swiftui-probe/loupe_symbols.py' --one-line detach > /tmp/loupe-swiftui-probe/asm.txt 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
