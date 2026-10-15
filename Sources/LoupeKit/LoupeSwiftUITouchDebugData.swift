@@ -20,6 +20,9 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
         current = class_getSuperclass(type)
     }
     guard isHost else { return nil }
+    let proof = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("loupe-touch-scope-proof.txt")
+    func mark(_ value: String) { try? Data(value.utf8).write(to: proof) }
+    mark("host: \(String(reflecting: type(of: view)))")
     let host = unsafeBitCast(view, to: _UIHostingView<AnyView>.self)
     // View debug traversal can evaluate main-thread graph attributes. It must
     // hold SwiftUI's update scope, including when called from the main actor.
@@ -32,14 +35,18 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
         prefix -> (UpdateFunction, UpdateFunction)? in
         guard let begin = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "5beginyyFZ"),
               let end = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "3endyyFZ") else { return nil }
+        mark("resolved scope: " + prefix)
         return (unsafeBitCast(begin, to: UpdateFunction.self), unsafeBitCast(end, to: UpdateFunction.self))
     }.first
-    guard let (begin, end) = scope else { return nil }
+    guard let (begin, end) = scope else { mark("missing update scope"); return nil }
     let roots = {
+        mark("before begin")
         begin()
+        mark("before graph")
         defer { end() }
         return host._viewDebugData()
     }()
+    mark("graph returned \(roots.count) roots")
     var remainingNodes = 4096
     var remainingAttributes = 65_536
     func encode(_ node: _ViewDebug.Data, depth: Int) -> LoupeSwiftUITouchDebugNode? {
@@ -71,6 +78,7 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
                      children: children.compactMap { encode($0, depth: depth + 1) })
     }
     let compact = roots.compactMap { encode($0, depth: 0) }
+    mark("encoded \(compact.count) roots")
     return compact
 }
 #endif

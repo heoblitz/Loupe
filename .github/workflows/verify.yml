@@ -53,7 +53,41 @@ jobs:
           binary_dir="$(swift build "${args[@]}" --show-bin-path)"
           echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$binary_dir/libLoupeInjector.dylib" >> "$GITHUB_ENV"
       - name: Verify iOS touch and input with Xcode 27
-        run: Examples/LoupeExample/run-touch-e2e.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT_DIR="$GITHUB_WORKSPACE"
+          source Examples/LoupeExample/build-simulator-artifacts.sh
+          configure_loupe_ios_verification
+          swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
+          DEVICE="$LOUPE_DEVICE"
+          prepare_loupe_ios_preferences
+          boot_loupe_ios_verification_device
+          build_loupe_example_simulator_artifacts "$ROOT_DIR" "$LOUPE_EXAMPLE_DESTINATION"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" /tmp/loupe-touch-fixture.zip
+          xcrun simctl install "$DEVICE" "$APP_PATH"
+          launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env LOUPE_EXAMPLE_ROUTE=touch.swiftui --timeout 30)"
+          HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
+          test -n "$HOST"
+          mkdir -p /tmp/loupe-xcode27-crashes
+          .build/debug/loupe ui snapshot --host "$HOST" --output /tmp/loupe-touch-first-swiftui.json > /tmp/loupe-touch-first-swiftui.log 2>&1 &
+          snapshot_pid=$!
+          sleep 1
+          for loupe_app_pid in $(pgrep -x LoupeExample || true); do
+            sample "$loupe_app_pid" 3 -file "/tmp/loupe-xcode27-crashes/live-$loupe_app_pid.txt" || true
+          done
+          scenario_status=0
+          wait "$snapshot_pid" || scenario_status=$?
+          if [[ "$scenario_status" == 0 ]]; then
+            python3 Examples/LoupeExample/verify-touch-scenarios.py "$HOST" "$DEVICE" --swiftui-only || scenario_status=$?
+          fi
+          if [[ "$scenario_status" != 0 ]]; then
+            xcrun simctl spawn "$DEVICE" log show --last 3m --style compact --predicate 'process == "LoupeExample"' > /tmp/loupe-xcode27-crashes/live-app-system.log 2>&1 || true
+          fi
+          container="$(xcrun simctl get_app_container "$DEVICE" dev.loupe.example data)"
+          shopt -s nullglob
+          for proof in "$container"/tmp/loupe-touch-*; do cp "$proof" /tmp/; done
+          exit "$scenario_status"
       - name: Collect Xcode 27 app crash diagnostics
         if: failure()
         timeout-minutes: 2
@@ -79,7 +113,7 @@ jobs:
           path: |
             /tmp/loupe-xcode27-crashes/
             /tmp/loupe-touch-evidence-*
-            /tmp/loupe-touch-*.log
+            /tmp/loupe-touch-*
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
 
