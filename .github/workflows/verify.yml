@@ -3,44 +3,32 @@ on:
   workflow_dispatch:
 jobs:
   swiftui-probe:
-    name: Inspect Xcode 27 SwiftUI graph precondition
+    name: Inspect Xcode 27 SwiftUI update exports
     runs-on: xcode-27
     timeout-minutes: 8
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
-      - name: Inspect loaded simulator symbols
+      - name: Read simulator exports
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/loupe-swiftui-probe
-          device="$(xcrun simctl create 'Loupe SwiftUI Symbols' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+          device="$(xcrun simctl create 'Loupe SwiftUI Exports' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
           xcrun simctl bootstatus "$device" -b
           cat > /tmp/loupe-swiftui-probe/loader.c <<'C'
           #include <dlfcn.h>
           #include <stdio.h>
-          #include <unistd.h>
           int main(void) {
-            void *handle = dlopen("/System/Library/Frameworks/SwiftUICore.framework/SwiftUICore", RTLD_NOW);
-            printf("SwiftUI core loaded %p\n", handle); fflush(stdout);
-            sleep(180);
+           void *handle=dlopen("/System/Library/Frameworks/SwiftUICore.framework/SwiftUICore",RTLD_NOW);
+           printf("framework: %p\n",handle);
+           const char *names[]={"$s7SwiftUI6UpdateO5beginyyFZ","$s7SwiftUI6UpdateO3endyyFZ","$s11SwiftUICore6UpdateO5beginyyFZ","$s11SwiftUICore6UpdateO3endyyFZ","$s11SwiftUICore6UpdateO4lockyyFZ","$s11SwiftUICore6UpdateO6unlockyyFZ","$s7SwiftUI6UpdateO4lockyyFZ","$s7SwiftUI6UpdateO6unlockyyFZ"};
+           for(int i=0;i<8;i++) printf("%s: %p\n",names[i],dlsym(handle,names[i]));
           }
           C
           xcrun clang -target arm64-apple-ios17.0-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" /tmp/loupe-swiftui-probe/loader.c -o /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe
-          xcrun simctl spawn "$device" /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe > /tmp/loupe-swiftui-probe/loader.log 2>&1 &
-          sleep 3
-          cat > /tmp/loupe-swiftui-probe/loupe_symbols.py <<'PY'
-          import lldb
-          def __lldb_init_module(debugger, internal_dict):
-              target=debugger.GetSelectedTarget()
-              m=next(m for m in target.module_iter() if m.GetFileSpec().GetFilename()=='SwiftUICore')
-              for symbol in m:
-                  name=symbol.GetName() or ''
-                  if any(k in name for k in ['syncMainIfReferences', 'ViewGraph.viewDebugData()', 'ViewListTransition.updateValue()', 'Update.begin()', 'Update.end()', 'Update.lock()', 'Update.unlock()']):
-                      print(name)
-                      print(symbol.GetInstructions(target))
-          PY
-          xcrun lldb --batch --attach-name LoupeSwiftUIProbe --one-line 'command script import /tmp/loupe-swiftui-probe/loupe_symbols.py' --one-line detach > /tmp/loupe-swiftui-probe/asm.txt 2>&1 || true
+          xcrun simctl spawn "$device" /tmp/loupe-swiftui-probe/LoupeSwiftUIProbe > /tmp/loupe-swiftui-probe/loader.log 2>&1
+          cat /tmp/loupe-swiftui-probe/loader.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
