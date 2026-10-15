@@ -41,7 +41,16 @@ jobs:
           set -euo pipefail
           xcodebuild -version
           xcrun simctl list runtimes
-          device="$(xcrun simctl create 'Loupe Xcode 27 Touch' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+          device="$(python3 - <<'SELECT'
+          import json,pathlib,subprocess
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','--json'],text=True,timeout=30))
+          selected=[d for key,devices in inventory['devices'].items() if key.endswith('.iOS-27-0') for d in devices if d['name']=='iPhone 17' and d.get('isAvailable')]
+          assert len(selected)==1,selected
+          d=selected[0];data=pathlib.Path(d['dataPath']);d['preexisting_preference_count']=len(list((data/'Library/Preferences').glob('*')))
+          pathlib.Path('/tmp/loupe-touch-selected-device.log').write_text(json.dumps(d,indent=2))
+          print(d['udid'])
+          SELECT
+          )"
           echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
       - name: Verify HID framework loading and messages
         run: |
