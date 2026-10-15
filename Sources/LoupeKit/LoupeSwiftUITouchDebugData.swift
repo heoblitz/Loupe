@@ -21,7 +21,7 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
     }
     guard isHost else { return nil }
     let proof = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("loupe-touch-scope-proof.txt")
-    func mark(_ value: String) { try? Data(value.utf8).write(to: proof) }
+    func mark(_ value: String) { try? Data("\(Date().timeIntervalSince1970) \(value)".utf8).write(to: proof) }
     mark("host: \(String(reflecting: type(of: view)))")
     let host = unsafeBitCast(view, to: _UIHostingView<AnyView>.self)
     // View debug traversal can evaluate main-thread graph attributes. It must

@@ -313,6 +313,7 @@ public final class LoupeServer: @unchecked Sendable {
     }
 
     private static func writeResponse(_ payload: ResponsePayload, to clientFD: Int32) {
+        loupeProbeServer("write begin status=\(payload.status) bytes=\(payload.body.utf8.count)")
         let responseText = """
         HTTP/1.1 \(payload.status) \(reasonPhrase(for: payload.status))\r
         Content-Type: application/json; charset=utf-8\r
@@ -322,6 +323,7 @@ public final class LoupeServer: @unchecked Sendable {
         \(payload.body)
         """
         write(Data(responseText.utf8), to: clientFD)
+        loupeProbeServer("write done")
     }
 
     private static func write(_ data: Data, to fd: Int32) {
