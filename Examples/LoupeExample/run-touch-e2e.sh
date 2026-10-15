@@ -20,15 +20,7 @@ DEVICE="$(loupe_ios_verification_device)"
 echo "touch E2E: device=$DEVICE architecture=$(uname -m) CLI=$CLI"
 xcodebuild -version
 prepare_loupe_ios_preferences
-boot_loupe_ios_verification_device
-if [[ "${LOUPE_TOUCH_OPEN_DEVICE_HUB:-0}" == "1" ]]; then
-  frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
-  if [[ ! -d "$frontend" ]]; then
-    echo "error: Device Hub not found at $frontend" >&2
-    exit 1
-  fi
-  /usr/bin/open -a "$frontend" "devices://device/open?id=$DEVICE"
-fi
+# Keep compilation from competing with the guest's first-boot services.
 destination="${LOUPE_EXAMPLE_DESTINATION:-platform=iOS Simulator,id=$DEVICE}"
 if [[ -n "${LOUPE_TOUCH_ARCHITECTURE:-}" && "$destination" != generic/* ]]; then
   destination="$destination,arch=$LOUPE_TOUCH_ARCHITECTURE"
@@ -36,6 +28,16 @@ fi
 build_loupe_example_simulator_artifacts "$ROOT_DIR" "$destination"
 if [[ -n "${LOUPE_TOUCH_ARCHITECTURE:-}" ]]; then
   test "$(xcrun lipo -archs "$APP_PATH/LoupeExample")" = "$LOUPE_TOUCH_ARCHITECTURE"
+fi
+boot_loupe_ios_verification_device
+python3 diagnostics/widget-profile.py "$DEVICE" verify
+if [[ "${LOUPE_TOUCH_OPEN_DEVICE_HUB:-0}" == "1" ]]; then
+  frontend="${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app"
+  if [[ ! -d "$frontend" ]]; then
+    echo "error: Device Hub not found at $frontend" >&2
+    exit 1
+  fi
+  /usr/bin/open -a "$frontend" "devices://device/open?id=$DEVICE"
 fi
 xcrun simctl terminate "$DEVICE" dev.loupe.example >/dev/null 2>&1 || true
 xcrun simctl install "$DEVICE" "$APP_PATH"

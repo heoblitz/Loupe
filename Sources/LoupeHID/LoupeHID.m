@@ -100,7 +100,6 @@ static int const LoupeHIDDirectionDown = 1;
 static int const LoupeHIDDirectionUp = 2;
 
 static NSString *LoupeDeveloperDir(void);
-static void LoupeHIDLookupStage(const char *stage);
 static id LoupeSimulatorObject(id target, NSString *name);
 
 static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *functions, char **errorMessage);
@@ -168,16 +167,12 @@ static bool LoupeLoadCoreSimulator(char **errorMessage)
 
 static bool LoupeHIDLoadFrameworks(char **errorMessage)
 {
-    LoupeHIDLookupStage("load-core-begin");
     if (!LoupeLoadCoreSimulator(errorMessage)) return false;
-    LoupeHIDLookupStage("load-core-end");
     NSMutableArray<NSString *> *failures = [NSMutableArray array];
     for (NSString *path in LoupeSimulatorKitPaths()) {
         NSBundle *simulatorKit = [NSBundle bundleWithPath:path];
         NSError *loadError = nil;
-        LoupeHIDLookupStage("load-kit-begin");
         if ([simulatorKit loadAndReturnError:&loadError]) {
-            LoupeHIDLookupStage("load-kit-end");
             return true;
         }
         NSString *reason = loadError.localizedDescription ?: @"framework bundle not found or invalid";

@@ -28,7 +28,7 @@ runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-' + version.replace('.', '-')
 inventory = json.loads(subprocess.check_output(
     ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'], timeout=60))
 requested = sys.argv[1]
-model = 'iPhone 17 Pro' if version.startswith('26.') else 'iPhone 16 Pro'
+model = 'iPhone 17 Pro' if version.startswith('26.') else 'iPhone 17'
 candidates = [d for d in inventory['devices'].get(runtime, [])
               if d['udid'] == requested] if requested else [d for d in inventory['devices'].get(runtime, []) if d['name'] == model]
 assert candidates, f'No {requested or model} for iOS {version}; install/select the required runtime explicitly'
@@ -62,6 +62,11 @@ prepare_loupe_ios_preferences() {
 
 restore_loupe_ios_preferences() {
   local result=$?
+  # GitHub discards hosted VMs after the job. Keep the live guest available
+  # for diagnostics instead of blocking completion on a redundant shutdown.
+  if [[ "${GITHUB_ACTIONS:-}" == "true" && "${RUNNER_ENVIRONMENT:-}" == "github-hosted" ]]; then
+    exit "$result"
+  fi
   if [[ -s "$KEYBOARD_BACKUP" ]]; then
     if ! python3 "$ROOT_DIR/Examples/LoupeExample/touch-keyboard.py" "$DEVICE" restore "$KEYBOARD_BACKUP"; then
       echo "Simulator preferences restore failed; saved preferences: $KEYBOARD_BACKUP" >&2
@@ -98,23 +103,26 @@ build_loupe_example_simulator_artifacts() {
     LOUPE_INJECTOR_PATH="$injector_derived_data/Build/Products/Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector"
   fi
 
-  xcodebuild \
-    -project "$root_dir/Examples/LoupeExample/LoupeExample.xcodeproj" \
-    -scheme LoupeExample \
-    -destination "$destination" \
-    -configuration Debug \
-    -derivedDataPath "$app_derived_data" \
-    ONLY_ACTIVE_ARCH=YES \
-    ARCHS="$build_architecture" \
-    build >/tmp/loupe-example-build.log
-
-  APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
+  if [[ -n "${LOUPE_EXAMPLE_PREBUILT_APP:-}" ]]; then
+    APP_PATH="$LOUPE_EXAMPLE_PREBUILT_APP"
+  else
+    xcodebuild \
+      -project "$root_dir/Examples/LoupeExample/LoupeExample.xcodeproj" \
+      -scheme LoupeExample \
+      -destination "$destination" \
+      -configuration Debug \
+      -derivedDataPath "$app_derived_data" \
+      ONLY_ACTIVE_ARCH=YES \
+      ARCHS="$build_architecture" \
+      build >/tmp/loupe-example-build.log
+    APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
+  fi
 
   if [[ ! -x "$LOUPE_INJECTOR_PATH" ]]; then
     echo "error: built LoupeInjector not found at $LOUPE_INJECTOR_PATH" >&2
     exit 1
   fi
-  if [[ ! -d "$APP_PATH" ]]; then
+  if [[ ! -x "$APP_PATH/LoupeExample" ]]; then
     echo "error: built LoupeExample.app not found at $APP_PATH" >&2
     exit 1
   fi

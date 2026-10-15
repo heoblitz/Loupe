@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify CLI and internal touch results in the same simulator or linked device fixture."""
-import concurrent.futures, json, os, pathlib, re, signal, subprocess, sys, threading, time, urllib.request, urllib.error
+import concurrent.futures, json, os, pathlib, re, subprocess, sys, threading, time, urllib.request, urllib.error
 host = sys.argv[1]
 device = (sys.argv[2] or None) if len(sys.argv) > 2 else None
 cli = str(pathlib.Path(os.environ.get('LOUPE_TOUCH_CLI', '.build/debug/loupe')).resolve())
@@ -20,40 +20,6 @@ if os.environ.get('LOUPE_TOUCH_OPEN_DEVICE_HUB') == '1':
     values = state.stdout.split()
     assert values and values[-1] == '1', ('Device Hub input route is not active', state.stdout)
     print('Device Hub input route is active', flush=True)
-
-original_subprocess_run = subprocess.run
-probe_command_counter = 0
-def probe_run(arguments, *args, **kwargs):
-    global probe_command_counter
-    if not isinstance(arguments, list) or not arguments or arguments[0] != cli:
-        return original_subprocess_run(arguments, *args, **kwargs)
-    probe_command_counter += 1
-    name = f'probe-cli-{probe_command_counter:03d}'
-    started = time.time()
-    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    def decoded(value): return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
-    try:
-        stdout, stderr = process.communicate(timeout=kwargs.get('timeout'))
-        result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
-        (out / (name + '.log')).write_text(f'started={started} pid={process.pid} elapsed={time.time()-started} args={arguments}\n' + stdout + stderr)
-        if kwargs.get('check'): result.check_returncode()
-        return result
-    except subprocess.TimeoutExpired as error:
-        (out / (name + '.log')).write_text(f'started={started} pid={process.pid} failed_at={time.time()} args={arguments}\n' + decoded(error.stdout) + decoded(error.stderr))
-        try:
-            if process.poll() is None:
-                process.send_signal(signal.SIGSTOP)
-                with (out / (name + '-sample.log')).open('w') as stream:
-                    try: original_subprocess_run(['/usr/bin/sudo','/usr/bin/sample',str(process.pid),'1','10','-file',str(out / (name + '-host-stack.txt'))],stdout=stream,stderr=stream,timeout=55)
-                    except Exception as capture_error: stream.write(repr(capture_error))
-        finally:
-            if process.poll() is None:
-                process.send_signal(signal.SIGCONT); process.kill()
-            try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired: pass
-            process.stdout.close(); process.stderr.close()
-        raise
-subprocess.run = probe_run
 
 def snapshot():
     path = out / 'snapshot.json'
@@ -83,6 +49,22 @@ def expect(test_id, text):
         time.sleep(0.05)
     raise AssertionError((test_id, text, value))
 
+def expect_scroll(test_id, before, minimum_delta, trace):
+    # Input delivery and scroll animation completion are separate. Use the same
+    # four-second state observation budget as expect(), without replaying input.
+    deadline = time.monotonic() + 4
+    observations = []
+    while True:
+        current = node(test_id)['uikit']['scrollView']['contentOffset']['y']
+        observations.append(current)
+        (out / (trace + '-offsets.json')).write_text(json.dumps(observations))
+        moved = current - before if minimum_delta > 0 else before - current
+        if moved > abs(minimum_delta):
+            return current
+        if time.monotonic() >= deadline:
+            raise AssertionError((trace, before, minimum_delta, observations))
+        time.sleep(0.05)
+
 def point(test_id, fraction_x=0.5, fraction_y=0.5):
     f = node(test_id)['frame']
     return f'{f["x"] + f["width"] * fraction_x},{f["y"] + f["height"] * fraction_y}'
@@ -96,32 +78,12 @@ def act(command, args, trace, expect_rejection=False):
     # original 15s input budget. CLI request/capture deadlines stay unchanged;
     # diagnostic capture errors are recorded; app-state checks remain mandatory.
     command_budget = 15 + (2 * 10 if trace_arguments else 0)
-    started = time.time()
-    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        stdout, stderr = process.communicate(timeout=command_budget)
-        result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+        result = subprocess.run(arguments, capture_output=True, text=True, timeout=command_budget)
     except subprocess.TimeoutExpired as error:
-        def decoded(value): return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
-        (out / (trace + '.log')).write_text(f'started={started} pid={process.pid} failed_at={time.time()} poll={process.poll()}\n' + decoded(error.stdout) + decoded(error.stderr))
-        try:
-            if process.poll() is None:
-                process.send_signal(signal.SIGSTOP)
-                with (out / (trace + '-sample.log')).open('w') as stream:
-                    try: subprocess.run(['/usr/bin/sudo', '/usr/bin/sample', str(process.pid), '1', '10', '-file', str(out / (trace + '-host-stack.txt'))], stdout=stream, stderr=stream, timeout=55)
-                    except Exception as capture_error: stream.write(repr(capture_error))
-            with (out / (trace + '-processes.txt')).open('w') as stream:
-                subprocess.run(['/bin/ps', '-axo', 'pid,ppid,pcpu,rss,command'], stdout=stream, stderr=stream, timeout=10)
-            with (out / (trace + '-vm.txt')).open('w') as stream:
-                subprocess.run(['/usr/bin/vm_stat'], stdout=stream, stderr=stream, timeout=10)
-        finally:
-            if process.poll() is None:
-                process.send_signal(signal.SIGCONT)
-                process.kill()
-            try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired: pass
-            process.stdout.close(); process.stderr.close()
-        raise RuntimeError(f'Action and requested trace failed at original {command_budget}s deadline; captured CLI stack: {trace}') from error
+        (out / (trace + '.log')).write_text(
+            (error.stdout or b'').decode(errors='replace') + (error.stderr or b'').decode(errors='replace'))
+        raise RuntimeError(f'Action and requested trace did not complete within {command_budget}s: {trace}') from error
     (out / (trace + '.log')).write_text(result.stdout + result.stderr)
     if expect_rejection:
         assert result.returncode != 0, result.stdout + result.stderr
@@ -216,14 +178,10 @@ def verify_uikit():
     expect('touch.hold.status', 'Holds 1')
     before = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
     act('drag', ['--from', point('touch.scroll', 0.5, 0.8), '--to', point('touch.scroll', 0.5, 0.25), '--duration', '0.4'], 'cli-drag')
-    time.sleep(0.3)
-    after = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > before + node('touch.scroll')['frame']['height'] * 0.3, ('CLI drag', before, after)
+    after = expect_scroll('touch.scroll', before, node('touch.scroll')['frame']['height'] * 0.3, 'cli-drag')
     before = after
     act('swipe', ['--from', point('touch.scroll', 0.5, 0.2), '--to', point('touch.scroll', 0.5, 0.8), '--duration', '0.4', '--no-verify-scroll'], 'cli-swipe')
-    time.sleep(0.3)
-    after = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert before > after + node('touch.scroll')['frame']['height'] * 0.3, ('CLI swipe', before, after)
+    after = expect_scroll('touch.scroll', before, -node('touch.scroll')['frame']['height'] * 0.3, 'cli-swipe')
     print('existing CLI: gesture tap, long press, drag, and scroll passed', flush=True)
 
     # Exercise the internal device dispatcher in a simulator without adding public CLI options.
@@ -247,9 +205,7 @@ def verify_uikit():
     assert result != public_drag, ('Internal held drag did not change state', result)
     before = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
     touch('swipe', 'touch.scroll', end=point('touch.scroll', 0.5, 0.15), duration=0.4, start_fraction=(0.5, 0.85))
-    time.sleep(0.2)
-    after = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > before + node('touch.scroll')['frame']['height'] * 0.3, ('internal swipe', before, after)
+    expect_scroll('touch.scroll', before, node('touch.scroll')['frame']['height'] * 0.3, 'internal-swipe')
     print('internal touch: gesture tap, long press, held drag, and scroll passed', flush=True)
 
     # Existing explicit accessibility activation must keep its meaning and never retry as touch.
@@ -333,13 +289,9 @@ def verify_swiftui():
     assert result != public_drag, ('Internal SwiftUI held drag did not change state', result)
     before = node('touch.swiftui.scroll')['uikit']['scrollView']['contentOffset']['y']
     act('drag', ['--from', point('touch.swiftui.scroll', 0.5, 0.8), '--to', point('touch.swiftui.scroll', 0.5, 0.2), '--duration', '0.4'], 'cli-swiftui-scroll-drag')
-    time.sleep(0.3)
-    after = node('touch.swiftui.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > before + 20, ('SwiftUI drag', before, after)
+    after = expect_scroll('touch.swiftui.scroll', before, 20, 'swiftui-drag')
     act('swipe', ['--from', point('touch.swiftui.scroll', 0.5, 0.2), '--to', point('touch.swiftui.scroll', 0.5, 0.8), '--duration', '0.4', '--no-verify-scroll'], 'cli-swiftui-scroll-swipe')
-    time.sleep(0.3)
-    restored = node('touch.swiftui.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > restored + 20, ('SwiftUI swipe', after, restored)
+    expect_scroll('touch.swiftui.scroll', after, -20, 'swiftui-swipe')
     act('input', ['--test-id', 'touch.swiftui.input', '--text', literal], 'cli-swiftui-text-input')
     expect('touch.swiftui.input', literal)
     expect('touch.swiftui.input.status', 'Input changed: ' + literal)

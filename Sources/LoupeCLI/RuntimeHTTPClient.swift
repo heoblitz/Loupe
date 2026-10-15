@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 import LoupeCLIModel
 
 /// Owns HTTP deadlines and transport failures; commands own endpoint semantics.
@@ -53,10 +52,6 @@ struct RuntimeHTTPClient: Sendable {
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: timeoutNanoseconds(seconds))
-                if ProcessInfo.processInfo.environment["LOUPE_PROBE_HOLD_HTTP_TIMEOUT"] == "1" {
-                    FileHandle.standardError.write(Data("LOUPE_PROBE HTTP deadline reached \(seconds)s at \(Date().timeIntervalSince1970); freezing before cancellation\n".utf8))
-                    raise(SIGSTOP)
-                }
                 throw CLIError("request timed out after \(seconds)s")
             }
 

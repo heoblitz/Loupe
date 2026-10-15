@@ -47,10 +47,23 @@ coverage, explicitly set `LOUPE_TOUCH_RUNTIME_VERSION` in either environment.
 An additional Xcode 27.0 / iOS 27.0 job verifies screen-routed input. Select it
 locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
 `LOUPE_TOUCH_RUNTIME_VERSION=27.0`, plus `DEVELOPER_DIR` for that Xcode.
+The iOS 27 jobs use the image's existing iPhone 17. A separate build job
+produces the CLI, injector, and fixture without booting a device. Runtime jobs
+verify the artifact source commit and reuse its binaries on fresh hosts.
+Both iOS bottle runtime jobs use a fixture compiled on a separate host with
+their matching SDK. Their CLI and injector must still come from the installed
+bottle. Local builds finish before boot.
 The source job opens Device Hub after boot and verifies its active input route;
 set `LOUPE_TOUCH_OPEN_DEVICE_HUB=1` to exercise that path locally. Bottle jobs
 verify headless input.
 The local and hosted commands use the same launch and action deadlines.
+Local and self-hosted runs restore the selected device's saved preferences and
+state. GitHub-hosted VMs are discarded after the job; their live guest is left
+available for diagnostics rather than shut down solely to restore temporary
+preferences. Cleanup preserves the original test exit status.
+Scroll assertions observe the required directional movement within the same
+four-second state-check budget as label assertions, instead of assuming a
+fixed 200–300 ms animation delay. Input is sent once; offset samples are saved.
 The iOS simulator launcher waits for an initial native action observation within
 its existing launch deadline, preparing accessibility before input begins.
 Both use the Python interpreter shipped with the selected Xcode for the
@@ -65,7 +78,8 @@ fresh fixture build directory; a locally rebuilt CLI is a different artifact.
 
 For a poured Homebrew bottle, set `LOUPE_TOUCH_CLI` to its executable and
 `LOUPE_EXAMPLE_PREBUILT_INJECTOR` to its injector framework binary. Only the
-fixture app is rebuilt. The Apple Silicon job runs these same assertions with
+fixture app is rebuilt locally. CI can supply the same-source app archive with
+`LOUPE_EXAMPLE_PREBUILT_APP`. The Apple Silicon job runs these same assertions with
 the downloaded bottle. A source build cannot substitute for a bottle runtime pass.
 Poured artifacts run on both the Xcode 26.3 / iOS 26.2 and
 Xcode 27.0 / iOS 27.0 hosts.
