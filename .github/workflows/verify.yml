@@ -43,6 +43,15 @@ jobs:
           xcrun simctl list devices available --json > /tmp/loupe-xcode27-devices.json
           device="$(xcrun simctl create 'Loupe Xcode 27 Touch' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
           echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
+      - name: Build the simulator injector with SwiftPM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          args=(--scratch-path /tmp/loupe-xcode27-injector --product LoupeInjector --sdk "$sdk" --triple arm64-apple-ios15.0-simulator)
+          swift build "${args[@]}"
+          binary_dir="$(swift build "${args[@]}" --show-bin-path)"
+          echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$binary_dir/libLoupeInjector.dylib" >> "$GITHUB_ENV"
       - name: Verify touch message layout
         run: bash scripts/verify-hid-touch-messages.sh
       - name: Verify iOS touch and input with Xcode 27

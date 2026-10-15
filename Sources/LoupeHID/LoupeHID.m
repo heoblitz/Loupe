@@ -61,11 +61,23 @@ typedef struct {
     unsigned char padding[3];
     LoupeIndigoPayload payload;
 } LoupeIndigoMessage;
+
+// SimulatorHID's extended create-digitizer control event. Its display UID is
+// the screenProperties.uniqueId used by the guest to associate HID with UI.
+typedef struct {
+    uint32_t operation;
+    uint32_t reserved;
+    uint64_t reserved2;
+    uint32_t target;
+    char displayUID[64];
+} LoupeIndigoScreenEvent;
 #pragma pack(pop)
 
 _Static_assert(sizeof(LoupeIndigoTouch) == 112, "Unexpected Indigo touch layout");
 _Static_assert(sizeof(LoupeIndigoPayload) == 144, "Indigo event union must retain the full payload stride");
 _Static_assert(sizeof(LoupeIndigoMessage) == 176, "Unexpected Indigo message layout");
+_Static_assert(offsetof(LoupeIndigoScreenEvent, target) == 16, "Unexpected screen target offset");
+_Static_assert(offsetof(LoupeIndigoScreenEvent, displayUID) == 20, "Unexpected display UID offset");
 
 typedef LoupeIndigoMessage *(*LoupeKeyboardMessageFunction)(uint32_t keyCode, int operation);
 typedef LoupeIndigoMessage *(*LoupeMouseMessageFunction)(CGPoint *point0, CGPoint *point1, uint32_t target, NSEventType eventType, NSSize size, uint32_t edge);
@@ -84,28 +96,11 @@ typedef struct {
 static NSString * const LoupeCoreSimulatorPath = @"/Library/Developer/PrivateFrameworks/CoreSimulator.framework";
 static int const LoupeHIDDirectionDown = 1;
 static int const LoupeHIDDirectionUp = 2;
-static int const LoupeHIDEventTypeTouch = 2;
-static int const LoupeHIDTouchEventKind = 0x0b;
 
 static NSString *LoupeDeveloperDir(void);
 static id LoupeSimulatorObject(id target, NSString *name);
 
-// A screen's callback registration keeps its input service active. Retain it
-// with the HID client until the last touch phase has been acknowledged.
-@interface LoupeHIDScreenRegistration : NSObject
-@property(nonatomic, strong) id descriptor;
-@property(nonatomic, strong) NSUUID *identifier;
-@end
-
-@implementation LoupeHIDScreenRegistration
-- (void)dealloc
-{
-    ((void (*)(id, SEL, id))objc_msgSend)(_descriptor,
-        NSSelectorFromString(@"unregisterScreenCallbacksWithUUID:"), _identifier);
-}
-@end
-
-static char LoupeHIDScreenRegistrationKey;
+static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *functions, char **errorMessage);
 
 static void LoupeHIDSetError(char **errorMessage, NSString *message)
 {
@@ -253,62 +248,12 @@ static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
     return nil;
 }
 
-static LoupeHIDScreenRegistration *LoupeHIDRegisterMainScreen(id device, uint32_t *target, char **errorMessage)
-{
-    id mainScreen = nil;
-    for (id port in LoupeSimulatorObject(LoupeSimulatorObject(device, @"io"), @"ioPorts")) {
-        id descriptor = LoupeSimulatorObject(port, @"descriptor");
-        id state = LoupeSimulatorObject(descriptor, @"state");
-        if (![state respondsToSelector:NSSelectorFromString(@"displayClass")]) continue;
-        unsigned short displayClass = ((unsigned short (*)(id, SEL))objc_msgSend)(state, NSSelectorFromString(@"displayClass"));
-        if (displayClass != 0) continue;
-        if (mainScreen != nil) {
-            LoupeHIDSetError(errorMessage, @"simulator main screen is ambiguous for touch input");
-            return nil;
-        }
-        mainScreen = descriptor;
-    }
-    id properties = LoupeSimulatorObject(mainScreen, @"screenProperties");
-    SEL registerSelector = NSSelectorFromString(@"registerScreenCallbacksWithUUID:callbackQueue:frameCallback:surfacesChangedCallback:propertiesChangedCallback:");
-    if (![properties respondsToSelector:NSSelectorFromString(@"screenID")] ||
-        ![mainScreen respondsToSelector:registerSelector] ||
-        ![mainScreen respondsToSelector:NSSelectorFromString(@"unregisterScreenCallbacksWithUUID:")]) {
-        LoupeHIDSetError(errorMessage, @"simulator main screen is unavailable for touch registration");
-        return nil;
-    }
-    uint32_t screenID = ((uint32_t (*)(id, SEL))objc_msgSend)(properties, NSSelectorFromString(@"screenID"));
-    LoupeHIDScreenRegistration *registration = [LoupeHIDScreenRegistration new];
-    registration.descriptor = mainScreen;
-    registration.identifier = NSUUID.UUID;
-    ((void (*)(id, SEL, id, dispatch_queue_t, void (^)(void), void (^)(id, id), void (^)(id)))objc_msgSend)(
-        mainScreen, registerSelector, registration.identifier,
-        dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
-        ^{}, ^(id surface, id maskedSurface) {}, ^(id updatedProperties) {});
-    *target = screenID | 0x40000000;
-    if (getenv("LOUPE_HID_DIAGNOSTICS") != NULL) {
-        fprintf(stderr, "loupe.hid.screen id=%u target=0x%x registered=1\n", screenID, *target);
-    }
-    return registration;
-}
-
-static id LoupeHIDClientForUDID(NSString *udid, uint32_t *touchTarget, char **errorMessage)
+static id LoupeHIDClientForUDID(NSString *udid, LoupeHIDFunctions *touchFunctions, char **errorMessage)
 {
     id device = LoupeHIDDeviceForUDID(udid, errorMessage);
     if (device == nil) {
         return nil;
     }
-    LoupeHIDScreenRegistration *registration = nil;
-    if (touchTarget != NULL) {
-        *touchTarget = 0x32;
-        // Xcode 27 exposes the backing SimScreen directly. Older SimulatorKit
-        // versions still route the main display through the legacy digitizer.
-        Class screenClass = NSClassFromString(@"SimulatorKit.SimDeviceScreen");
-        if ([screenClass instancesRespondToSelector:NSSelectorFromString(@"screen")]) {
-            registration = LoupeHIDRegisterMainScreen(device, touchTarget, errorMessage);
-            if (registration == nil) return nil;
-        }
-    }
-
     Class clientClass = NSClassFromString(@"SimulatorKit.SimDeviceLegacyHIDClient");
     if (clientClass == Nil) {
         LoupeHIDSetError(errorMessage, @"SimulatorKit SimDeviceLegacyHIDClient is unavailable");
@@ -326,8 +271,8 @@ static id LoupeHIDClientForUDID(NSString *udid, uint32_t *touchTarget, char **er
         LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to create HID client: %@", error]);
         return nil;
     }
-    if (registration != nil) {
-        objc_setAssociatedObject(client, &LoupeHIDScreenRegistrationKey, registration, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (touchFunctions != NULL && !LoupeHIDRegisterMainScreen(device, client, touchFunctions, errorMessage)) {
+        return nil;
     }
     return client;
 }
@@ -465,29 +410,68 @@ static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseM
             touch.field11, touch.field12, touch.field13);
     }
 
-    // SimulatorKit's wire payload can grow independently of the prefix we
-    // inspect. Preserve its stride and the complete event, including fields
-    // beyond LoupeIndigoTouch, when building the two-contact envelope.
-    size_t messageSize = payloadOffset + 2 * stride;
-    LoupeIndigoMessage *message = calloc(1, messageSize);
-    if (message == NULL) {
-        free(seed);
-        return NULL;
-    }
-    message->innerSize = (uint32_t)stride;
-    message->eventType = LoupeHIDEventTypeTouch;
-    message->payload.field1 = LoupeHIDTouchEventKind;
-    message->payload.timestamp = mach_absolute_time();
-    memcpy(&message->payload.event, &seed->payload.event,
-        stride - offsetof(LoupeIndigoPayload, event));
+    // SimulatorKit owns the wire layout, including its second contact and
+    // version-specific event fields. Send that allocation unchanged.
+    return seed;
+}
 
-    LoupeIndigoPayload *second = (LoupeIndigoPayload *)((char *)&message->payload + stride);
-    memcpy(second, &message->payload, stride);
-    second->event.touch.field1 = 1;
-    second->event.touch.field2 = 2;
-
+static LoupeIndigoMessage *LoupeHIDScreenMessage(LoupeMouseMessageFunction mouseMessage, uint32_t target, NSString *displayUID)
+{
+    NSData *uid = [displayUID dataUsingEncoding:NSUTF8StringEncoding];
+    if ((target & 0x40000000) == 0 || uid.length == 0 ||
+        uid.length >= sizeof(((LoupeIndigoScreenEvent *)0)->displayUID)) return NULL;
+    CGPoint ratio = CGPointZero;
+    LoupeIndigoMessage *seed = mouseMessage(&ratio, NULL, target, (NSEventType)LoupeHIDDirectionDown, NSMakeSize(1, 1), 0);
+    if (seed == NULL) return NULL;
+    size_t stride = seed->innerSize;
+    size_t offset = offsetof(LoupeIndigoMessage, payload);
+    size_t allocated = malloc_size(seed);
     free(seed);
+    if (stride < sizeof(LoupeIndigoPayload) || allocated < offset || stride > allocated - offset) return NULL;
+    LoupeIndigoMessage *message = calloc(1, offset + stride);
+    if (message == NULL) return NULL;
+    message->innerSize = (uint32_t)stride;
+    message->eventType = 1;
+    message->payload.field1 = 0x7fff0001;
+    message->payload.timestamp = mach_absolute_time();
+    LoupeIndigoScreenEvent *event = (void *)&message->payload.event;
+    event->operation = 1;
+    event->target = target;
+    memcpy(event->displayUID, uid.bytes, uid.length);
     return message;
+}
+
+static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *functions, char **errorMessage)
+{
+    id properties = nil;
+    for (id port in LoupeSimulatorObject(LoupeSimulatorObject(device, @"io"), @"ioPorts")) {
+        id descriptor = LoupeSimulatorObject(port, @"descriptor");
+        id state = LoupeSimulatorObject(descriptor, @"state");
+        if (![state respondsToSelector:NSSelectorFromString(@"displayClass")]) continue;
+        unsigned short displayClass = ((unsigned short (*)(id, SEL))objc_msgSend)(state, NSSelectorFromString(@"displayClass"));
+        if (displayClass != 0) continue;
+        if (properties != nil) {
+            LoupeHIDSetError(errorMessage, @"simulator main screen is ambiguous for touch input");
+            return false;
+        }
+        properties = LoupeSimulatorObject(descriptor, @"screenProperties");
+    }
+    NSString *displayUID = LoupeSimulatorObject(properties, @"uniqueId");
+    if (![properties respondsToSelector:NSSelectorFromString(@"screenID")] ||
+        ![displayUID isKindOfClass:NSString.class] || displayUID.length == 0) {
+        LoupeHIDSetError(errorMessage, @"simulator main screen ID and display UID are unavailable for touch input");
+        return false;
+    }
+    uint32_t screenID = ((uint32_t (*)(id, SEL))objc_msgSend)(properties, NSSelectorFromString(@"screenID"));
+    functions->touchTarget = screenID | 0x40000000;
+    // Registration is idempotent for the same target/UID. Do not remove the
+    // guest service afterwards: Simulator.app and other clients can share it.
+    if (!LoupeHIDSendTouchMessage(client, LoupeHIDScreenMessage(functions->mouseMessage, functions->touchTarget, displayUID), errorMessage)) return false;
+    const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
+    if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {
+        fprintf(stderr, "loupe.hid.screen id=%u target=0x%x registered=1\n", screenID, functions->touchTarget);
+    }
+    return true;
 }
 
 static bool LoupeHIDPrepare(NSString *udid, id *client, LoupeHIDFunctions *functions, bool forTouch, char **errorMessage)
@@ -498,7 +482,7 @@ static bool LoupeHIDPrepare(NSString *udid, id *client, LoupeHIDFunctions *funct
     if (!LoupeHIDLoadFunctions(functions, errorMessage)) {
         return false;
     }
-    *client = LoupeHIDClientForUDID(udid, forTouch ? &functions->touchTarget : NULL, errorMessage);
+    *client = LoupeHIDClientForUDID(udid, forTouch ? functions : NULL, errorMessage);
     return *client != nil;
 }
 
