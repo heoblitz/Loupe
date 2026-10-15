@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify CLI and internal touch results in the same simulator or linked device fixture."""
-import concurrent.futures, json, os, pathlib, re, subprocess, sys, time, urllib.request, urllib.error
+import concurrent.futures, json, os, pathlib, re, subprocess, sys, threading, time, urllib.request, urllib.error
 host = sys.argv[1]
 device = (sys.argv[2] or None) if len(sys.argv) > 2 else None
 cli = str(pathlib.Path(os.environ.get('LOUPE_TOUCH_CLI', '.build/debug/loupe')).resolve())
@@ -11,6 +11,15 @@ with urllib.request.urlopen(host + '/status', timeout=5) as response:
     identity = json.load(response)['identity']
 (out / 'runtime-identity.json').write_text(json.dumps(identity, indent=2))
 expected_backend = 'auto' if identity.get('simulatorUDID') else 'touch'
+if os.environ.get('LOUPE_TOUCH_OPEN_DEVICE_HUB') == '1':
+    assert device, 'Device Hub verification requires an exact simulator device'
+    state = subprocess.run(['xcrun', 'simctl', 'spawn', device, 'notifyutil', '-g',
+                            'com.apple.coredevice.dtuhidd.active'],
+                           capture_output=True, text=True, check=True, timeout=10)
+    (out / 'device-hub-state.log').write_text(state.stdout + state.stderr)
+    values = state.stdout.split()
+    assert values and values[-1] == '1', ('Device Hub input route is not active', state.stdout)
+    print('Device Hub input route is active', flush=True)
 
 def snapshot():
     path = out / 'snapshot.json'
@@ -39,6 +48,22 @@ def expect(test_id, text):
             return
         time.sleep(0.05)
     raise AssertionError((test_id, text, value))
+
+def expect_scroll(test_id, before, minimum_delta, trace):
+    # Input delivery and scroll animation completion are separate. Use the same
+    # four-second state observation budget as expect(), without replaying input.
+    deadline = time.monotonic() + 4
+    observations = []
+    while True:
+        current = node(test_id)['uikit']['scrollView']['contentOffset']['y']
+        observations.append(current)
+        (out / (trace + '-offsets.json')).write_text(json.dumps(observations))
+        moved = current - before if minimum_delta > 0 else before - current
+        if moved > abs(minimum_delta):
+            return current
+        if time.monotonic() >= deadline:
+            raise AssertionError((trace, before, minimum_delta, observations))
+        time.sleep(0.05)
 
 def point(test_id, fraction_x=0.5, fraction_y=0.5):
     f = node(test_id)['frame']
@@ -153,14 +178,10 @@ def verify_uikit():
     expect('touch.hold.status', 'Holds 1')
     before = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
     act('drag', ['--from', point('touch.scroll', 0.5, 0.8), '--to', point('touch.scroll', 0.5, 0.25), '--duration', '0.4'], 'cli-drag')
-    time.sleep(0.3)
-    after = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > before + node('touch.scroll')['frame']['height'] * 0.3, ('CLI drag', before, after)
+    after = expect_scroll('touch.scroll', before, node('touch.scroll')['frame']['height'] * 0.3, 'cli-drag')
     before = after
     act('swipe', ['--from', point('touch.scroll', 0.5, 0.2), '--to', point('touch.scroll', 0.5, 0.8), '--duration', '0.4', '--no-verify-scroll'], 'cli-swipe')
-    time.sleep(0.3)
-    after = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert before > after + node('touch.scroll')['frame']['height'] * 0.3, ('CLI swipe', before, after)
+    after = expect_scroll('touch.scroll', before, -node('touch.scroll')['frame']['height'] * 0.3, 'cli-swipe')
     print('existing CLI: gesture tap, long press, drag, and scroll passed', flush=True)
 
     # Exercise the internal device dispatcher in a simulator without adding public CLI options.
@@ -184,9 +205,7 @@ def verify_uikit():
     assert result != public_drag, ('Internal held drag did not change state', result)
     before = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
     touch('swipe', 'touch.scroll', end=point('touch.scroll', 0.5, 0.15), duration=0.4, start_fraction=(0.5, 0.85))
-    time.sleep(0.2)
-    after = node('touch.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > before + node('touch.scroll')['frame']['height'] * 0.3, ('internal swipe', before, after)
+    expect_scroll('touch.scroll', before, node('touch.scroll')['frame']['height'] * 0.3, 'internal-swipe')
     print('internal touch: gesture tap, long press, held drag, and scroll passed', flush=True)
 
     # Existing explicit accessibility activation must keep its meaning and never retry as touch.
@@ -206,15 +225,23 @@ def verify_uikit():
     screen = snapshot()['screen']['size']
     x, y = map(float, point('touch.hold').split(','))
     body = {'command': 'tap', 'start': {'x': x, 'y': y}, 'holdDuration': 2.0, 'screen': screen}
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        active = pool.submit(post, body)
-        expect('touch.hold.status', 'Holds 3')
+    # Send both requests before waiting for UI observations. A full snapshot
+    # can outlast the held touch, so observing its counter first does not prove
+    # that a later request actually competes with it.
+    ready = threading.Barrier(2)
+    def competing_touch():
+        ready.wait(timeout=5)
         try:
-            post(dict(body, holdDuration=0))
-            raise AssertionError('Competing touch succeeded')
+            return 200, post(body)
         except urllib.error.HTTPError as error:
-            assert error.code == 409 and 'touch_in_progress' in error.read().decode()
-        active.result(timeout=5)
+            return error.code, error.read()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        attempts = [pool.submit(competing_touch) for _ in range(2)]
+        responses = [attempt.result(timeout=5) for attempt in attempts]
+    assert sorted(code for code, _ in responses) == [200, 409], responses
+    assert any(code == 409 and b'touch_in_progress' in response
+               for code, response in responses), responses
+    expect('touch.hold.status', 'Holds 3')
     act('tap', ['--test-id', 'touch.tap'], 'cli-after-concurrency')
     expect('touch.tap.status', 'Taps 4')
     try:
@@ -262,13 +289,9 @@ def verify_swiftui():
     assert result != public_drag, ('Internal SwiftUI held drag did not change state', result)
     before = node('touch.swiftui.scroll')['uikit']['scrollView']['contentOffset']['y']
     act('drag', ['--from', point('touch.swiftui.scroll', 0.5, 0.8), '--to', point('touch.swiftui.scroll', 0.5, 0.2), '--duration', '0.4'], 'cli-swiftui-scroll-drag')
-    time.sleep(0.3)
-    after = node('touch.swiftui.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > before + 20, ('SwiftUI drag', before, after)
+    after = expect_scroll('touch.swiftui.scroll', before, 20, 'swiftui-drag')
     act('swipe', ['--from', point('touch.swiftui.scroll', 0.5, 0.2), '--to', point('touch.swiftui.scroll', 0.5, 0.8), '--duration', '0.4', '--no-verify-scroll'], 'cli-swiftui-scroll-swipe')
-    time.sleep(0.3)
-    restored = node('touch.swiftui.scroll')['uikit']['scrollView']['contentOffset']['y']
-    assert after > restored + 20, ('SwiftUI swipe', after, restored)
+    expect_scroll('touch.swiftui.scroll', after, -20, 'swiftui-swipe')
     act('input', ['--test-id', 'touch.swiftui.input', '--text', literal], 'cli-swiftui-text-input')
     expect('touch.swiftui.input', literal)
     expect('touch.swiftui.input.status', 'Input changed: ' + literal)

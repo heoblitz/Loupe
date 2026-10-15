@@ -11,6 +11,8 @@ on:
       - Package.swift
       - Sources/**
       - Examples/LoupeExample/**
+      - scripts/build-ci-ios-artifacts.sh
+      - scripts/ci-simulator-widgets.py
       - skills/loupe/**
   workflow_dispatch:
     inputs:
@@ -94,6 +96,47 @@ jobs:
           echo "tag=$formula_tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "root_url=$root_url" >> "$GITHUB_OUTPUT"
+
+  ios-artifacts:
+    needs: metadata
+    name: Build iOS ${{ matrix.runtime }} artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            xcode: "26.3"
+            runtime: "26.2"
+            developer_dir: /Applications/Xcode_26.3.app/Contents/Developer
+          - runner: xcode-27
+            xcode: "27.0"
+            runtime: "27.0"
+            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
+      LOUPE_TOUCH_XCODE_VERSION: ${{ matrix.xcode }}
+      LOUPE_TOUCH_RUNTIME_VERSION: ${{ matrix.runtime }}
+      LOUPE_TOUCH_ARCHITECTURE: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CLI, injector, and fixture
+        run: scripts/build-ci-ios-artifacts.sh /tmp/loupe-ci-ios-artifacts.tar.gz
+      - name: Upload matching iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios${{ matrix.runtime }}-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-ios-artifacts.tar.gz
+          if-no-files-found: error
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios${{ matrix.runtime }}-build-diagnostics-${{ github.run_attempt }}
+          path: |
+            /tmp/loupe-ci-*.log
+            /tmp/loupe-example-build.log
 
   bottle:
     name: Build and pour (Apple Silicon)
@@ -208,9 +251,21 @@ jobs:
           path: bottle-output/*
 
   bottle-runtime:
-    name: Bottled iOS runtime (Apple Silicon / iOS 26.2)
-    needs: [metadata, bottle]
-    runs-on: macos-26
+    name: Bottled iOS runtime (Apple Silicon / iOS ${{ matrix.runtime }})
+    needs: [metadata, bottle, ios-artifacts]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            xcode: "26.3"
+            runtime: "26.2"
+            developer_dir: /Applications/Xcode_26.3.app/Contents/Developer
+          - runner: xcode-27
+            xcode: "27.0"
+            runtime: "27.0"
+            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -218,6 +273,9 @@ jobs:
       FORMULA: heoblitz/loupe/loupe
       VERSION: ${{ needs.metadata.outputs.version }}
       LOUPE_TOUCH_ARCHITECTURE: arm64
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
+      LOUPE_TOUCH_XCODE_VERSION: ${{ matrix.xcode }}
+      LOUPE_TOUCH_RUNTIME_VERSION: ${{ matrix.runtime }}
 
     steps:
       - name: Checkout
@@ -257,22 +315,42 @@ jobs:
           test "$("$prefix/bin/loupe" --version)" = "loupe $VERSION"
           echo "LOUPE_BOTTLE_PREFIX=$prefix" >> "$GITHUB_ENV"
 
+      - name: Download matching iOS fixture
+        uses: actions/download-artifact@v4
+        with:
+          name: loupe-ios${{ matrix.runtime }}-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-artifact-download
+      - name: Use the fixture built from this checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/loupe-ci-ios-runtime
+          tar -xzf /tmp/loupe-ci-artifact-download/loupe-ci-ios-artifacts.tar.gz -C /tmp/loupe-ci-ios-runtime
+          test "$(cat /tmp/loupe-ci-ios-runtime/source-sha)" = "$(git rev-parse HEAD)"
+          echo 'LOUPE_EXAMPLE_PREBUILT_APP=/tmp/loupe-ci-ios-runtime/LoupeExample.app' >> "$GITHUB_ENV"
       - name: Verify bottled iOS gestures and input
         shell: bash
         run: |
           set -euo pipefail
           prefix="$LOUPE_BOTTLE_PREFIX"
+          source Examples/LoupeExample/build-simulator-artifacts.sh
+          configure_loupe_ios_verification
+          LOUPE_DEVICE="$(loupe_ios_verification_device)"
+          export LOUPE_DEVICE
+          export LOUPE_EXAMPLE_DESTINATION='generic/platform=iOS Simulator'
+          python3 scripts/ci-simulator-widgets.py "$LOUPE_DEVICE" prepare
           LOUPE_HID_DIAGNOSTICS=1 \
           LOUPE_TOUCH_CLI="$prefix/bin/loupe" \
           LOUPE_EXAMPLE_PREBUILT_INJECTOR="$prefix/libexec/LoupeInjector.framework/LoupeInjector" \
           LOUPE_EXAMPLE_BUILD_ROOT=/tmp/loupe-bottle-runtime \
             Examples/LoupeExample/run-touch-e2e.sh
+          python3 scripts/ci-simulator-widgets.py "$LOUPE_DEVICE" verify
 
       - name: Upload bottled runtime diagnostics
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-bottle-runtime-arm64-${{ github.run_attempt }}
+          name: loupe-bottle-runtime-arm64-ios-${{ matrix.runtime }}-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-touch-*

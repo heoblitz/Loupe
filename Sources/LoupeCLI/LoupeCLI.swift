@@ -1990,7 +1990,7 @@ struct LoupeCLI {
                 }
                 if let afterSnapshot {
                     backElapsed = try await measure {
-                        try performRouteBack(
+                        try await performRouteBack(
                             snapshot: afterSnapshot,
                             udid: actionUDID,
                             timeout: options.timeout,
@@ -2080,7 +2080,7 @@ struct LoupeCLI {
             screenScale: snapshot.screen.scale,
             source: .view(ref: candidate.ref)
         )
-        try dispatchAction(command: "tap", options: options, target: target)
+        try await dispatchAction(command: "tap", options: options, target: target)
     }
 
     private static func performRouteBack(
@@ -2089,7 +2089,7 @@ struct LoupeCLI {
         timeout: TimeInterval,
         backTestID: String?,
         fallbackPoint: LoupePoint
-    ) throws {
+    ) async throws {
         let point = backTestID.flatMap { backPoint(in: snapshot, testID: $0) } ?? fallbackPoint
         let options = try ActionOptions(command: "tap", arguments: [
             "--udid", udid,
@@ -2105,7 +2105,7 @@ struct LoupeCLI {
             screenScale: snapshot.screen.scale,
             source: .coordinates
         )
-        try dispatchAction(command: "tap", options: options, target: target)
+        try await dispatchAction(command: "tap", options: options, target: target)
     }
 
     private static func backPoint(in snapshot: LoupeSnapshot, testID: String) -> LoupePoint? {
@@ -2242,7 +2242,7 @@ struct LoupeCLI {
                options.expectVisibleSelector == nil {
                 let coordinateTarget = ActionTarget(point: point, screen: options.screen, screenScale: 1, source: .coordinates)
                 target = coordinateTarget
-                try dispatchAction(command: command, options: options, target: coordinateTarget)
+                try await dispatchAction(command: command, options: options, target: coordinateTarget)
                 return
             }
 
@@ -2330,7 +2330,7 @@ struct LoupeCLI {
             } else if options.backend == "runtime" {
                 try await dispatchRuntimeActivation(options: options, target: resolvedTarget)
             } else {
-                try dispatchAction(command: command, options: options, target: resolvedTarget)
+                try await dispatchAction(command: command, options: options, target: resolvedTarget)
             }
             if let aliasCache {
                 try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: options.host)).consume(cacheID: aliasCache.cacheID)
@@ -3087,7 +3087,15 @@ struct LoupeCLI {
 
         repeat {
             do {
-                try await validateRuntimeIdentity(host: host, expectedUDID: expectedUDID, timeout: min(1, timeout))
+                let state = try await fetchRuntimeState(host: host, timeout: min(1, timeout))
+                try validateRuntimeIdentity(state: state, expectedUDID: expectedUDID, host: host)
+                // Identity can respond before native accessibility finishes
+                // initializing. Return only once input targeting can observe it.
+                if state.identity.platform == "iOS" {
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else { throw CLIError("Runtime observation readiness timed out") }
+                    _ = try await fetchAccessibilityActionObservation(host: host, timeout: remaining)
+                }
                 return
             } catch {
                 lastError = error
@@ -3495,14 +3503,14 @@ struct LoupeCLI {
 
     private static func captureActionTraceScreenshot(udid: String?, outputURL: URL, timeout: TimeInterval = 10) async throws {
         guard let udid else { return }
-        try await Task.detached(priority: .high) {
+        try await SimulatorNativeWork.run {
             let activity = ProcessInfo.processInfo.beginActivity(
                 options: .userInitiatedAllowingIdleSystemSleep,
                 reason: "Capture requested simulator screenshot"
             )
             defer { ProcessInfo.processInfo.endActivity(activity) }
             try captureSimulatorScreenshot(udid: udid, outputURL: outputURL, timeout: timeout)
-        }.value
+        }
     }
 
     private static func captureActionTraceScreenshotResult(udid: String?, outputURL: URL) async -> Result<Void, Error> {
@@ -3702,56 +3710,51 @@ struct LoupeCLI {
         }
     }
 
-    private static func dispatchAction(command: String, options: ActionDispatchOptions, target: ActionTarget) throws {
+    private static func dispatchAction(command: String, options: ActionDispatchOptions, target: ActionTarget) async throws {
         guard command != "pinch" else {
             throw CLIError("pinch is not supported by the simulation backend yet")
         }
-
         try validateActionBackend(options.backend)
         let udid = try resolvedBackendUDID(options.udid)
-        let mappedPoint = mapToDisplayPoint(target.point)
-        var errorMessage: UnsafeMutablePointer<CChar>?
-        let status: Int32
-        switch command {
-        case "tap":
-            if let duration = options.duration {
-                status = LoupeHIDDrag(udid, mappedPoint.x, mappedPoint.y, mappedPoint.x, mappedPoint.y,
-                    target.screen.width, target.screen.height, duration, &errorMessage)
-            } else {
-                status = LoupeHIDTapCount(udid, mappedPoint.x, mappedPoint.y, target.screen.width, target.screen.height, Int32(options.tapCount), &errorMessage)
+        let point = mapToDisplayPoint(target.point)
+        let end = ["swipe", "drag"].contains(command)
+            ? mapToDisplayPoint(try options.requireEndPoint(command: command)) : point
+        let width = target.screen.width
+        let height = target.screen.height
+        let duration = options.duration
+        let holdDuration = options.holdDuration
+        let tapCount = Int32(options.tapCount)
+        let text = options.text ?? ""
+        let press = options.press ?? ""
+        try await SimulatorNativeWork.run {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            let status: Int32
+            switch command {
+            case "tap":
+                if let duration {
+                    status = LoupeHIDDrag(udid, point.x, point.y, point.x, point.y,
+                        width, height, duration, &errorMessage)
+                } else {
+                    status = LoupeHIDTapCount(udid, point.x, point.y, width, height, tapCount, &errorMessage)
+                }
+            case "swipe", "drag":
+                status = LoupeHIDDragWithHold(udid, point.x, point.y, end.x, end.y,
+                    width, height, duration ?? 0.6, holdDuration, &errorMessage)
+            case "type":
+                status = LoupeHIDType(udid, text, &errorMessage)
+            case "press":
+                status = LoupeHIDPress(udid, press, &errorMessage)
+            default:
+                throw CLIError("Unsupported action command: \(command)")
             }
-        case "swipe", "drag":
-            let end = try options.requireEndPoint(command: command)
-            let mappedEnd = mapToDisplayPoint(end)
-            status = LoupeHIDDragWithHold(
-                udid,
-                mappedPoint.x,
-                mappedPoint.y,
-                mappedEnd.x,
-                mappedEnd.y,
-                target.screen.width,
-                target.screen.height,
-                options.duration ?? 0.6,
-                options.holdDuration,
-                &errorMessage
-            )
-        case "type":
-            status = LoupeHIDType(udid, options.text ?? "", &errorMessage)
-        case "press":
-            status = LoupeHIDPress(udid, options.press ?? "", &errorMessage)
-        case "pinch":
-            throw CLIError("pinch is not supported by the simulation backend yet")
-        default:
-            throw CLIError("Unsupported action command: \(command)")
-        }
-
-        if let errorMessage {
-            defer { LoupeHIDFreeCString(errorMessage) }
-            if status != 0 {
-                throw CLIError("simulation \(command) failed: \(String(cString: errorMessage))")
+            if let errorMessage {
+                defer { LoupeHIDFreeCString(errorMessage) }
+                if status != 0 {
+                    throw CLIError("simulation \(command) failed: \(String(cString: errorMessage))")
+                }
+            } else if status != 0 {
+                throw CLIError("simulation \(command) failed")
             }
-        } else if status != 0 {
-            throw CLIError("simulation \(command) failed")
         }
     }
 

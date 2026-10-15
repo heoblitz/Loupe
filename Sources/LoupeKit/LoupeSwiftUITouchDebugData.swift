@@ -1,4 +1,5 @@
 #if os(iOS)
+import Darwin
 import Foundation
 import LoupeCore
 import ObjectiveC
@@ -20,7 +21,25 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
     }
     guard isHost else { return nil }
     let host = unsafeBitCast(view, to: _UIHostingView<AnyView>.self)
-    let roots = host._viewDebugData()
+    // View debug traversal can evaluate main-thread graph attributes. It must
+    // hold SwiftUI's update scope, including when called from the main actor.
+    // Resolve the no-argument Swift entry points so an unavailable private ABI
+    // omits debug declarations instead of calling an incompatible function.
+    typealias UpdateFunction = @convention(thin) () -> Void
+    // iOS 27 renamed Update to ViewGraphHostUpdate. Resolve a complete pair
+    // from one ABI so begin/end always operate on the same update scope.
+    let scope = ["$s7SwiftUI19ViewGraphHostUpdateV", "$s7SwiftUI6UpdateO"].lazy.compactMap {
+        prefix -> (UpdateFunction, UpdateFunction)? in
+        guard let begin = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "5beginyyFZ"),
+              let end = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "3endyyFZ") else { return nil }
+        return (unsafeBitCast(begin, to: UpdateFunction.self), unsafeBitCast(end, to: UpdateFunction.self))
+    }.first
+    guard let (begin, end) = scope else { return nil }
+    let roots = {
+        begin()
+        defer { end() }
+        return host._viewDebugData()
+    }()
     var remainingNodes = 4096
     var remainingAttributes = 65_536
     func encode(_ node: _ViewDebug.Data, depth: Int) -> LoupeSwiftUITouchDebugNode? {

@@ -61,11 +61,25 @@ typedef struct {
     unsigned char padding[3];
     LoupeIndigoPayload payload;
 } LoupeIndigoMessage;
+
+// SimulatorHID's extended create-digitizer control event. Its display UID is
+// the screenProperties.uniqueId used by the guest to associate HID with UI.
+typedef struct {
+    uint32_t operation;
+    uint32_t reserved;
+    uint64_t reserved2;
+    uint32_t target;
+    uint8_t isBuiltIn;
+    char displayUID[64];
+} LoupeIndigoScreenEvent;
 #pragma pack(pop)
 
 _Static_assert(sizeof(LoupeIndigoTouch) == 112, "Unexpected Indigo touch layout");
 _Static_assert(sizeof(LoupeIndigoPayload) == 144, "Indigo event union must retain the full payload stride");
 _Static_assert(sizeof(LoupeIndigoMessage) == 176, "Unexpected Indigo message layout");
+_Static_assert(offsetof(LoupeIndigoScreenEvent, target) == 16, "Unexpected screen target offset");
+_Static_assert(offsetof(LoupeIndigoScreenEvent, isBuiltIn) == 20, "Unexpected built-in display flag offset");
+_Static_assert(offsetof(LoupeIndigoScreenEvent, displayUID) == 21, "Unexpected display UID offset");
 
 typedef LoupeIndigoMessage *(*LoupeKeyboardMessageFunction)(uint32_t keyCode, int operation);
 typedef LoupeIndigoMessage *(*LoupeMouseMessageFunction)(CGPoint *point0, CGPoint *point1, uint32_t target, NSEventType eventType, NSSize size, uint32_t edge);
@@ -73,6 +87,7 @@ typedef LoupeIndigoMessage *(*LoupeMouseMessageFunction)(CGPoint *point0, CGPoin
 typedef struct {
     LoupeKeyboardMessageFunction keyboardMessage;
     LoupeMouseMessageFunction mouseMessage;
+    uint32_t touchTarget;
 } LoupeHIDFunctions;
 
 typedef struct {
@@ -83,11 +98,11 @@ typedef struct {
 static NSString * const LoupeCoreSimulatorPath = @"/Library/Developer/PrivateFrameworks/CoreSimulator.framework";
 static int const LoupeHIDDirectionDown = 1;
 static int const LoupeHIDDirectionUp = 2;
-static int const LoupeHIDEventTypeTouch = 2;
-static int const LoupeHIDTouchEventKind = 0x0b;
-static int const LoupeHIDDigitizerTarget = 0x32;
 
 static NSString *LoupeDeveloperDir(void);
+static id LoupeSimulatorObject(id target, NSString *name);
+
+static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *functions, char **errorMessage);
 
 static void LoupeHIDSetError(char **errorMessage, NSString *message)
 {
@@ -235,13 +250,12 @@ static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
     return nil;
 }
 
-static id LoupeHIDClientForUDID(NSString *udid, char **errorMessage)
+static id LoupeHIDClientForUDID(NSString *udid, LoupeHIDFunctions *touchFunctions, char **errorMessage)
 {
     id device = LoupeHIDDeviceForUDID(udid, errorMessage);
     if (device == nil) {
         return nil;
     }
-
     Class clientClass = NSClassFromString(@"SimulatorKit.SimDeviceLegacyHIDClient");
     if (clientClass == Nil) {
         LoupeHIDSetError(errorMessage, @"SimulatorKit SimDeviceLegacyHIDClient is unavailable");
@@ -258,6 +272,14 @@ static id LoupeHIDClientForUDID(NSString *udid, char **errorMessage)
     if (client == nil) {
         LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to create HID client: %@", error]);
         return nil;
+    }
+    if (touchFunctions != NULL) {
+        touchFunctions->touchTarget = 0x32;
+        // Xcode 27 exposes the backing SimScreen; its input service is routed
+        // by screen ID. Earlier SimulatorKit uses the legacy main digitizer.
+        Class screenClass = NSClassFromString(@"SimulatorKit.SimDeviceScreen");
+        if ([screenClass instancesRespondToSelector:NSSelectorFromString(@"screen")] &&
+            !LoupeHIDRegisterMainScreen(device, client, touchFunctions, errorMessage)) return nil;
     }
     return client;
 }
@@ -370,14 +392,24 @@ static void LoupeHIDRunGesture(dispatch_block_t gesture)
     LoupeHIDRunInputTask("gesture", @"Deliver requested simulator gesture", gesture);
 }
 
-static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseMessage, CGPoint ratio, int direction)
+static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseMessage, uint32_t target, CGPoint ratio, int direction)
 {
-    LoupeIndigoMessage *seed = mouseMessage(&ratio, NULL, LoupeHIDDigitizerTarget, (NSEventType)direction, NSMakeSize(1, 1), 0);
+    LoupeIndigoMessage *seed = mouseMessage(&ratio, NULL, target, (NSEventType)direction, NSMakeSize(1, 1), 0);
     if (seed == NULL) {
         return NULL;
     }
-    seed->payload.event.touch.xRatio = ratio.x;
-    seed->payload.event.touch.yRatio = ratio.y;
+    size_t stride = seed->innerSize;
+    size_t payloadOffset = offsetof(LoupeIndigoMessage, payload);
+    size_t seedSize = malloc_size(seed);
+    if (stride < sizeof(LoupeIndigoPayload) || seedSize < payloadOffset ||
+        stride > seedSize - payloadOffset || stride > (SIZE_MAX - payloadOffset) / 2) {
+        free(seed);
+        return NULL;
+    }
+    if ((target & 0x40000000) == 0) {
+        seed->payload.event.touch.xRatio = ratio.x;
+        seed->payload.event.touch.yRatio = ratio.y;
+    }
     const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
     if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {
         LoupeIndigoTouch touch = seed->payload.event.touch;
@@ -387,29 +419,88 @@ static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseM
             touch.field11, touch.field12, touch.field13);
     }
 
-    size_t messageSize = sizeof(LoupeIndigoMessage) + sizeof(LoupeIndigoPayload);
-    size_t stride = sizeof(LoupeIndigoPayload);
-    LoupeIndigoMessage *message = calloc(1, messageSize);
-    if (message == NULL) {
-        free(seed);
-        return NULL;
-    }
-    message->innerSize = sizeof(LoupeIndigoPayload);
-    message->eventType = LoupeHIDEventTypeTouch;
-    message->payload.field1 = LoupeHIDTouchEventKind;
-    message->payload.timestamp = mach_absolute_time();
-    memcpy(&(message->payload.event.touch), &(seed->payload.event.touch), sizeof(LoupeIndigoTouch));
+    // Screen-routed input uses SimulatorKit's complete native message.
+    if ((target & 0x40000000) != 0) return seed;
 
-    LoupeIndigoPayload *second = (LoupeIndigoPayload *)((char *)&message->payload + stride);
+    // Preserve the legacy main-digitizer envelope and Mach-time convention,
+    // while retaining the builder's actual payload stride and event tail.
+    LoupeIndigoMessage *message = calloc(1, payloadOffset + 2 * stride);
+    if (message == NULL) { free(seed); return NULL; }
+    message->innerSize = (uint32_t)stride;
+    message->eventType = 2;
+    message->payload.field1 = 0x0b;
+    message->payload.timestamp = mach_absolute_time();
+    memcpy(&message->payload.event, &seed->payload.event, stride - offsetof(LoupeIndigoPayload, event));
+    LoupeIndigoPayload *second = (void *)((char *)&message->payload + stride);
     memcpy(second, &message->payload, stride);
     second->event.touch.field1 = 1;
     second->event.touch.field2 = 2;
-
     free(seed);
     return message;
 }
 
-static bool LoupeHIDPrepare(NSString *udid, id *client, LoupeHIDFunctions *functions, char **errorMessage)
+static LoupeIndigoMessage *LoupeHIDScreenMessage(LoupeMouseMessageFunction mouseMessage, uint32_t target, NSString *displayUID)
+{
+    NSData *uid = [displayUID dataUsingEncoding:NSUTF8StringEncoding];
+    if ((target & 0x40000000) == 0 || uid.length == 0 ||
+        uid.length >= sizeof(((LoupeIndigoScreenEvent *)0)->displayUID)) return NULL;
+    CGPoint ratio = CGPointZero;
+    LoupeIndigoMessage *seed = mouseMessage(&ratio, NULL, target, (NSEventType)LoupeHIDDirectionDown, NSMakeSize(1, 1), 0);
+    if (seed == NULL) return NULL;
+    size_t stride = seed->innerSize;
+    size_t offset = offsetof(LoupeIndigoMessage, payload);
+    size_t allocated = malloc_size(seed);
+    free(seed);
+    if (stride < sizeof(LoupeIndigoPayload) || allocated < offset || stride > allocated - offset) return NULL;
+    LoupeIndigoMessage *message = calloc(1, offset + stride);
+    if (message == NULL) return NULL;
+    message->innerSize = (uint32_t)stride;
+    message->eventType = 1;
+    message->payload.field1 = 0x7fff0001;
+    message->payload.timestamp = mach_absolute_time();
+    LoupeIndigoScreenEvent *event = (void *)&message->payload.event;
+    event->operation = 1;
+    event->target = target;
+    event->isBuiltIn = 0;
+    memcpy(event->displayUID, uid.bytes, uid.length);
+    return message;
+}
+
+static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *functions, char **errorMessage)
+{
+    id mainScreen = nil;
+    for (id port in LoupeSimulatorObject(LoupeSimulatorObject(device, @"io"), @"ioPorts")) {
+        id descriptor = LoupeSimulatorObject(port, @"descriptor");
+        id state = LoupeSimulatorObject(descriptor, @"state");
+        if (![state respondsToSelector:NSSelectorFromString(@"displayClass")]) continue;
+        unsigned short displayClass = ((unsigned short (*)(id, SEL))objc_msgSend)(state, NSSelectorFromString(@"displayClass"));
+        if (displayClass != 0) continue;
+        if (mainScreen != nil) {
+            LoupeHIDSetError(errorMessage, @"simulator main screen is ambiguous for touch input");
+            return false;
+        }
+        mainScreen = descriptor;
+    }
+    id properties = LoupeSimulatorObject(mainScreen, @"screenProperties");
+    NSString *displayUID = LoupeSimulatorObject(properties, @"uniqueId");
+    if (![properties respondsToSelector:NSSelectorFromString(@"screenID")] ||
+        ![displayUID isKindOfClass:NSString.class] || displayUID.length == 0) {
+        LoupeHIDSetError(errorMessage, @"simulator main screen ID and display UID are unavailable for touch input");
+        return false;
+    }
+    uint32_t screenID = ((uint32_t (*)(id, SEL))objc_msgSend)(properties, NSSelectorFromString(@"screenID"));
+    // Device Hub owns the screen's built-in digitizer. Bind a separate virtual
+    // target to the actual display UID and reuse it across CLI invocations.
+    functions->touchTarget = screenID | 0x40100000;
+    if (!LoupeHIDSendTouchMessage(client, LoupeHIDScreenMessage(functions->mouseMessage, functions->touchTarget, displayUID), errorMessage)) return false;
+    const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
+    if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {
+        fprintf(stderr, "loupe.hid.screen id=%u target=0x%x registered=1\n", screenID, functions->touchTarget);
+    }
+    return true;
+}
+
+static bool LoupeHIDPrepare(NSString *udid, id *client, LoupeHIDFunctions *functions, bool forTouch, char **errorMessage)
 {
     if (!LoupeHIDLoadFrameworks(errorMessage)) {
         return false;
@@ -417,7 +508,7 @@ static bool LoupeHIDPrepare(NSString *udid, id *client, LoupeHIDFunctions *funct
     if (!LoupeHIDLoadFunctions(functions, errorMessage)) {
         return false;
     }
-    *client = LoupeHIDClientForUDID(udid, errorMessage);
+    *client = LoupeHIDClientForUDID(udid, forTouch ? functions : NULL, errorMessage);
     return *client != nil;
 }
 
@@ -435,7 +526,7 @@ static int LoupeHIDPerformTapCount(const char *udid, double x, double y, double 
     @autoreleasepool {
         id client = nil;
         LoupeHIDFunctions functions;
-        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, errorMessage)) {
+        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, true, errorMessage)) {
             return 1;
         }
 
@@ -449,14 +540,14 @@ static int LoupeHIDPerformTapCount(const char *udid, double x, double y, double 
                 LoupeHIDWaitUntil(MAX(startedAt + index * 0.155, previousUpAcknowledgedAt + 0.016));
             }
             CGPoint ratio = LoupeHIDRatio(x, y, width, height);
-            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, LoupeHIDDirectionDown), errorMessage)) {
+            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, functions.touchTarget, ratio, LoupeHIDDirectionDown), errorMessage)) {
                 return 1;
             }
             // ACK latency must not consume the contact's minimum dwell. If
             // down takes longer than 50ms to acknowledge, an enqueue-based
             // deadline otherwise sends up immediately after that acknowledgement.
             LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + 0.050);
-            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, LoupeHIDDirectionUp), errorMessage)) {
+            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, functions.touchTarget, ratio, LoupeHIDDirectionUp), errorMessage)) {
                 return 1;
             }
             previousUpAcknowledgedAt = NSProcessInfo.processInfo.systemUptime;
@@ -500,13 +591,13 @@ static int LoupeHIDPerformDragWithHold(
     @autoreleasepool {
         id client = nil;
         LoupeHIDFunctions functions;
-        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, errorMessage)) {
+        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, true, errorMessage)) {
             return 1;
         }
 
         int steps = MAX(1, (int)ceil(hypot(endX - startX, endY - startY) / 20.0));
         CGPoint startRatio = LoupeHIDRatio(startX, startY, width, height);
-        if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, startRatio, LoupeHIDDirectionDown), errorMessage)) {
+        if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, functions.touchTarget, startRatio, LoupeHIDDirectionDown), errorMessage)) {
             return 1;
         }
         if (holdDuration > 0) LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + holdDuration);
@@ -517,15 +608,15 @@ static int LoupeHIDPerformDragWithHold(
             double x = startX + ((endX - startX) * progress);
             double y = startY + ((endY - startY) * progress);
             CGPoint ratio = LoupeHIDRatio(x, y, width, height);
-            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, LoupeHIDDirectionDown), errorMessage)) {
+            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, functions.touchTarget, ratio, LoupeHIDDirectionDown), errorMessage)) {
                 // Release the same contact after a failed move; never replay it.
                 CGPoint endRatio = LoupeHIDRatio(endX, endY, width, height);
-                LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, endRatio, LoupeHIDDirectionUp), NULL);
+                LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, functions.touchTarget, endRatio, LoupeHIDDirectionUp), NULL);
                 return 1;
             }
         }
         CGPoint endRatio = LoupeHIDRatio(endX, endY, width, height);
-        if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, endRatio, LoupeHIDDirectionUp), errorMessage)) {
+        if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, functions.touchTarget, endRatio, LoupeHIDDirectionUp), errorMessage)) {
             return 1;
         }
         LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + 0.025);
@@ -624,7 +715,7 @@ int LoupeHIDType(const char *udid, const char *text, char **errorMessage)
     @autoreleasepool {
         id client = nil;
         LoupeHIDFunctions functions;
-        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, errorMessage)) {
+        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, false, errorMessage)) {
             return 1;
         }
 
@@ -655,7 +746,7 @@ int LoupeHIDPress(const char *udid, const char *button, char **errorMessage)
     @autoreleasepool {
         id client = nil;
         LoupeHIDFunctions functions;
-        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, errorMessage)) {
+        if (!LoupeHIDPrepare([NSString stringWithUTF8String:udid], &client, &functions, false, errorMessage)) {
             return 1;
         }
 

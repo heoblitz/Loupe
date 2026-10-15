@@ -3,9 +3,10 @@
 # Keep local E2E and hosted source/bottle jobs on the same toolchain.
 configure_loupe_ios_verification() {
   local version
+  local expected_version="${LOUPE_TOUCH_XCODE_VERSION:-26.3}"
   version="$(xcodebuild -version | sed -n '1p')"
-  if [[ "$version" != "Xcode 26.3" ]]; then
-    echo "error: iOS verification requires Xcode 26.3; selected $version. Set DEVELOPER_DIR explicitly." >&2
+  if [[ "$version" != "Xcode $expected_version" ]]; then
+    echo "error: iOS verification requires Xcode $expected_version; selected $version. Set DEVELOPER_DIR explicitly." >&2
     return 1
   fi
   # Use the interpreter shipped with the selected Xcode, not Homebrew's
@@ -27,12 +28,12 @@ runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-' + version.replace('.', '-')
 inventory = json.loads(subprocess.check_output(
     ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'], timeout=60))
 requested = sys.argv[1]
-model = 'iPhone 17 Pro' if version.startswith('26.') else 'iPhone 16 Pro'
+model = 'iPhone 17 Pro' if version.startswith('26.') else 'iPhone 17'
 candidates = [d for d in inventory['devices'].get(runtime, [])
               if d['udid'] == requested] if requested else [d for d in inventory['devices'].get(runtime, []) if d['name'] == model]
 assert candidates, f'No {requested or model} for iOS {version}; install/select the required runtime explicitly'
 device = next((d for d in candidates if d['state'] == 'Booted'), candidates[0])
-print(f'iOS verification: Xcode=26.3 runtime={version} architecture={architecture} device={device["name"]} ({device["udid"]})', file=sys.stderr)
+print(f'iOS verification: Xcode={os.environ.get("LOUPE_TOUCH_XCODE_VERSION", "26.3")} runtime={version} architecture={architecture} device={device["name"]} ({device["udid"]})', file=sys.stderr)
 print(device['udid'])
 DEVICE_PY
 }
@@ -61,6 +62,11 @@ prepare_loupe_ios_preferences() {
 
 restore_loupe_ios_preferences() {
   local result=$?
+  # GitHub discards hosted VMs after the job. Keep the live guest available
+  # for diagnostics instead of blocking completion on a redundant shutdown.
+  if [[ "${GITHUB_ACTIONS:-}" == "true" && "${RUNNER_ENVIRONMENT:-}" == "github-hosted" ]]; then
+    exit "$result"
+  fi
   if [[ -s "$KEYBOARD_BACKUP" ]]; then
     if ! python3 "$ROOT_DIR/Examples/LoupeExample/touch-keyboard.py" "$DEVICE" restore "$KEYBOARD_BACKUP"; then
       echo "Simulator preferences restore failed; saved preferences: $KEYBOARD_BACKUP" >&2
@@ -75,6 +81,7 @@ build_loupe_example_simulator_artifacts() {
   local root_dir="${1:?root dir is required}"
   local destination="${2:-${LOUPE_EXAMPLE_DESTINATION:-generic/platform=iOS Simulator}}"
   local build_root="${LOUPE_EXAMPLE_BUILD_ROOT:-/tmp/loupe-example-build}"
+  local build_architecture="${LOUPE_TOUCH_ARCHITECTURE:-$(uname -m)}"
   local injector_derived_data="$build_root/LoupeInjector"
   local app_derived_data="$build_root/LoupeExample"
 
@@ -91,26 +98,31 @@ build_loupe_example_simulator_artifacts() {
       -configuration Debug \
       -derivedDataPath "$injector_derived_data" \
       ONLY_ACTIVE_ARCH=YES \
+      ARCHS="$build_architecture" \
       build >/tmp/loupe-injector-build.log
     LOUPE_INJECTOR_PATH="$injector_derived_data/Build/Products/Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector"
   fi
 
-  xcodebuild \
-    -project "$root_dir/Examples/LoupeExample/LoupeExample.xcodeproj" \
-    -scheme LoupeExample \
-    -destination "$destination" \
-    -configuration Debug \
-    -derivedDataPath "$app_derived_data" \
-    ONLY_ACTIVE_ARCH=YES \
-    build >/tmp/loupe-example-build.log
-
-  APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
+  if [[ -n "${LOUPE_EXAMPLE_PREBUILT_APP:-}" ]]; then
+    APP_PATH="$LOUPE_EXAMPLE_PREBUILT_APP"
+  else
+    xcodebuild \
+      -project "$root_dir/Examples/LoupeExample/LoupeExample.xcodeproj" \
+      -scheme LoupeExample \
+      -destination "$destination" \
+      -configuration Debug \
+      -derivedDataPath "$app_derived_data" \
+      ONLY_ACTIVE_ARCH=YES \
+      ARCHS="$build_architecture" \
+      build >/tmp/loupe-example-build.log
+    APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
+  fi
 
   if [[ ! -x "$LOUPE_INJECTOR_PATH" ]]; then
     echo "error: built LoupeInjector not found at $LOUPE_INJECTOR_PATH" >&2
     exit 1
   fi
-  if [[ ! -d "$APP_PATH" ]]; then
+  if [[ ! -x "$APP_PATH/LoupeExample" ]]; then
     echo "error: built LoupeExample.app not found at $APP_PATH" >&2
     exit 1
   fi

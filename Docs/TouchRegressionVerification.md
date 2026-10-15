@@ -44,7 +44,40 @@ All iOS E2E scripts share toolchain checks, device selection and a strict
 `build-simulator-artifacts.sh`: Xcode 26.3 on Apple Silicon, iOS 26.2/iPhone 17 Pro. Missing or mismatched runtimes fail before input;
 `LOUPE_DEVICE` selects an exact device within that runtime. For additional OS
 coverage, explicitly set `LOUPE_TOUCH_RUNTIME_VERSION` in either environment.
+An additional Xcode 27.0 / iOS 27.0 job verifies screen-routed input. Select it
+locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
+`LOUPE_TOUCH_RUNTIME_VERSION=27.0`, plus `DEVELOPER_DIR` for that Xcode.
+The iOS 27 jobs use the image's existing iPhone 17. A separate build job
+produces the CLI, injector, and fixture without booting a device. Runtime jobs
+verify the artifact source commit and reuse its binaries on fresh hosts.
+Both iOS bottle runtime jobs use a fixture compiled on a separate host with
+their matching SDK. Their CLI and injector must still come from the installed
+bottle. Local builds finish before boot.
+The source job opens Device Hub after boot and verifies its active input route;
+set `LOUPE_TOUCH_OPEN_DEVICE_HUB=1` to exercise that path locally. Bottle jobs
+verify headless input.
 The local and hosted commands use the same launch and action deadlines.
+Local and self-hosted runs restore the selected device's saved preferences and
+state. GitHub-hosted VMs are discarded after the job; their live guest is left
+available for diagnostics rather than shut down solely to restore temporary
+preferences. Cleanup preserves the original test exit status.
+The three hosted touch jobs also suppress four background widget services on
+their disposable selected Simulator: PosterBoard, chronod, liveactivitiesd,
+and navd. Prepare while that device is shut down; preserve unrelated launchd
+overrides, and verify the four overrides after the full input suite. Local and
+self-hosted execution is refused. This follows the per-device override format
+and widget-only subset reviewed in [SimSlim](https://github.com/MobAI-App/simslim/tree/6518ba7eab1123d7e1d7797b0e05f51043b42a5b).
+With identical source artifacts and deadlines, stock iOS 26.2 and 27.0 guests
+failed keyboard/status or snapshot checks in the four-host comparison, while
+both widget profiles passed the complete suite. The iOS 26.2 comparison reduced
+peak compressed-memory occupancy by approximately 317 MiB. The iOS 27.0 hosts'
+peak wired memory was 4,191 MiB stock versus 1,648 MiB with the widget profile.
+App input, keyboard, HID, and accessibility services retain their defaults.
+Scroll assertions observe the required directional movement within the same
+four-second state-check budget as label assertions, instead of assuming a
+fixed 200–300 ms animation delay. Input is sent once; offset samples are saved.
+The iOS simulator launcher waits for an initial native action observation within
+its existing launch deadline, preparing accessibility before input begins.
 Both use the Python interpreter shipped with the selected Xcode for the
 standard-library harness, rather than a separately updated Homebrew Python.
 
@@ -57,8 +90,11 @@ fresh fixture build directory; a locally rebuilt CLI is a different artifact.
 
 For a poured Homebrew bottle, set `LOUPE_TOUCH_CLI` to its executable and
 `LOUPE_EXAMPLE_PREBUILT_INJECTOR` to its injector framework binary. Only the
-fixture app is rebuilt. The Apple Silicon job runs these same assertions with
+fixture app is rebuilt locally. CI can supply the same-source app archive with
+`LOUPE_EXAMPLE_PREBUILT_APP`. The Apple Silicon job runs these same assertions with
 the downloaded bottle. A source build cannot substitute for a bottle runtime pass.
+Poured artifacts run on both the Xcode 26.3 / iOS 26.2 and
+Xcode 27.0 / iOS 27.0 hosts.
 
 For a foreground physical-device fixture, set `LOUPE_TOUCH_HOST` to its runtime
 URL and optionally `LOUPE_DEVICE` to its device identity. Run again with a fresh
@@ -66,6 +102,32 @@ URL and optionally `LOUPE_DEVICE` to its device identity. Run again with a fresh
 discovery. Simulator setup is skipped; action assertions are shared.
 
 ## Assertions and evidence
+
+SimulatorKit's Xcode 27 screen input uses a separate virtual digitizer target
+derived from the actual main screen ID and bound to its display UID. Loupe
+registers that digitizer before input, waits for its acknowledgement,
+and sends the native touch allocation without repacking its contacts or timestamp.
+Older SimulatorKit retains its main-digitizer envelope with the native payload
+stride and complete event bytes. `scripts/verify-hid-touch-messages.sh` checks
+144–192 byte payloads, full native-message preservation, legacy contact layout,
+screen registration offsets and invalid registration data.
+The Xcode 27 registration includes its external-input flag (`isBuiltIn = 0`) at
+wire offset `0x44` and the display UID at `0x45`. A separate external target
+stays connected while Device Hub manages the built-in digitizer.
+The Xcode 27 fixture compiles for a generic arm64 simulator destination and is
+installed and exercised on the explicitly selected runtime/device.
+Host HID dispatch and framebuffer captures use Dispatch workers while the CLI
+task suspends. Blocking SimulatorKit calls must not occupy Swift's cooperative
+executor; a detached Swift task still uses that executor.
+
+SwiftUI debug-graph traversal holds SwiftUI's update scope while evaluating
+graph attributes; main-actor isolation alone does not satisfy the iOS 27 graph
+precondition. Resolve iOS 27's `ViewGraphHostUpdate` entry points and the earlier
+`Update` entry points as complete begin/end pairs. Missing entry points omit
+private touch declarations.
+Gesture declarations merge with matching native semantic nodes throughout the
+same host subtree, preserving unique selectors across iOS container layouts.
+Distinct semantic elements sharing an identifier remain ambiguous.
 
 Separate UIKit and SwiftUI screens verify button counters through selectors,
 one-shot aliases, coordinates and saved refs; gesture-only taps, double taps,

@@ -18,6 +18,111 @@ env:
   LOUPE_SIMCTL_TERMINATE_TIMEOUT: "20"
 
 jobs:
+  xcode27-artifacts:
+    name: Build iOS 27 artifacts
+    runs-on: xcode-27
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      LOUPE_TOUCH_XCODE_VERSION: "27.0"
+      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      LOUPE_TOUCH_ARCHITECTURE: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CLI, injector, and fixture
+        run: scripts/build-ci-ios-artifacts.sh /tmp/loupe-ci-ios-artifacts.tar.gz
+      - name: Upload matching iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-ios-artifacts.tar.gz
+          if-no-files-found: error
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios27-build-diagnostics-${{ github.run_attempt }}
+          path: |
+            /tmp/loupe-ci-*.log
+            /tmp/loupe-example-build.log
+
+  xcode27-touch-e2e:
+    name: Xcode 27 iOS Touch E2E
+    needs: xcode27-artifacts
+    runs-on: xcode-27
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      LOUPE_TOUCH_XCODE_VERSION: "27.0"
+      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      LOUPE_TOUCH_OPEN_DEVICE_HUB: "1"
+      LOUPE_EXAMPLE_BUILD_ROOT: /tmp/loupe-xcode27-touch-build
+      LOUPE_EXAMPLE_DESTINATION: generic/platform=iOS Simulator
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Xcode 27 touch verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          source Examples/LoupeExample/build-simulator-artifacts.sh
+          configure_loupe_ios_verification
+          xcrun simctl list runtimes
+          device="$(loupe_ios_verification_device)"
+          echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
+          python3 scripts/ci-simulator-widgets.py "$device" prepare
+      - name: Verify HID framework loading and messages
+        run: |
+          bash scripts/verify-hid-framework-loading.sh
+          bash scripts/verify-hid-touch-messages.sh
+      - name: Download matching iOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-artifact-download
+      - name: Use artifacts built from this checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/loupe-ci-ios-runtime
+          tar -xzf /tmp/loupe-ci-artifact-download/loupe-ci-ios-artifacts.tar.gz -C /tmp/loupe-ci-ios-runtime
+          test "$(cat /tmp/loupe-ci-ios-runtime/source-sha)" = "$(git rev-parse HEAD)"
+          echo 'LOUPE_TOUCH_CLI=/tmp/loupe-ci-ios-runtime/loupe' >> "$GITHUB_ENV"
+          echo 'LOUPE_EXAMPLE_PREBUILT_INJECTOR=/tmp/loupe-ci-ios-runtime/LoupeInjector' >> "$GITHUB_ENV"
+          echo 'LOUPE_EXAMPLE_PREBUILT_APP=/tmp/loupe-ci-ios-runtime/LoupeExample.app' >> "$GITHUB_ENV"
+      - name: Verify iOS touch and input with Xcode 27
+        run: |
+          Examples/LoupeExample/run-touch-e2e.sh
+          python3 scripts/ci-simulator-widgets.py "$LOUPE_DEVICE" verify
+      - name: Collect Xcode 27 app crash diagnostics
+        if: failure()
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/loupe-xcode27-crashes
+          xcrun simctl spawn "$LOUPE_DEVICE" log show --last 5m --style compact --predicate 'process == "LoupeExample" OR eventMessage CONTAINS "LoupeExample"' > /tmp/loupe-xcode27-crashes/app-system.log 2>&1 || true
+          ps -axo pid,ppid,pcpu,rss,command > /tmp/loupe-xcode27-crashes/processes.txt
+          while IFS= read -r loupe_app_pid; do
+            sample "$loupe_app_pid" 3 -file "/tmp/loupe-xcode27-crashes/app-$loupe_app_pid-sample.txt" || true
+          done < <(pgrep -x LoupeExample || true)
+          shopt -s nullglob
+          for loupe_report in "$HOME"/Library/Logs/DiagnosticReports/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/Retired/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/JetsamEvent* "$HOME"/Library/Developer/CoreSimulator/Devices/"$LOUPE_DEVICE"/data/Library/Logs/CrashReporter/LoupeExample*; do
+            cp "$loupe_report" /tmp/loupe-xcode27-crashes/ || true
+          done
+      - name: Upload Xcode 27 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-xcode27-touch-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          path: |
+            /tmp/loupe-xcode27-crashes/
+            /tmp/loupe-touch-evidence-*
+            /tmp/loupe-touch-*.log
+            /tmp/loupe-example-build.log
+            /tmp/loupe-injector-build.log
+
   swiftpm-tests:
     name: SwiftPM Tests
     runs-on: macos-26
@@ -33,8 +138,19 @@ jobs:
       - name: Run SwiftPM tests
         run: swift test
 
+      - name: Verify native work with one cooperative thread
+        run: DISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter SimulatorNativeWorkTests
+
       - name: Verify SimulatorKit framework loading
         run: scripts/verify-hid-framework-loading.sh
+
+      - name: Verify SimulatorKit touch message layout
+        run: bash scripts/verify-hid-touch-messages.sh
+
+      - name: Verify simulator preference lifecycle
+        run: scripts/verify-simulator-preferences-lifecycle.sh
+      - name: Verify hosted Simulator widget safeguards
+        run: python3 scripts/verify-ci-simulator-widgets.py
 
   release-and-platform-builds:
     name: Release and Platform Builds
