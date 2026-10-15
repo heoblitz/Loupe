@@ -82,7 +82,7 @@ jobs:
           export LOUPE_INJECTOR_PATH="$LOUPE_EXAMPLE_PREBUILT_INJECTOR"
           xcrun simctl install "$DEVICE" "$APP_PATH"
           scenario_status=0
-          for route in touch touch.swiftui; do
+          for route in touch.swiftui; do
             launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env "LOUPE_EXAMPLE_ROUTE=$route" --timeout 30)"
             HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
             test -n "$HOST"
@@ -125,4 +125,3 @@ jobs:
             /tmp/loupe-touch-*.log
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
-

@@ -45,28 +45,38 @@ def point(test_id, fraction_x=0.5, fraction_y=0.5):
     return f'{f["x"] + f["width"] * fraction_x},{f["y"] + f["height"] * fraction_y}'
 
 def run_action_probe(arguments, command_budget, trace):
+    import concurrent.futures, datetime
     process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         stdout, stderr = process.communicate(timeout=command_budget)
         return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as failure:
-        (out / (trace + '-process-state.json')).write_text(json.dumps({'pid': process.pid, 'returncode': process.poll(), 'captured': str(failure.output)}, indent=2))
+        (out / (trace + '-process-state.json')).write_text(json.dumps({'pid': process.pid, 'returncode': process.poll(), 'captured': str(failure.output), 'stderr': str(failure.stderr), 'time': datetime.datetime.now(datetime.timezone.utc).isoformat()}, indent=2))
         def sample(pid, name):
             with (out / (trace + '-' + name + '-sample-command.log')).open('w') as log:
                 try:
-                    subprocess.run(['/usr/bin/sample', str(pid), '2', '-file', str(out / (trace + '-' + name + '-hang.txt'))], stdout=log, stderr=log, timeout=20)
+                    subprocess.run(['/usr/bin/sudo', '/usr/bin/sample', str(pid), '2', '10', '-file', str(out / (trace + '-' + name + '-hang.txt'))], stdout=log, stderr=log, timeout=55)
                 except Exception as error: log.write(str(error))
-        sample(process.pid, 'host')
-        try:
-            pids = subprocess.check_output(['/usr/bin/pgrep', '-f', 'CoreSimulatorService.xpc/Contents/MacOS'], text=True, timeout=5).split()
-            for pid in pids[:1]: sample(pid, 'service')
-        except Exception as error:
-            (out / (trace + '-service-sample-error.txt')).write_text(str(error))
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            futures = [pool.submit(sample, process.pid, 'host')]
+            try:
+                pids = subprocess.check_output(['/bin/ps', '-axo', 'pid,command'], text=True, timeout=30)
+                (out / (trace + '-processes.txt')).write_text(pids)
+                for row in pids.splitlines():
+                    if 'CoreSimulatorService.xpc/Contents/MacOS' in row:
+                        futures.append(pool.submit(sample, row.split()[0], 'service'))
+            except Exception as error:
+                (out / (trace + '-service-sample-error.txt')).write_text(str(error))
+            for future in futures: future.result()
+        if not (out / (trace + '-host-hang.txt')).exists() and process.poll() is None:
+            with (out / (trace + '-host-lldb.log')).open('w') as log:
+                try:
+                    subprocess.run(['/usr/bin/xcrun', 'lldb', '-b', '-f', arguments[0], '-o', 'process attach --pid '+str(process.pid), '-o', 'thread backtrace all', '-o', 'process detach', '-o', 'quit'], stdout=log, stderr=log, timeout=55)
+                except Exception as error: log.write(str(error))
         if process.poll() is None:
             process.kill()
             try: process.wait(timeout=5)
             except subprocess.TimeoutExpired: pass
-        # Do not wait for EOF from a descriptor inherited by another process.
         process.stdout.close()
         process.stderr.close()
         raise failure
