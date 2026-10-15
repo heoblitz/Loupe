@@ -83,6 +83,9 @@ The Xcode 27 registration includes its built-in-display flag at wire offset
 `0x44` and the display UID at `0x45`. The main display uses that built-in flag.
 The Xcode 27 fixture compiles for a generic arm64 simulator destination and is
 installed and exercised on the explicitly selected runtime/device.
+SwiftUI debug-graph traversal holds SwiftUI's update scope while evaluating
+graph attributes; main-actor isolation alone does not satisfy the iOS 27 graph
+precondition. Missing update entry points omit private touch declarations.
 
 Separate UIKit and SwiftUI screens verify button counters through selectors,
 one-shot aliases, coordinates and saved refs; gesture-only taps, double taps,

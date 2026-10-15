@@ -1,6 +1,6 @@
 #if os(iOS)
-import Foundation
 import Darwin
+import Foundation
 import LoupeCore
 import ObjectiveC
 import SwiftUI
@@ -51,7 +51,7 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
         // Full SwiftUI serialization recursively formats every retained value,
         // including UIKit representables. Touch discovery needs only these
         // concrete modifier fields and text labels, not the complete graph.
-        if let stored = properties[.value], loupeNeedsTouchDebugValue(typeName: typeName) {
+        if let stored = properties[.value], (loupeNeedsTouchDebugValue(typeName: typeName) || typeName.split(separator: "<").first.map { $0.contains("Gesture") || $0.contains("Accessibility") } == true) {
             value = loupeSelectiveDebugAttribute(stored, remaining: &remainingAttributes)
         }
         let frame: LoupeRect?
@@ -65,6 +65,18 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
                      children: children.compactMap { encode($0, depth: depth + 1) })
     }
     let compact = roots.compactMap { encode($0, depth: 0) }
+    if String(reflecting: type(of: view)).contains("TouchSwiftUIFixture") {
+        func record(_ node: LoupeSwiftUITouchDebugNode) -> [String: Any] {
+            var result: [String: Any] = ["type": String(node.typeName.prefix(8192)), "value": node.value, "children": node.children.map(record)]
+            if let frame = node.frame { result["frame"] = ["x": frame.x, "y": frame.y, "width": frame.width, "height": frame.height] }
+            return result
+        }
+        let fields = roots.first.map { Array(Mirror(reflecting: $0).children).map { ["label": $0.label ?? "", "type": _typeName(type(of: $0.value), qualified: true)] } } ?? []
+        let report: [String: Any] = ["roots": roots.count, "fields": fields, "nodes": compact.map(record)]
+        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("loupe-swiftui-debug.json"))
+        }
+    }
     return compact
 }
 #endif
