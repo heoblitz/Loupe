@@ -25,10 +25,16 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
     // hold SwiftUI's update scope, including when called from the main actor.
     // Resolve the no-argument Swift entry points so an unavailable private ABI
     // omits debug declarations instead of calling an incompatible function.
-    guard let beginSymbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "$s7SwiftUI6UpdateO5beginyyFZ"),
-          let endSymbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "$s7SwiftUI6UpdateO3endyyFZ") else { return nil }
-    let begin = unsafeBitCast(beginSymbol, to: (@convention(thin) () -> Void).self)
-    let end = unsafeBitCast(endSymbol, to: (@convention(thin) () -> Void).self)
+    typealias UpdateFunction = @convention(thin) () -> Void
+    // iOS 27 renamed Update to ViewGraphHostUpdate. Resolve a complete pair
+    // from one ABI so begin/end always operate on the same update scope.
+    let scope = ["$s7SwiftUI19ViewGraphHostUpdateV", "$s7SwiftUI6UpdateO"].lazy.compactMap {
+        prefix -> (UpdateFunction, UpdateFunction)? in
+        guard let begin = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "5beginyyFZ"),
+              let end = dlsym(UnsafeMutableRawPointer(bitPattern: -2), prefix + "3endyyFZ") else { return nil }
+        return (unsafeBitCast(begin, to: UpdateFunction.self), unsafeBitCast(end, to: UpdateFunction.self))
+    }.first
+    guard let (begin, end) = scope else { return nil }
     let roots = {
         begin()
         defer { end() }
@@ -51,7 +57,7 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
         // Full SwiftUI serialization recursively formats every retained value,
         // including UIKit representables. Touch discovery needs only these
         // concrete modifier fields and text labels, not the complete graph.
-        if let stored = properties[.value], (loupeNeedsTouchDebugValue(typeName: typeName) || typeName.split(separator: "<").first.map { $0.contains("Gesture") || $0.contains("Accessibility") } == true) {
+        if let stored = properties[.value], loupeNeedsTouchDebugValue(typeName: typeName) {
             value = loupeSelectiveDebugAttribute(stored, remaining: &remainingAttributes)
         }
         let frame: LoupeRect?
@@ -65,18 +71,6 @@ func loupeSwiftUITouchDebugNodes(in view: UIView) -> [LoupeSwiftUITouchDebugNode
                      children: children.compactMap { encode($0, depth: depth + 1) })
     }
     let compact = roots.compactMap { encode($0, depth: 0) }
-    if String(reflecting: type(of: view)).contains("TouchSwiftUIFixture") {
-        func record(_ node: LoupeSwiftUITouchDebugNode) -> [String: Any] {
-            var result: [String: Any] = ["type": String(node.typeName.prefix(8192)), "value": node.value, "children": node.children.map(record)]
-            if let frame = node.frame { result["frame"] = ["x": frame.x, "y": frame.y, "width": frame.width, "height": frame.height] }
-            return result
-        }
-        let fields = roots.first.map { Array(Mirror(reflecting: $0).children).map { ["label": $0.label ?? "", "type": _typeName(type(of: $0.value), qualified: true)] } } ?? []
-        let report: [String: Any] = ["roots": roots.count, "fields": fields, "nodes": compact.map(record)]
-        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
-            try? data.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("loupe-swiftui-debug.json"))
-        }
-    }
     return compact
 }
 #endif

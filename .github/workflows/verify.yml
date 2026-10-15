@@ -53,27 +53,10 @@ jobs:
           binary_dir="$(swift build "${args[@]}" --show-bin-path)"
           echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$binary_dir/libLoupeInjector.dylib" >> "$GITHUB_ENV"
       - name: Verify iOS touch and input with Xcode 27
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT_DIR="$GITHUB_WORKSPACE"
-          source Examples/LoupeExample/build-simulator-artifacts.sh
-          configure_loupe_ios_verification
-          swift build --product loupe > /tmp/loupe-touch-cli-build.log 2>&1
-          DEVICE="$LOUPE_DEVICE"
-          boot_loupe_ios_verification_device
-          build_loupe_example_simulator_artifacts "$ROOT_DIR" "$LOUPE_EXAMPLE_DESTINATION"
-          xcrun simctl install "$DEVICE" "$APP_PATH"
-          launch_output="$(.build/debug/loupe app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env LOUPE_EXAMPLE_ROUTE=touch.swiftui --timeout 30)"
-          HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
-          test -n "$HOST"
-          .build/debug/loupe ui snapshot --host "$HOST" --timeout 30 --output /tmp/loupe-xcode27-cold-swiftui.json
-          .build/debug/loupe act targets --host "$HOST" > /tmp/loupe-touch-targets.txt
-          container="$(xcrun simctl get_app_container "$DEVICE" dev.loupe.example data)"
-          cp "$container/tmp/loupe-swiftui-debug.json" /tmp/loupe-touch-swiftui-debug.json
-
+        run: Examples/LoupeExample/run-touch-e2e.sh
       - name: Collect Xcode 27 app crash diagnostics
         if: failure()
+        timeout-minutes: 2
         shell: bash
         run: |
           set -uo pipefail
@@ -94,11 +77,9 @@ jobs:
           name: loupe-xcode27-touch-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
-            /tmp/loupe-xcode27-cold-swiftui.json
-            /tmp/loupe-touch-swiftui-debug.json
-            /tmp/loupe-touch-targets.txt
             /tmp/loupe-xcode27-crashes/
             /tmp/loupe-touch-evidence-*
             /tmp/loupe-touch-*.log
             /tmp/loupe-example-build.log
             /tmp/loupe-injector-build.log
+
