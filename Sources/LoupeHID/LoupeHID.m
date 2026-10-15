@@ -69,6 +69,7 @@ typedef struct {
     uint32_t reserved;
     uint64_t reserved2;
     uint32_t target;
+    uint8_t isBuiltIn;
     char displayUID[64];
 } LoupeIndigoScreenEvent;
 #pragma pack(pop)
@@ -77,7 +78,8 @@ _Static_assert(sizeof(LoupeIndigoTouch) == 112, "Unexpected Indigo touch layout"
 _Static_assert(sizeof(LoupeIndigoPayload) == 144, "Indigo event union must retain the full payload stride");
 _Static_assert(sizeof(LoupeIndigoMessage) == 176, "Unexpected Indigo message layout");
 _Static_assert(offsetof(LoupeIndigoScreenEvent, target) == 16, "Unexpected screen target offset");
-_Static_assert(offsetof(LoupeIndigoScreenEvent, displayUID) == 20, "Unexpected display UID offset");
+_Static_assert(offsetof(LoupeIndigoScreenEvent, isBuiltIn) == 20, "Unexpected built-in display flag offset");
+_Static_assert(offsetof(LoupeIndigoScreenEvent, displayUID) == 21, "Unexpected display UID offset");
 
 typedef LoupeIndigoMessage *(*LoupeKeyboardMessageFunction)(uint32_t keyCode, int operation);
 typedef LoupeIndigoMessage *(*LoupeMouseMessageFunction)(CGPoint *point0, CGPoint *point1, uint32_t target, NSEventType eventType, NSSize size, uint32_t edge);
@@ -459,25 +461,27 @@ static LoupeIndigoMessage *LoupeHIDScreenMessage(LoupeMouseMessageFunction mouse
     LoupeIndigoScreenEvent *event = (void *)&message->payload.event;
     event->operation = 1;
     event->target = target;
+    event->isBuiltIn = 1;
     memcpy(event->displayUID, uid.bytes, uid.length);
     return message;
 }
 
 static bool LoupeHIDRegisterMainScreen(id device, id client, LoupeHIDFunctions *functions, char **errorMessage)
 {
-    id properties = nil;
+    id mainScreen = nil;
     for (id port in LoupeSimulatorObject(LoupeSimulatorObject(device, @"io"), @"ioPorts")) {
         id descriptor = LoupeSimulatorObject(port, @"descriptor");
         id state = LoupeSimulatorObject(descriptor, @"state");
         if (![state respondsToSelector:NSSelectorFromString(@"displayClass")]) continue;
         unsigned short displayClass = ((unsigned short (*)(id, SEL))objc_msgSend)(state, NSSelectorFromString(@"displayClass"));
         if (displayClass != 0) continue;
-        if (properties != nil) {
+        if (mainScreen != nil) {
             LoupeHIDSetError(errorMessage, @"simulator main screen is ambiguous for touch input");
             return false;
         }
-        properties = LoupeSimulatorObject(descriptor, @"screenProperties");
+        mainScreen = descriptor;
     }
+    id properties = LoupeSimulatorObject(mainScreen, @"screenProperties");
     NSString *displayUID = LoupeSimulatorObject(properties, @"uniqueId");
     if (![properties respondsToSelector:NSSelectorFromString(@"screenID")] ||
         ![displayUID isKindOfClass:NSString.class] || displayUID.length == 0) {

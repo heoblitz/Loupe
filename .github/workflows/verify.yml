@@ -2,35 +2,34 @@ name: Verify
 on:
   workflow_dispatch:
 jobs:
-  build-probe:
-    name: Diagnose Xcode 27 simulator destination
+  swiftui-probe:
+    name: Inspect Xcode 27 SwiftUI graph precondition
     runs-on: xcode-27
     timeout-minutes: 8
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v4
-      - name: Build a generic simulator fixture
+      - name: Inspect simulator framework symbols
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -version
-          xcodebuild -project Examples/LoupeExample/LoupeExample.xcodeproj -scheme LoupeExample -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath "$RUNNER_TEMP/loupe-fixture" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > /tmp/loupe-xcode27-build-probe.log 2>&1 &
-          build_pid=$!
-          for tick in {1..12}; do
-            if ! kill -0 "$build_pid" 2>/dev/null; then break; fi
-            sleep 10
-          done
-          if kill -0 "$build_pid" 2>/dev/null; then
-            sample "$build_pid" 3 -file /tmp/loupe-xcode27-build-probe-sample.txt || true
-            ps -axo pid,ppid,etime,command > /tmp/loupe-xcode27-build-probe-processes.txt
-            kill -TERM "$build_pid" || true
-            exit 1
-          fi
-          wait "$build_pid"
-          tail -8 /tmp/loupe-xcode27-build-probe.log
+          mkdir -p /tmp/loupe-swiftui-probe
+          xcrun simctl list runtimes --json > /tmp/loupe-swiftui-probe/runtimes.json
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          out=pathlib.Path('/tmp/loupe-swiftui-probe')
+          runtime=next(r for r in json.loads((out/'runtimes.json').read_text())['runtimes'] if r['identifier']=='com.apple.CoreSimulator.SimRuntime.iOS-27-0')
+          root=pathlib.Path(runtime['bundlePath'])/'Contents/Resources/RuntimeRoot'
+          for framework in ['SwiftUICore','SwiftUI']:
+              binary=root/f'System/Library/Frameworks/{framework}.framework/{framework}'
+              symbols=subprocess.check_output(['xcrun','nm','-arch','arm64',str(binary)],text=True)
+              (out/(framework+'-symbols.txt')).write_text(symbols)
+              selected=[line.split()[-1] for line in symbols.splitlines() if any(k in line for k in ['syncMainIfReferences','ViewListTransitionV11updateValue','viewDebugData','viewDebugData','UpdateO','UpdateV']) and ' t ' in line]
+              disasm=subprocess.check_output(['xcrun','llvm-objdump','--arch=arm64','--disassemble-symbols='+','.join(selected),str(binary)],text=True)
+              (out/(framework+'-asm.txt')).write_text(disasm)
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: loupe-xcode27-build-probe
-          path: /tmp/loupe-xcode27-build-probe*
+          name: loupe-swiftui-probe
+          path: /tmp/loupe-swiftui-probe/

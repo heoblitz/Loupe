@@ -21,8 +21,8 @@ echo "touch E2E: device=$DEVICE architecture=$(uname -m) CLI=$CLI"
 xcodebuild -version
 prepare_loupe_ios_preferences
 boot_loupe_ios_verification_device
-destination="platform=iOS Simulator,id=$DEVICE"
-if [[ -n "${LOUPE_TOUCH_ARCHITECTURE:-}" ]]; then
+destination="${LOUPE_EXAMPLE_DESTINATION:-platform=iOS Simulator,id=$DEVICE}"
+if [[ -n "${LOUPE_TOUCH_ARCHITECTURE:-}" && "$destination" != generic/* ]]; then
   destination="$destination,arch=$LOUPE_TOUCH_ARCHITECTURE"
 fi
 build_loupe_example_simulator_artifacts "$ROOT_DIR" "$destination"

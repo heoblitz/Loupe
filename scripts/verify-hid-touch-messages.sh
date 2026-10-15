@@ -81,9 +81,11 @@ int main(void)
         LoupeIndigoScreenEvent *event = (void *)&screen->payload.event;
         assert(event->operation == 1);
         assert(event->target == 0x40000007);
+        assert(event->isBuiltIn == 1);
         assert(strcmp(event->displayUID, "main-display-uid") == 0);
         assert(*((uint32_t *)((char *)screen + 0x40)) == 0x40000007);
-        assert(strcmp((char *)screen + 0x44, "main-display-uid") == 0);
+        assert(*((uint8_t *)screen + 0x44) == 1);
+        assert(strcmp((char *)screen + 0x45, "main-display-uid") == 0);
         free(screen);
         assert(LoupeHIDScreenMessage(messageFixture, 0x32, @"main-display-uid") == NULL);
         assert(LoupeHIDScreenMessage(messageFixture, 0x40000007, @"") == NULL);
