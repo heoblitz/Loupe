@@ -44,6 +44,9 @@ All iOS E2E scripts share toolchain checks, device selection and a strict
 `build-simulator-artifacts.sh`: Xcode 26.3 on Apple Silicon, iOS 26.2/iPhone 17 Pro. Missing or mismatched runtimes fail before input;
 `LOUPE_DEVICE` selects an exact device within that runtime. For additional OS
 coverage, explicitly set `LOUPE_TOUCH_RUNTIME_VERSION` in either environment.
+An additional Xcode 27.0 / iOS 27.0 job verifies screen-routed input. Select it
+locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
+`LOUPE_TOUCH_RUNTIME_VERSION=27.0`, plus `DEVELOPER_DIR` for that Xcode.
 The local and hosted commands use the same launch and action deadlines.
 Both use the Python interpreter shipped with the selected Xcode for the
 standard-library harness, rather than a separately updated Homebrew Python.
@@ -59,6 +62,8 @@ For a poured Homebrew bottle, set `LOUPE_TOUCH_CLI` to its executable and
 `LOUPE_EXAMPLE_PREBUILT_INJECTOR` to its injector framework binary. Only the
 fixture app is rebuilt. The Apple Silicon job runs these same assertions with
 the downloaded bottle. A source build cannot substitute for a bottle runtime pass.
+Poured artifacts run on both the Xcode 26.3 / iOS 26.2 and
+Xcode 27.0 / iOS 27.0 hosts.
 
 For a foreground physical-device fixture, set `LOUPE_TOUCH_HOST` to its runtime
 URL and optionally `LOUPE_DEVICE` to its device identity. Run again with a fresh
@@ -66,6 +71,14 @@ URL and optionally `LOUPE_DEVICE` to its device identity. Run again with a fresh
 discovery. Simulator setup is skipped; action assertions are shared.
 
 ## Assertions and evidence
+
+SimulatorKit's Xcode 27 screen input uses the actual main screen ID and display
+UID. Loupe registers that digitizer before input, waits for its acknowledgement,
+and sends the native touch allocation without repacking its contacts or timestamp.
+Older SimulatorKit retains its main-digitizer envelope with the native payload
+stride and complete event bytes. `scripts/verify-hid-touch-messages.sh` checks
+144–192 byte payloads, full native-message preservation, legacy contact layout,
+screen registration offsets and invalid registration data.
 
 Separate UIKit and SwiftUI screens verify button counters through selectors,
 one-shot aliases, coordinates and saved refs; gesture-only taps, double taps,

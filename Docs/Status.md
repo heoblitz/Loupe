@@ -1,6 +1,7 @@
 # Loupe Status
 
-Touch/input scope updated: 2026-10-10; current-source validation is tracked in PR #22.
+Touch/input scope updated: 2026-10-15; current-source validation runs in Verify
+and Homebrew Bottles, including Xcode 27 / iOS 27 touch and poured-bottle input.
 
 Loupe is a runtime diagnostic and E2E harness for Apple-platform apps. The
 current product surface is the `loupe` CLI plus injected or LoupeInjector-linked
@@ -26,6 +27,9 @@ runtime servers.
 - Load SimulatorKit from either the selected Xcode's
   `Contents/Developer/Library/PrivateFrameworks` or `Contents/SharedFrameworks`.
   Loading failures report both attempted paths and bundle errors.
+- Register Xcode 27 simulator touch input against the actual main screen ID
+  and display UID, preserving SimulatorKit's native message bytes. Earlier
+  SimulatorKit retains its legacy main-digitizer input convention.
 - Dispatch `tap`, `swipe`, and `drag` through the linked runtime's UIKit touch
   dispatcher on physical iOS devices, selected automatically from the runtime
   identity, using the existing CLI commands and options. The touch
