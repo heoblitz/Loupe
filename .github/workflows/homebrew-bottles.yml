@@ -208,9 +208,21 @@ jobs:
           path: bottle-output/*
 
   bottle-runtime:
-    name: Bottled iOS runtime (Apple Silicon / iOS 26.2)
+    name: Bottled iOS runtime (Apple Silicon / iOS ${{ matrix.runtime }})
     needs: [metadata, bottle]
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            xcode: "26.3"
+            runtime: "26.2"
+            developer_dir: /Applications/Xcode_26.3.app/Contents/Developer
+          - runner: xcode-27
+            xcode: "27.0"
+            runtime: "27.0"
+            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -218,6 +230,9 @@ jobs:
       FORMULA: heoblitz/loupe/loupe
       VERSION: ${{ needs.metadata.outputs.version }}
       LOUPE_TOUCH_ARCHITECTURE: arm64
+      DEVELOPER_DIR: ${{ matrix.developer_dir }}
+      LOUPE_TOUCH_XCODE_VERSION: ${{ matrix.xcode }}
+      LOUPE_TOUCH_RUNTIME_VERSION: ${{ matrix.runtime }}
 
     steps:
       - name: Checkout
@@ -262,6 +277,9 @@ jobs:
         run: |
           set -euo pipefail
           prefix="$LOUPE_BOTTLE_PREFIX"
+          if [[ "$LOUPE_TOUCH_XCODE_VERSION" == "27.0" ]]; then
+            export LOUPE_DEVICE="$(xcrun simctl create 'Loupe Xcode 27 Bottle' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-0)"
+          fi
           LOUPE_HID_DIAGNOSTICS=1 \
           LOUPE_TOUCH_CLI="$prefix/bin/loupe" \
           LOUPE_EXAMPLE_PREBUILT_INJECTOR="$prefix/libexec/LoupeInjector.framework/LoupeInjector" \
@@ -272,7 +290,7 @@ jobs:
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-bottle-runtime-arm64-${{ github.run_attempt }}
+          name: loupe-bottle-runtime-arm64-ios-${{ matrix.runtime }}-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
             /tmp/loupe-touch-*

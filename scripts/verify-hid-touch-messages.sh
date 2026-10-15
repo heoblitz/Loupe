@@ -13,11 +13,12 @@ static size_t fixtureStride;
 static size_t fixtureBytes;
 static unsigned char expectedMessage[512];
 static LoupeIndigoMessage *fixtureMessage;
+static uint32_t fixtureTarget = 0x40000007;
 
 static LoupeIndigoMessage *messageFixture(CGPoint *point0, CGPoint *point1,
     uint32_t target, NSEventType eventType, NSSize size, uint32_t edge)
 {
-    assert(target == 0x40000007);
+    assert(target == fixtureTarget);
     LoupeIndigoMessage *message = calloc(1, fixtureBytes);
     fixtureMessage = message;
     for (size_t i = 0; i < fixtureBytes; i++) ((unsigned char *)message)[i] = (unsigned char)(i * 7 + 3);
@@ -25,7 +26,7 @@ static LoupeIndigoMessage *messageFixture(CGPoint *point0, CGPoint *point1,
     message->eventType = 2;
     message->payload.field1 = 0x0b;
     message->payload.timestamp = 123;
-    message->payload.event.touch.xRatio = point0->x;
+    message->payload.event.touch.xRatio = point0->x + ((target & 0x40000000) ? 0.125 : 0);
     message->payload.event.touch.yRatio = point0->y;
     memcpy(expectedMessage, message, fixtureBytes);
     return message;
@@ -57,6 +58,20 @@ int main(void)
         assert(LoupeHIDTouchMessage(messageFixture, 0x40000007, CGPointMake(0.25, 0.75), 1) == NULL);
         fixtureStride = 160;
         fixtureBytes = payloadOffset + fixtureStride;
+        fixtureTarget = 0x32;
+        LoupeIndigoMessage *legacy = LoupeHIDTouchMessage(messageFixture, 0x32, CGPointMake(0.25, 0.75), 1);
+        assert(legacy != NULL);
+        assert(legacy->innerSize == fixtureStride);
+        assert(legacy->eventType == 2);
+        assert(legacy->payload.field1 == 0x0b);
+        assert(memcmp(&legacy->payload.event, expectedMessage + offsetof(LoupeIndigoMessage, payload.event),
+            fixtureStride - offsetof(LoupeIndigoPayload, event)) == 0);
+        LoupeIndigoPayload *second = (void *)((char *)&legacy->payload + fixtureStride);
+        assert(second->timestamp == legacy->payload.timestamp);
+        assert(second->event.touch.field1 == 1);
+        assert(second->event.touch.field2 == 2);
+        free(legacy);
+        fixtureTarget = 0x40000007;
         LoupeIndigoMessage *screen = LoupeHIDScreenMessage(messageFixture, 0x40000007, @"main-display-uid");
         assert(screen != NULL);
         assert(screen->innerSize == fixtureStride);

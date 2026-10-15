@@ -271,8 +271,13 @@ static id LoupeHIDClientForUDID(NSString *udid, LoupeHIDFunctions *touchFunction
         LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to create HID client: %@", error]);
         return nil;
     }
-    if (touchFunctions != NULL && !LoupeHIDRegisterMainScreen(device, client, touchFunctions, errorMessage)) {
-        return nil;
+    if (touchFunctions != NULL) {
+        touchFunctions->touchTarget = 0x32;
+        // Xcode 27 exposes the backing SimScreen; its input service is routed
+        // by screen ID. Earlier SimulatorKit uses the legacy main digitizer.
+        Class screenClass = NSClassFromString(@"SimulatorKit.SimDeviceScreen");
+        if ([screenClass instancesRespondToSelector:NSSelectorFromString(@"screen")] &&
+            !LoupeHIDRegisterMainScreen(device, client, touchFunctions, errorMessage)) return nil;
     }
     return client;
 }
@@ -399,8 +404,10 @@ static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseM
         free(seed);
         return NULL;
     }
-    seed->payload.event.touch.xRatio = ratio.x;
-    seed->payload.event.touch.yRatio = ratio.y;
+    if ((target & 0x40000000) == 0) {
+        seed->payload.event.touch.xRatio = ratio.x;
+        seed->payload.event.touch.yRatio = ratio.y;
+    }
     const char *diagnostics = getenv("LOUPE_HID_DIAGNOSTICS");
     if (diagnostics != NULL && strcmp(diagnostics, "1") == 0) {
         LoupeIndigoTouch touch = seed->payload.event.touch;
@@ -410,9 +417,24 @@ static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseM
             touch.field11, touch.field12, touch.field13);
     }
 
-    // SimulatorKit owns the wire layout, including its second contact and
-    // version-specific event fields. Send that allocation unchanged.
-    return seed;
+    // Screen-routed input uses SimulatorKit's complete native message.
+    if ((target & 0x40000000) != 0) return seed;
+
+    // Preserve the legacy main-digitizer envelope and Mach-time convention,
+    // while retaining the builder's actual payload stride and event tail.
+    LoupeIndigoMessage *message = calloc(1, payloadOffset + 2 * stride);
+    if (message == NULL) { free(seed); return NULL; }
+    message->innerSize = (uint32_t)stride;
+    message->eventType = 2;
+    message->payload.field1 = 0x0b;
+    message->payload.timestamp = mach_absolute_time();
+    memcpy(&message->payload.event, &seed->payload.event, stride - offsetof(LoupeIndigoPayload, event));
+    LoupeIndigoPayload *second = (void *)((char *)&message->payload + stride);
+    memcpy(second, &message->payload, stride);
+    second->event.touch.field1 = 1;
+    second->event.touch.field2 = 2;
+    free(seed);
+    return message;
 }
 
 static LoupeIndigoMessage *LoupeHIDScreenMessage(LoupeMouseMessageFunction mouseMessage, uint32_t target, NSString *displayUID)
