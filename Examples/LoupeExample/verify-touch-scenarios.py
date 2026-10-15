@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify CLI and internal touch results in the same simulator or linked device fixture."""
-import concurrent.futures, json, os, pathlib, re, subprocess, sys, time, urllib.request, urllib.error
+import concurrent.futures, json, os, pathlib, re, subprocess, sys, threading, time, urllib.request, urllib.error
 host = sys.argv[1]
 device = (sys.argv[2] or None) if len(sys.argv) > 2 else None
 cli = str(pathlib.Path(os.environ.get('LOUPE_TOUCH_CLI', '.build/debug/loupe')).resolve())
@@ -206,15 +206,23 @@ def verify_uikit():
     screen = snapshot()['screen']['size']
     x, y = map(float, point('touch.hold').split(','))
     body = {'command': 'tap', 'start': {'x': x, 'y': y}, 'holdDuration': 2.0, 'screen': screen}
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        active = pool.submit(post, body)
-        expect('touch.hold.status', 'Holds 3')
+    # Send both requests before waiting for UI observations. A full snapshot
+    # can outlast the held touch, so observing its counter first does not prove
+    # that a later request actually competes with it.
+    ready = threading.Barrier(2)
+    def competing_touch():
+        ready.wait(timeout=5)
         try:
-            post(dict(body, holdDuration=0))
-            raise AssertionError('Competing touch succeeded')
+            return 200, post(body)
         except urllib.error.HTTPError as error:
-            assert error.code == 409 and 'touch_in_progress' in error.read().decode()
-        active.result(timeout=5)
+            return error.code, error.read()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        attempts = [pool.submit(competing_touch) for _ in range(2)]
+        responses = [attempt.result(timeout=5) for attempt in attempts]
+    assert sorted(code for code, _ in responses) == [200, 409], responses
+    assert any(code == 409 and b'touch_in_progress' in response
+               for code, response in responses), responses
+    expect('touch.hold.status', 'Holds 3')
     act('tap', ['--test-id', 'touch.tap'], 'cli-after-concurrency')
     expect('touch.tap.status', 'Taps 4')
     try:
