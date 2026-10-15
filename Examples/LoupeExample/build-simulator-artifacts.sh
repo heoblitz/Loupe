@@ -98,23 +98,26 @@ build_loupe_example_simulator_artifacts() {
     LOUPE_INJECTOR_PATH="$injector_derived_data/Build/Products/Debug-iphonesimulator/PackageFrameworks/LoupeInjector.framework/LoupeInjector"
   fi
 
-  xcodebuild \
-    -project "$root_dir/Examples/LoupeExample/LoupeExample.xcodeproj" \
-    -scheme LoupeExample \
-    -destination "$destination" \
-    -configuration Debug \
-    -derivedDataPath "$app_derived_data" \
-    ONLY_ACTIVE_ARCH=YES \
-    ARCHS="$build_architecture" \
-    build >/tmp/loupe-example-build.log
-
-  APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
+  if [[ -n "${LOUPE_EXAMPLE_PREBUILT_APP:-}" ]]; then
+    APP_PATH="$LOUPE_EXAMPLE_PREBUILT_APP"
+  else
+    xcodebuild \
+      -project "$root_dir/Examples/LoupeExample/LoupeExample.xcodeproj" \
+      -scheme LoupeExample \
+      -destination "$destination" \
+      -configuration Debug \
+      -derivedDataPath "$app_derived_data" \
+      ONLY_ACTIVE_ARCH=YES \
+      ARCHS="$build_architecture" \
+      build >/tmp/loupe-example-build.log
+    APP_PATH="$app_derived_data/Build/Products/Debug-iphonesimulator/LoupeExample.app"
+  fi
 
   if [[ ! -x "$LOUPE_INJECTOR_PATH" ]]; then
     echo "error: built LoupeInjector not found at $LOUPE_INJECTOR_PATH" >&2
     exit 1
   fi
-  if [[ ! -d "$APP_PATH" ]]; then
+  if [[ ! -x "$APP_PATH/LoupeExample" ]]; then
     echo "error: built LoupeExample.app not found at $APP_PATH" >&2
     exit 1
   fi

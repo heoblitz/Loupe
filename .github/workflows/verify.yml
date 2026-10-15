@@ -18,8 +18,37 @@ env:
   LOUPE_SIMCTL_TERMINATE_TIMEOUT: "20"
 
 jobs:
+  xcode27-artifacts:
+    name: Build iOS 27 artifacts
+    runs-on: xcode-27
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      LOUPE_TOUCH_XCODE_VERSION: "27.0"
+      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      LOUPE_TOUCH_ARCHITECTURE: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CLI, injector, and fixture
+        run: scripts/build-ci-ios-artifacts.sh /tmp/loupe-ci-ios-artifacts.tar.gz
+      - name: Upload matching iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-ios-artifacts.tar.gz
+          if-no-files-found: error
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios27-build-diagnostics-${{ github.run_attempt }}
+          path: |
+            /tmp/loupe-ci-*.log
+            /tmp/loupe-example-build.log
+
   xcode27-touch-e2e:
     name: Xcode 27 iOS Touch E2E
+    needs: xcode27-artifacts
     runs-on: xcode-27
     timeout-minutes: 30
     env:
@@ -45,15 +74,21 @@ jobs:
         run: |
           bash scripts/verify-hid-framework-loading.sh
           bash scripts/verify-hid-touch-messages.sh
-      - name: Build the simulator injector with SwiftPM
+      - name: Download matching iOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-artifact-download
+      - name: Use artifacts built from this checkout
         shell: bash
         run: |
           set -euo pipefail
-          sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
-          args=(--scratch-path /tmp/loupe-xcode27-injector --product LoupeInjector --sdk "$sdk" --triple arm64-apple-ios15.0-simulator)
-          swift build "${args[@]}"
-          binary_dir="$(swift build "${args[@]}" --show-bin-path)"
-          echo "LOUPE_EXAMPLE_PREBUILT_INJECTOR=$binary_dir/libLoupeInjector.dylib" >> "$GITHUB_ENV"
+          mkdir -p /tmp/loupe-ci-ios-runtime
+          tar -xzf /tmp/loupe-ci-artifact-download/loupe-ci-ios-artifacts.tar.gz -C /tmp/loupe-ci-ios-runtime
+          test "$(cat /tmp/loupe-ci-ios-runtime/source-sha)" = "$(git rev-parse HEAD)"
+          echo 'LOUPE_TOUCH_CLI=/tmp/loupe-ci-ios-runtime/loupe' >> "$GITHUB_ENV"
+          echo 'LOUPE_EXAMPLE_PREBUILT_INJECTOR=/tmp/loupe-ci-ios-runtime/LoupeInjector' >> "$GITHUB_ENV"
+          echo 'LOUPE_EXAMPLE_PREBUILT_APP=/tmp/loupe-ci-ios-runtime/LoupeExample.app' >> "$GITHUB_ENV"
       - name: Verify iOS touch and input with Xcode 27
         run: Examples/LoupeExample/run-touch-e2e.sh
       - name: Collect Xcode 27 app crash diagnostics

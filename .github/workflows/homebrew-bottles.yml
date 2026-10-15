@@ -95,6 +95,35 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "root_url=$root_url" >> "$GITHUB_OUTPUT"
 
+  xcode27-artifacts:
+    needs: metadata
+    name: Build iOS 27 artifacts
+    runs-on: xcode-27
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      LOUPE_TOUCH_XCODE_VERSION: "27.0"
+      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      LOUPE_TOUCH_ARCHITECTURE: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CLI, injector, and fixture
+        run: scripts/build-ci-ios-artifacts.sh /tmp/loupe-ci-ios-artifacts.tar.gz
+      - name: Upload matching iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-ios-artifacts.tar.gz
+          if-no-files-found: error
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loupe-ios27-build-diagnostics-${{ github.run_attempt }}
+          path: |
+            /tmp/loupe-ci-*.log
+            /tmp/loupe-example-build.log
+
   bottle:
     name: Build and pour (Apple Silicon)
     needs: metadata
@@ -209,7 +238,7 @@ jobs:
 
   bottle-runtime:
     name: Bottled iOS runtime (Apple Silicon / iOS ${{ matrix.runtime }})
-    needs: [metadata, bottle]
+    needs: [metadata, bottle, xcode27-artifacts]
     strategy:
       fail-fast: false
       matrix:
@@ -272,6 +301,21 @@ jobs:
           test "$("$prefix/bin/loupe" --version)" = "loupe $VERSION"
           echo "LOUPE_BOTTLE_PREFIX=$prefix" >> "$GITHUB_ENV"
 
+      - name: Download matching iOS 27 fixture
+        if: matrix.runtime == '27.0'
+        uses: actions/download-artifact@v4
+        with:
+          name: loupe-ios27-artifacts-${{ github.run_attempt }}
+          path: /tmp/loupe-ci-artifact-download
+      - name: Use the fixture built from this checkout
+        if: matrix.runtime == '27.0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/loupe-ci-ios-runtime
+          tar -xzf /tmp/loupe-ci-artifact-download/loupe-ci-ios-artifacts.tar.gz -C /tmp/loupe-ci-ios-runtime
+          test "$(cat /tmp/loupe-ci-ios-runtime/source-sha)" = "$(git rev-parse HEAD)"
+          echo 'LOUPE_EXAMPLE_PREBUILT_APP=/tmp/loupe-ci-ios-runtime/LoupeExample.app' >> "$GITHUB_ENV"
       - name: Verify bottled iOS gestures and input
         shell: bash
         run: |
