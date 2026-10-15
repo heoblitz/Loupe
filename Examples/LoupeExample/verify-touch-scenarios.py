@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify CLI and internal touch results in the same simulator or linked device fixture."""
-import concurrent.futures, json, os, pathlib, re, subprocess, sys, threading, time, urllib.request, urllib.error
+import concurrent.futures, signal, json, os, pathlib, re, subprocess, sys, threading, time, urllib.request, urllib.error
 host = sys.argv[1]
 device = (sys.argv[2] or None) if len(sys.argv) > 2 else None
 cli = str(pathlib.Path(os.environ.get('LOUPE_TOUCH_CLI', '.build/debug/loupe')).resolve())
@@ -18,7 +18,35 @@ def snapshot():
     snapshot_counter += 1
     started = time.time()
     path = out / 'snapshot.json'
-    result = subprocess.run([cli, 'ui', 'snapshot', '--host', host, '--output', str(path)], capture_output=True, text=True, timeout=15)
+    args = [cli, 'ui', 'snapshot', '--host', host, '--output', str(path)]
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        stdout, stderr = process.communicate(timeout=15)
+        result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired as error:
+        # The original 15s harness deadline has already failed. Retain this
+        # owned CLI's exact stack before cleanup can destroy the evidence.
+        code_at_timeout = process.poll()
+        def decoded(value):
+            return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
+        prefix = f'started={started} pid={process.pid} poll={code_at_timeout} timeout_at={time.time()}\n'
+        (out / f'snapshot-{snapshot_counter:03d}.log').write_text(prefix + decoded(error.stdout) + decoded(error.stderr))
+        try:
+            if code_at_timeout is None:
+                process.send_signal(signal.SIGSTOP)
+                with (out / f'snapshot-{snapshot_counter:03d}-sample.log').open('w') as stream:
+                    try:
+                        subprocess.run(['/usr/bin/sudo', '/usr/bin/sample', str(process.pid), '1', '10', '-file', str(out / f'snapshot-{snapshot_counter:03d}-host-stack.txt')], stdout=stream, stderr=stream, timeout=55)
+                    except Exception as sample_error: stream.write(repr(sample_error))
+        finally:
+            if process.poll() is None:
+                process.send_signal(signal.SIGCONT)
+                process.kill()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired: pass
+            process.stdout.close()
+            process.stderr.close()
+        raise RuntimeError(f'Snapshot CLI failed the original 15s deadline; pid={process.pid}, poll={code_at_timeout}; stack retained') from error
     (out / f"snapshot-{snapshot_counter:03d}.log").write_text(f"started={started}\n" + result.stdout + result.stderr)
     if result.returncode: raise RuntimeError(result.stdout + result.stderr)
     return json.loads(path.read_text())
