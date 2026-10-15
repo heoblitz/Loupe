@@ -31,7 +31,7 @@ if [[ -n "${LOUPE_TOUCH_ARCHITECTURE:-}" ]]; then
 fi
 xcrun simctl terminate "$DEVICE" dev.loupe.example >/dev/null 2>&1 || true
 xcrun simctl install "$DEVICE" "$APP_PATH"
-for route in touch.swiftui; do
+for route in touch touch.swiftui; do
   launch_output="$("$CLI" app launch --device "$DEVICE" --bundle-id dev.loupe.example --inject --env "LOUPE_EXAMPLE_ROUTE=$route" --timeout 30)"
   HOST="$(awk '/^loupe host: / { print $3 }' <<<"$launch_output" | tail -1)"
   test -n "$HOST"
