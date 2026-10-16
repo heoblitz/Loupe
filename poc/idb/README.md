@@ -11,6 +11,11 @@ and four-second app-state assertion budget. Each backend gets fresh app processe
 No input is replayed after a failure. This is a capability check, not a reliability
 study or the three-cycle release gate.
 
+`IDB_POC_MODE=standalone` runs a second proof using only idb: launch the app
+without Loupe injection, discover frames through idb AX, send HID taps/long
+presses, set Unicode with AX, verify app state/change events through idb AX,
+and take screenshots. It never invokes a Loupe observation/action command.
+
 Tests cover buttons, gesture taps, long press, scrolling in both directions,
 held drag, ASCII and Korean/emoji input, plus separate idb accessibility tree,
 accessibility value-setting/change-event and screenshot probes. Coordinate taps

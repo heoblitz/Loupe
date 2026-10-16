@@ -43,6 +43,10 @@ raise SystemExit('Companion did not publish a gRPC port within 30s')
 PY
 )"
 result=0
+if [[ "${IDB_POC_MODE:-compare}" == standalone ]]; then
+  python3 poc/idb/standalone.py
+  exit 0
+fi
 for backend in native idb; do
   for route in touch touch.swiftui; do
     output="$evidence/$backend-$route"

@@ -2,6 +2,12 @@
 name: IDB input PoC
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Common Loupe observer comparison or independent idb-only proof
+        default: compare
+        type: choice
+        options: [compare, standalone]
 permissions:
   contents: read
   actions: read
@@ -30,6 +36,7 @@ jobs:
       IDB_EVIDENCE: /tmp/loupe-idb-evidence
       IDB_COMPANION: /tmp/loupe-idb/bin/idb_companion
       IDB_CLI: /tmp/loupe-idb/venv/bin/idb
+      IDB_POC_MODE: ${{ inputs.mode || 'compare' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
