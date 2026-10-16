@@ -1,5 +1,7 @@
 # idb input PoC
 
+Read the [measured results and recommendation](RESULTS.md) first.
+
 Experimental branch only. The production Loupe backend and PR #24 are preserved.
 Do not merge the replacement `.github/workflows/verify.yml`: it is a manual-only
 experiment using the existing workflow ID, not the release verification gate.
@@ -31,6 +33,7 @@ claim parity with Loupe's view/style/layout diagnostics.
 Install without changing Homebrew kegs or global Python packages:
 
 ```sh
+swift build --product loupe
 IDB_PYTHON=python3.12 bash poc/idb/install.sh /tmp/loupe-idb
 export IDB_COMPANION=/tmp/loupe-idb/bin/idb_companion
 export IDB_CLI=/tmp/loupe-idb/venv/bin/idb
