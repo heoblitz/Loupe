@@ -1,379 +1,78 @@
-name: Verify
-
+# PoC branch only. Never merge this workflow over the production Verify gate.
+name: IDB input PoC
 on:
-  pull_request:
-  push:
-    branches:
-      - main
   workflow_dispatch:
-
-concurrency:
-  group: verify-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-  LOUPE_SIMCTL_LIST_TIMEOUT: "120"
-  LOUPE_CI_SIMCTL_LIST_ATTEMPTS: "3"
-  LOUPE_SIMCTL_TERMINATE_TIMEOUT: "20"
-
+permissions:
+  contents: read
+  actions: read
 jobs:
-  xcode27-artifacts:
-    name: Build iOS 27 artifacts
-    runs-on: xcode-27
-    timeout-minutes: 25
+  input:
+    name: ${{ matrix.target }} / ${{ matrix.profile }}
+    runs-on: ${{ matrix.target == 'xcode27' && 'xcode-27' || 'macos-26' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: xcode26
+            profile: stock
+          - target: xcode27
+            profile: stock
+          - target: xcode27
+            profile: widgets
     env:
-      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
-      LOUPE_TOUCH_XCODE_VERSION: "27.0"
-      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
+      DEVELOPER_DIR: ${{ matrix.target == 'xcode27' && '/Applications/Xcode_27.0.app/Contents/Developer' || '/Applications/Xcode_26.3.app/Contents/Developer' }}
+      LOUPE_TOUCH_XCODE_VERSION: ${{ matrix.target == 'xcode27' && '27.0' || '26.3' }}
+      LOUPE_TOUCH_RUNTIME_VERSION: ${{ matrix.target == 'xcode27' && '27.0' || '26.2' }}
+      LOUPE_TOUCH_OPEN_DEVICE_HUB: ${{ matrix.target == 'xcode27' && '1' || '0' }}
       LOUPE_TOUCH_ARCHITECTURE: arm64
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build CLI, injector, and fixture
-        run: scripts/build-ci-ios-artifacts.sh /tmp/loupe-ci-ios-artifacts.tar.gz
-      - name: Upload matching iOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-ios27-artifacts-${{ github.run_attempt }}
-          path: /tmp/loupe-ci-ios-artifacts.tar.gz
-          if-no-files-found: error
-      - name: Upload build diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-ios27-build-diagnostics-${{ github.run_attempt }}
-          path: |
-            /tmp/loupe-ci-*.log
-            /tmp/loupe-example-build.log
-
-  xcode27-touch-e2e:
-    name: Xcode 27 iOS Touch E2E
-    needs: xcode27-artifacts
-    runs-on: xcode-27
-    timeout-minutes: 30
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
-      LOUPE_TOUCH_XCODE_VERSION: "27.0"
-      LOUPE_TOUCH_RUNTIME_VERSION: "27.0"
-      LOUPE_TOUCH_OPEN_DEVICE_HUB: "1"
-      LOUPE_EXAMPLE_BUILD_ROOT: /tmp/loupe-xcode27-touch-build
       LOUPE_EXAMPLE_DESTINATION: generic/platform=iOS Simulator
-
+      IDB_EVIDENCE: /tmp/loupe-idb-evidence
+      IDB_COMPANION: /tmp/loupe-idb/bin/idb_companion
+      IDB_CLI: /tmp/loupe-idb/venv/bin/idb
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare Xcode 27 touch verification
-        shell: bash
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated official idb 1.7.3
+        run: IDB_PYTHON="$(command -v python3)" bash poc/idb/install.sh /tmp/loupe-idb
+      - name: Download identical existing fixtures without compiling on the runtime host
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ matrix.target == 'xcode27' && '38820961020' || '38820961119' }}
+          name: ${{ matrix.target == 'xcode27' && 'loupe-ios27-artifacts-1' || 'loupe-ios26.2-artifacts-1' }}
+          path: /tmp/loupe-idb-artifacts
+      - name: Use the pinned original fixture and observation binaries
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/loupe-idb-runtime
+          tar -xzf /tmp/loupe-idb-artifacts/loupe-ci-ios-artifacts.tar.gz -C /tmp/loupe-idb-runtime
+          test "$(cat /tmp/loupe-idb-runtime/source-sha)" = 3b08aac8e73830e822da3ea872949defdf402357
+          echo 'LOUPE_TOUCH_CLI=/tmp/loupe-idb-runtime/loupe' >> "$GITHUB_ENV"
+          echo 'LOUPE_EXAMPLE_PREBUILT_APP=/tmp/loupe-idb-runtime/LoupeExample.app' >> "$GITHUB_ENV"
+          echo 'LOUPE_EXAMPLE_PREBUILT_INJECTOR=/tmp/loupe-idb-runtime/LoupeInjector' >> "$GITHUB_ENV"
+      - name: Select exact device and optional existing widget profile
         run: |
           set -euo pipefail
           source Examples/LoupeExample/build-simulator-artifacts.sh
           configure_loupe_ios_verification
-          xcrun simctl list runtimes
           device="$(loupe_ios_verification_device)"
           echo "LOUPE_DEVICE=$device" >> "$GITHUB_ENV"
-          python3 scripts/ci-simulator-widgets.py "$device" prepare
-      - name: Verify HID framework loading and messages
-        run: |
-          bash scripts/verify-hid-framework-loading.sh
-          bash scripts/verify-hid-touch-messages.sh
-      - name: Download matching iOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: loupe-ios27-artifacts-${{ github.run_attempt }}
-          path: /tmp/loupe-ci-artifact-download
-      - name: Use artifacts built from this checkout
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/loupe-ci-ios-runtime
-          tar -xzf /tmp/loupe-ci-artifact-download/loupe-ci-ios-artifacts.tar.gz -C /tmp/loupe-ci-ios-runtime
-          test "$(cat /tmp/loupe-ci-ios-runtime/source-sha)" = "$(git rev-parse HEAD)"
-          echo 'LOUPE_TOUCH_CLI=/tmp/loupe-ci-ios-runtime/loupe' >> "$GITHUB_ENV"
-          echo 'LOUPE_EXAMPLE_PREBUILT_INJECTOR=/tmp/loupe-ci-ios-runtime/LoupeInjector' >> "$GITHUB_ENV"
-          echo 'LOUPE_EXAMPLE_PREBUILT_APP=/tmp/loupe-ci-ios-runtime/LoupeExample.app' >> "$GITHUB_ENV"
-      - name: Verify iOS touch and input with Xcode 27
-        run: |
-          Examples/LoupeExample/run-touch-e2e.sh
-          python3 scripts/ci-simulator-widgets.py "$LOUPE_DEVICE" verify
-      - name: Collect Xcode 27 app crash diagnostics
-        if: failure()
-        timeout-minutes: 2
-        shell: bash
-        run: |
-          set -uo pipefail
-          mkdir -p /tmp/loupe-xcode27-crashes
-          xcrun simctl spawn "$LOUPE_DEVICE" log show --last 5m --style compact --predicate 'process == "LoupeExample" OR eventMessage CONTAINS "LoupeExample"' > /tmp/loupe-xcode27-crashes/app-system.log 2>&1 || true
-          ps -axo pid,ppid,pcpu,rss,command > /tmp/loupe-xcode27-crashes/processes.txt
-          while IFS= read -r loupe_app_pid; do
-            sample "$loupe_app_pid" 3 -file "/tmp/loupe-xcode27-crashes/app-$loupe_app_pid-sample.txt" || true
-          done < <(pgrep -x LoupeExample || true)
-          shopt -s nullglob
-          for loupe_report in "$HOME"/Library/Logs/DiagnosticReports/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/Retired/LoupeExample* "$HOME"/Library/Logs/DiagnosticReports/JetsamEvent* "$HOME"/Library/Developer/CoreSimulator/Devices/"$LOUPE_DEVICE"/data/Library/Logs/CrashReporter/LoupeExample*; do
-            cp "$loupe_report" /tmp/loupe-xcode27-crashes/ || true
-          done
-      - name: Upload Xcode 27 evidence
+          if [[ '${{ matrix.profile }}' == widgets ]]; then
+            python3 scripts/ci-simulator-widgets.py "$device" prepare
+          fi
+      - name: Compare native and idb input with identical app-state assertions
+        run: bash poc/idb/run.sh
+      - name: Upload every result including unsupported capabilities
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: loupe-xcode27-touch-${{ github.run_attempt }}
-          if-no-files-found: ignore
+          name: idb-poc-${{ matrix.target }}-${{ matrix.profile }}-${{ github.run_attempt }}
           path: |
-            /tmp/loupe-xcode27-crashes/
-            /tmp/loupe-touch-evidence-*
-            /tmp/loupe-touch-*.log
-            /tmp/loupe-example-build.log
-            /tmp/loupe-injector-build.log
-
-  swiftpm-tests:
-    name: SwiftPM Tests
-    runs-on: macos-26
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh
-
-      - name: Run SwiftPM tests
-        run: swift test
-
-      - name: Verify native work with one cooperative thread
-        run: DISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter SimulatorNativeWorkTests
-
-      - name: Verify SimulatorKit framework loading
-        run: scripts/verify-hid-framework-loading.sh
-
-      - name: Verify SimulatorKit touch message layout
-        run: bash scripts/verify-hid-touch-messages.sh
-
-      - name: Verify simulator preference lifecycle
-        run: scripts/verify-simulator-preferences-lifecycle.sh
-      - name: Verify hosted Simulator widget safeguards
-        run: python3 scripts/verify-ci-simulator-widgets.py
-
-  release-and-platform-builds:
-    name: Release and Platform Builds
-    runs-on: macos-26
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
-
-      - name: Release CLI build
-        run: swift build --configuration release --disable-sandbox --product loupe
-
-      - name: CLI contract checks
-        run: xcrun python3 scripts/verify-cli-contracts.py .build/release/loupe
-
-      - name: Platform builds
-        run: scripts/verify-platform-builds.sh
-
-      - name: Upload build diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-build-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-*
-
-  macos-e2e:
-    name: macOS E2E
-    runs-on: macos-26
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh
-
-      - name: Run macOS example E2E
-        run: scripts/ci-run-with-diagnostics.sh "macOS E2E" Examples/MacLoupeExample/run-macos-e2e.sh
-
-      - name: Upload macOS diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-macos-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-macos-*
-            /tmp/loupe-ci-*
-
-  tvos-e2e:
-    name: tvOS E2E
-    runs-on: macos-26
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
-
-      - name: Run tvOS example E2E
-        run: scripts/ci-run-with-diagnostics.sh "tvOS E2E" Examples/LoupeTVExample/run-tvos-runtime-e2e.sh
-
-      - name: Upload tvOS diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-tvos-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-tvos-*
-            /tmp/loupe-ci-*
-
-  watchos-e2e:
-    name: watchOS E2E
-    runs-on: macos-26
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
-
-      - name: Run watchOS example E2E
-        run: scripts/ci-run-with-diagnostics.sh "watchOS E2E" Examples/LoupeWatchExample/run-watchos-runtime-e2e.sh
-
-      - name: Upload watchOS diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-watchos-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-watchos-*
-            /tmp/loupe-ci-*
-
-  ios-injected-e2e:
-    name: iOS Injected E2E
-    runs-on: macos-26
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
-
-      - name: Run injected log E2E
-        run: scripts/ci-run-with-diagnostics.sh "iOS Injected E2E" Examples/LoupeExample/run-injected.sh
-
-      - name: Upload iOS injected diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-ios-injected-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-example-*
-            /tmp/loupe-touch-keyboards*
+            /tmp/loupe-idb-evidence/
             /tmp/loupe-touch-boot.log
-            /tmp/loupe-ci-*
-            /tmp/loupe-injector-build.log
-
-  ios-runtime-e2e:
-    name: iOS Runtime E2E
-    runs-on: macos-26
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
-
-      - name: Run runtime E2E
-        run: scripts/ci-run-with-diagnostics.sh "iOS Runtime E2E" Examples/LoupeExample/run-runtime-e2e.sh
-
-      - name: Upload iOS runtime diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-ios-runtime-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-runtime-*
-            /tmp/loupe-touch-keyboards*
-            /tmp/loupe-touch-boot.log
-            /tmp/loupe-ci-*
-            /tmp/loupe-example-build.log
-            /tmp/loupe-injector-build.log
-
-  ios-native-e2e:
-    name: iOS Native Scenario E2E
-    runs-on: macos-26
-    timeout-minutes: 35
-    env:
-      LOUPE_EXAMPLE_BUILD_ROOT: "/tmp/loupe-native-shared-build"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh
-
-      - name: Run native scenario E2E
-        run: scripts/ci-run-with-diagnostics.sh "iOS Native Scenario E2E" Examples/LoupeExample/run-native-scenarios.sh
-
-      - name: Run touch gesture E2E
-        env:
-          LOUPE_HID_DIAGNOSTICS: "1"
-        run: scripts/ci-run-with-diagnostics.sh "iOS Touch Gesture E2E" Examples/LoupeExample/run-touch-e2e.sh
-
-      - name: Upload iOS native diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-ios-native-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-native-*
-            /tmp/loupe-touch-*
-            /tmp/loupe-ci-*
-            /tmp/loupe-example-build.log
-            /tmp/loupe-injector-build.log
-
-  ios-bookmark-e2e:
-    name: iOS Bookmark E2E
-    runs-on: macos-26
-    timeout-minutes: 35
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh --simulators
-
-      - name: Run bookmark E2E
-        run: scripts/ci-run-with-diagnostics.sh "iOS Bookmark E2E" Examples/LoupeExample/run-bookmark-e2e.sh
-
-      - name: Upload iOS bookmark diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loupe-ios-bookmark-diagnostics-${{ github.run_attempt }}
-          if-no-files-found: ignore
-          path: |
-            /tmp/loupe-bookmark-*
-            /tmp/loupe-touch-keyboards*
-            /tmp/loupe-touch-boot.log
-            /tmp/loupe-ci-*
-            /tmp/loupe-example-build.log
-            /tmp/loupe-injector-build.log
+            /tmp/loupe-touch-keyboards.*
+          if-no-files-found: warn
