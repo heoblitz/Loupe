@@ -16,7 +16,8 @@ if [[ "${LOUPE_TOUCH_OPEN_DEVICE_HUB:-0}" == 1 ]]; then
   /usr/bin/open -a "${DEVELOPER_DIR%/Developer}/Applications/DeviceHub.app" "devices://device/open?id=$DEVICE"
 fi
 xcrun simctl install "$DEVICE" "$APP_PATH"
-"${IDB_COMPANION:?}" --udid "$DEVICE" --grpc-port 0 --log-level debug --log-hid-details true > "$evidence/companion.jsonl" 2> "$evidence/companion.log" &
+# Exact simulator PoC: do not initialize unrelated physical-device discovery.
+"${IDB_COMPANION:?}" --only simulator --udid "$DEVICE" --grpc-port 0 --log-level debug --log-hid-details true > "$evidence/companion.jsonl" 2> "$evidence/companion.log" &
 companion_pid=$!
 cleanup() {
   local result=$?

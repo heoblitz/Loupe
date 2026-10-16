@@ -15,6 +15,8 @@ study or the three-cycle release gate.
 without Loupe injection, discover frames through idb AX, send HID taps/long
 presses, set Unicode with AX, verify app state/change events through idb AX,
 and take screenshots. It never invokes a Loupe observation/action command.
+The companion uses `--only simulator` to avoid initializing physical-device
+discovery on a simulator-only host. Launch readiness stays within 30 seconds.
 
 Tests cover buttons, gesture taps, long press, scrolling in both directions,
 held drag, ASCII and Korean/emoji input, plus separate idb accessibility tree,
