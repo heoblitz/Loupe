@@ -96,11 +96,31 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
     private mutating func collectProperty(name: String?, typeName: String, value: Any) {
         guard properties.count < maxProperties,
               let name,
-              !seenPropertyNames.contains(name),
-              let primitive = firstPrimitive(in: value, depth: 0) else {
+              !seenPropertyNames.contains(name) else {
             return
         }
 
+        if isDeferredSwiftUIState(value, typeName: typeName) {
+            seenPropertyNames.insert(name)
+            properties.append(LoupeSwiftUIProperty(
+                name: name,
+                typeName: typeName,
+                valueUnavailableReason: "deferredInitializer",
+                evidence: ["privateReflection", "propertyName"]
+            ))
+            return
+        }
+        guard let primitive = firstPrimitive(in: value, depth: 0) else {
+            if isSwiftUIStateStorage(typeName) {
+                seenPropertyNames.insert(name)
+                properties.append(LoupeSwiftUIProperty(
+                    name: name, typeName: typeName,
+                    valueUnavailableReason: remainingValues == 0 ? "reflectionBudgetExceeded" : "unsupportedStateValue",
+                    evidence: ["privateReflection", "propertyName"]
+                ))
+            }
+            return
+        }
         seenPropertyNames.insert(name)
         properties.append(
             LoupeSwiftUIProperty(
@@ -151,6 +171,24 @@ private struct LoupeSwiftUIPrivateSummaryBuilder {
         }
         return nil
     }
+}
+
+private func isSwiftUIStateStorage(_ typeName: String) -> Bool {
+    ["SwiftUI.State<", "SwiftUI.LazyState<", "SwiftUICore.State<", "SwiftUICore.LazyState<"].contains {
+        typeName.hasPrefix($0)
+    }
+}
+
+private func isDeferredSwiftUIState(_ value: Any, typeName: String) -> Bool {
+    guard typeName.hasPrefix("SwiftUI.LazyState<") || typeName.hasPrefix("SwiftUICore.LazyState<") else {
+        return false
+    }
+    // Inspect only the stored enum tag. Calling wrappedValue or the thunk
+    // would execute application code and manufacture a value while observing.
+    guard let storage = Mirror(reflecting: value).children.prefix(24).first(where: { $0.label == "_storage" }) else {
+        return false
+    }
+    return Mirror(reflecting: storage.value).children.prefix(1).contains { $0.label == "thunk" }
 }
 
 private func displayTypeName(for value: Any) -> String {

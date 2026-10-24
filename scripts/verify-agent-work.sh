@@ -15,6 +15,7 @@ run_step "swift test" swift test
 run_step "native work with one cooperative thread" env DISPATCH_COOPERATIVE_POOL_STRICT=1 swift test --filter SimulatorNativeWorkTests
 run_step "HID framework loading" bash scripts/verify-hid-framework-loading.sh
 run_step "HID touch messages" bash scripts/verify-hid-touch-messages.sh
+run_step "DTUHID transport" bash scripts/verify-dtuhid-transport.sh
 run_step "simulator preference lifecycle" scripts/verify-simulator-preferences-lifecycle.sh
 run_step "hosted Simulator widget safeguards" python3 scripts/verify-ci-simulator-widgets.py
 run_step "release CLI build" swift build --configuration release --disable-sandbox --product loupe

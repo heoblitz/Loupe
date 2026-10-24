@@ -124,17 +124,20 @@ public struct LoupeSwiftUIProperty: Codable, Equatable, Sendable {
     public var name: String
     public var typeName: String
     public var value: LoupeMetadataValue?
+    public var valueUnavailableReason: String?
     public var evidence: [String]
 
     public init(
         name: String,
         typeName: String,
         value: LoupeMetadataValue? = nil,
+        valueUnavailableReason: String? = nil,
         evidence: [String] = []
     ) {
         self.name = name
         self.typeName = typeName
         self.value = value
+        self.valueUnavailableReason = valueUnavailableReason
         self.evidence = evidence
     }
 }

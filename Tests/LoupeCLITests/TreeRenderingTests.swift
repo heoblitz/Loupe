@@ -144,6 +144,12 @@ struct TreeRenderingTests {
                                 value: .string("Profile"),
                                 evidence: ["privateReflection", "propertyName"]
                             ),
+                            LoupeSwiftUIProperty(
+                                name: "pending",
+                                typeName: "SwiftUI.LazyState<String>",
+                                valueUnavailableReason: "deferredInitializer",
+                                evidence: ["privateReflection", "propertyName"]
+                            ),
                         ],
                         evidence: ["backingTypeName"]
                     )
@@ -160,5 +166,6 @@ struct TreeRenderingTests {
 
         #expect(output.contains("host _UIHostingView<ProfileView> swiftui=host root=ProfileView props=mode=\"Profile\""))
         #expect(!output.contains("swiftui=private"))
+        #expect(output.contains("pending=<unavailable:deferredInitializer>"))
     }
 }

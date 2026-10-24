@@ -15,8 +15,8 @@ one contact down before moving it; it is not a long press followed by a new drag
 
 | Runtime | Target discovery | Input delivery |
 | --- | --- | --- |
-| Simulator / UIKit | Accessibility, wired controls, enabled recognizers, scrollable content | Host SimulatorKit HID |
-| Simulator / SwiftUI | Native accessibility, bounded debug gesture declarations with verified geometry | Host SimulatorKit HID |
+| Simulator / UIKit | Accessibility, wired controls, enabled recognizers, scrollable content | Host DTUHID when available; legacy SimulatorKit otherwise |
+| Simulator / SwiftUI | Native accessibility, bounded debug gesture declarations with verified geometry | Host DTUHID when available; legacy SimulatorKit otherwise |
 | Physical iOS / UIKit | Same discovery rules | Linked Debug injector, UIKit touch dispatch |
 | Physical iOS / SwiftUI | Same discovery rules; prepare accessibility before first observation | Linked Debug injector, UIKit touch dispatch |
 
@@ -25,6 +25,32 @@ its focused `UIKeyInput` responder, preserving Korean and emoji independently
 of keyboard layout. Physical injection is development-only. SwiftUI private
 metadata may vary by OS; unsupported declarations are omitted. Pinch and
 multitouch are outside this change.
+
+Modern CoreSimulator supplies `com.apple.coredevice.feature.remote.hid.digitizer`
+through `dtuhidd`. Loupe looks this service up on the selected, booted device and
+confirms a live peer before sending input. A separate no-event barrier confirms
+that the daemon consumed preceding events before the connection is released.
+Only a known unsupported-service response permits the legacy transport; a dead
+or unresponsive modern service is reported as an error. No action is replayed.
+This follows the transport and simulator-XPC protocol documented by
+[idb](https://github.com/facebook/idb/tree/main/FBSimulatorControl/HID).
+
+The previous Xcode 27 screen-class check selected a manually registered virtual
+digitizer for older guests too. Real tests with Xcode 27.1 / iOS 26.3 showed
+successful send acknowledgements without application-state changes; legacy
+input could also stop working after the guest's modern service activated.
+The DTUHID path passes the same complete UIKit/SwiftUI input suite with Device
+Hub active, including a fresh-process SwiftUI launch. Byte-format fixtures alone
+cannot verify input delivery.
+
+New SDKs can store an uninitialized `@State` value as a `LazyState` closure.
+Reflection never calls that closure. Such a property retains its name and type,
+has no value, and reports `valueUnavailableReason: "deferredInitializer"`;
+compact trees show `<unavailable:deferredInitializer>`. Explicitly initialized
+state remains readable; opaque state values report `unsupportedStateValue`
+without calling them. The macOS fixture initializes the state checked by its
+existing E2E assertion explicitly, while platform tests cover both forms and
+verify that observation does not execute the deferred initializer.
 
 ## One local and CI entry point
 
@@ -41,11 +67,11 @@ modification, action replay or extended diagnostic deadline is used.
 
 All iOS E2E scripts share toolchain checks, device selection and a strict
 180-second boot completion gate (without a launchd-only fallback) in
-`build-simulator-artifacts.sh`: Xcode 26.3 on Apple Silicon, iOS 26.2/iPhone 17 Pro. Missing or mismatched runtimes fail before input;
+`build-simulator-artifacts.sh`: Xcode 26.6 on Apple Silicon, iOS 26.2/iPhone 17 Pro. Missing or mismatched runtimes fail before input;
 `LOUPE_DEVICE` selects an exact device within that runtime. For additional OS
 coverage, explicitly set `LOUPE_TOUCH_RUNTIME_VERSION` in either environment.
-An additional Xcode 27.0 / iOS 27.0 job verifies screen-routed input. Select it
-locally with `LOUPE_TOUCH_XCODE_VERSION=27.0` and
+An additional Xcode 27.1 / iOS 27.0 job verifies the modern input service. Select it
+locally with `LOUPE_TOUCH_XCODE_VERSION=27.1` and
 `LOUPE_TOUCH_RUNTIME_VERSION=27.0`, plus `DEVELOPER_DIR` for that Xcode.
 The iOS 27 jobs use the image's existing iPhone 17. A separate build job
 produces the CLI, injector, and fixture without booting a device. Runtime jobs
@@ -81,7 +107,8 @@ its existing launch deadline, preparing accessibility before input begins.
 Both use the Python interpreter shipped with the selected Xcode for the
 standard-library harness, rather than a separately updated Homebrew Python.
 
-Verify pins Xcode for every job. Bottle builds also select Xcode 26.3 through
+Verify tests SwiftPM, loader discovery and both transport contracts on Xcode
+26.6 and 27.1. Bottle builds retain Xcode 26.3 through
 `xcode-select`, because Homebrew sanitizes `DEVELOPER_DIR`, and check the version
 recorded in bottle metadata. Apple Silicon bottles are built/poured on macOS 15; runtime
 coverage uses macOS 26. Intel Macs are not supported.

@@ -16,12 +16,9 @@ xcodebuild \
   -configuration Debug \
   -derivedDataPath /tmp/loupe-macos-example-build \
   build >/tmp/loupe-macos-example-build.log
-INJECTOR_PATH="$(
-  find .build \
-    -path '*debug/libLoupeInjector.dylib' \
-    -print0 | xargs -0 ls -t 2>/dev/null | head -1 || true
-)"
-if [[ -z "$INJECTOR_PATH" ]]; then
+INJECTOR_BIN_DIR="$(swift build --product LoupeInjector --show-bin-path)"
+INJECTOR_PATH="$INJECTOR_BIN_DIR/libLoupeInjector.dylib"
+if [[ ! -f "$INJECTOR_PATH" ]]; then
   echo "error: could not find macOS LoupeInjector dylib" >&2
   exit 1
 fi

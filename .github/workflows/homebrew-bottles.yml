@@ -104,14 +104,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
-            xcode: "26.3"
+          - runner: macos-26
+            xcode: "26.6"
             runtime: "26.2"
-            developer_dir: /Applications/Xcode_26.3.app/Contents/Developer
+            developer_dir: /Applications/Xcode_26.6.app/Contents/Developer
           - runner: xcode-27
-            xcode: "27.0"
+            xcode: "27.1"
             runtime: "27.0"
-            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+            developer_dir: /Applications/Xcode_27.1.app/Contents/Developer
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
@@ -258,13 +258,13 @@ jobs:
       matrix:
         include:
           - runner: macos-26
-            xcode: "26.3"
+            xcode: "26.6"
             runtime: "26.2"
-            developer_dir: /Applications/Xcode_26.3.app/Contents/Developer
+            developer_dir: /Applications/Xcode_26.6.app/Contents/Developer
           - runner: xcode-27
-            xcode: "27.0"
+            xcode: "27.1"
             runtime: "27.0"
-            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+            developer_dir: /Applications/Xcode_27.1.app/Contents/Developer
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:

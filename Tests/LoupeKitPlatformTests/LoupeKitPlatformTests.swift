@@ -124,6 +124,79 @@ private enum SocketTestError: Error {
 #if canImport(AppKit) && !canImport(UIKit)
 import AppKit
 import SwiftUI
+
+private final class DeferredStateInitializerProbe: @unchecked Sendable {
+    static let shared = DeferredStateInitializerProbe()
+    private let lock = NSLock()
+    private var calls = 0
+
+    func value() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        calls += 1
+        return "Deferred"
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
+private struct DeferredStateFixtureView: View {
+    @State private var mode = DeferredStateInitializerProbe.shared.value()
+    var body: some View { EmptyView() }
+}
+
+private struct InitializedStateFixtureView: View {
+    @State private var mode: String
+    init() { _mode = State(initialValue: "Initialized") }
+    var body: some View { EmptyView() }
+}
+
+private struct OpaqueStateFixtureView: View {
+    @State private var callback: () -> String
+    init() { _callback = State(initialValue: { DeferredStateInitializerProbe.shared.value() }) }
+    var body: some View { EmptyView() }
+}
+
+@MainActor @Suite(.serialized) struct LoupeDeferredStateReflectionTests {
+    @Test func reflectionNeverExecutesADeferredStateInitializer() throws {
+        @MainActor final class Host: NSObject { let rootView = DeferredStateFixtureView() }
+        let host = Host()
+        let before = DeferredStateInitializerProbe.shared.count
+        let summary = loupeSwiftUIPrivateSummary(from: host)
+        let property = try #require(summary?.properties.first { $0.name == "mode" })
+        #expect(DeferredStateInitializerProbe.shared.count == before)
+        if property.typeName.contains("LazyState") {
+            #expect(property.value == nil)
+            #expect(property.valueUnavailableReason == "deferredInitializer")
+        } else {
+            // Earlier SDKs initialize the same @State declaration eagerly.
+            #expect(property.value == .string("Deferred"))
+            #expect(property.valueUnavailableReason == nil)
+        }
+    }
+
+    @Test func explicitlyInitializedStateRemainsReadable() throws {
+        @MainActor final class Host: NSObject { let rootView = InitializedStateFixtureView() }
+        let summary = loupeSwiftUIPrivateSummary(from: Host())
+        let property = try #require(summary?.properties.first { $0.name == "mode" })
+        #expect(property.value == .string("Initialized"))
+        #expect(property.valueUnavailableReason == nil)
+    }
+
+    @Test func opaqueStateIsReportedWithoutExecutingItsValue() throws {
+        @MainActor final class Host: NSObject { let rootView = OpaqueStateFixtureView() }
+        let before = DeferredStateInitializerProbe.shared.count
+        let summary = loupeSwiftUIPrivateSummary(from: Host())
+        let property = try #require(summary?.properties.first { $0.name == "callback" })
+        #expect(property.value == nil)
+        #expect(property.valueUnavailableReason == "unsupportedStateValue")
+        #expect(DeferredStateInitializerProbe.shared.count == before)
+    }
+}
 #endif
 
 #if canImport(UIKit) || canImport(AppKit)

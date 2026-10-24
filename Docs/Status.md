@@ -85,7 +85,10 @@ It runs:
 
 - `swift test`
 - isolated SimulatorKit loading fixtures for legacy/shared framework paths,
-  an unloadable legacy bundle, and missing-framework diagnostics
+  relocated frameworks within the selected Xcode, app paths/symlinks,
+  unloadable bundles, and missing-framework diagnostics
+- DTUHID transport checks against a local XPC peer, including contact phases,
+  keyboard events, completion barriers, and unresponsive-service failures
 - benchmark helper syntax, case contracts, prompt generation,
   transcript-diagnosis, usage parsing, and replay-matrix freshness checks
 - release CLI build

@@ -5153,6 +5153,9 @@ struct LoupeCLI {
                 if let value = property.value {
                     return "\(property.name)=\(metadataValueSummary(value))"
                 }
+                if let reason = property.valueUnavailableReason {
+                    return "\(property.name)=<unavailable:\(reason)>"
+                }
                 return "\(property.name):\(property.typeName)"
             }.joined(separator: ",")
             parts.append("props=\(properties)")

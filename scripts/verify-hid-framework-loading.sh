@@ -26,7 +26,7 @@ EOF
 
 xcrun clang -fobjc-arc -framework AppKit -framework CoreImage -framework IOSurface -framework ImageIO \
   -I "$ROOT_DIR/Sources/LoupeHID" -I "$ROOT_DIR/Sources/LoupeHID/include" \
-  "$TEST_DIR/probe.m" -o "$TEST_DIR/probe"
+  "$TEST_DIR/probe.m" "$ROOT_DIR/Sources/LoupeHID/LoupeDTUHID.m" -o "$TEST_DIR/probe"
 printf 'void LoupeFrameworkFixture(void) {}\n' | \
   xcrun clang -x c -dynamiclib -o "$TEST_DIR/fixture" -
 
@@ -54,14 +54,28 @@ mkdir -p "$shared"
 make_framework "$(dirname "$shared")/SharedFrameworks/SimulatorKit.framework"
 DEVELOPER_DIR="$shared" "$TEST_DIR/probe"
 DEVELOPER_DIR="$shared/" "$TEST_DIR/probe"
+DEVELOPER_DIR="$(dirname "$(dirname "$shared")")" "$TEST_DIR/probe"
+ln -s "$(dirname "$(dirname "$shared")")" "$TEST_DIR/SelectedXcode.app"
+DEVELOPER_DIR="$TEST_DIR/SelectedXcode.app" "$TEST_DIR/probe"
 
 # An existing but unloadable legacy bundle must not prevent the fallback.
 make_framework "$shared/Library/PrivateFrameworks/SimulatorKit.framework"
 printf 'invalid framework executable\n' >"$shared/Library/PrivateFrameworks/SimulatorKit.framework/SimulatorKit"
 DEVELOPER_DIR="$shared" "$TEST_DIR/probe" 2>"$TEST_DIR/fallback.log"
 
+relocated="$TEST_DIR/relocated/Xcode.app/Contents/Developer"
+mkdir -p "$relocated"
+make_framework "$(dirname "$relocated")/FutureTools/Runtime/Frameworks/SimulatorKit.framework"
+DEVELOPER_DIR="$relocated" "$TEST_DIR/probe"
+make_framework "$relocated/Library/PrivateFrameworks/SimulatorKit.framework"
+printf 'invalid framework executable\n' >"$relocated/Library/PrivateFrameworks/SimulatorKit.framework/SimulatorKit"
+DEVELOPER_DIR="$relocated" "$TEST_DIR/probe" 2>"$TEST_DIR/relocated-fallback.log"
+
 missing="$TEST_DIR/missing/Xcode.app/Contents/Developer"
 mkdir -p "$missing"
+# Neither an SDK framework nor another Xcode may satisfy host discovery.
+make_framework "$missing/Platforms/Test.platform/Developer/SDKs/Test.sdk/Frameworks/SimulatorKit.framework"
+make_framework "$TEST_DIR/missing/OtherXcode.app/Contents/SharedFrameworks/SimulatorKit.framework"
 if DEVELOPER_DIR="$missing" "$TEST_DIR/probe" 2>"$TEST_DIR/missing.log"; then
   echo "error: missing SimulatorKit unexpectedly loaded" >&2
   exit 1
@@ -77,4 +91,4 @@ for expected in \
   fi
 done
 
-echo "HID framework loading passed: legacy, shared, trailing slash, unloadable fallback, missing diagnostics"
+echo "HID framework loading passed: legacy, shared, app path, symlink, relocated framework, unloadable fallback, selected Xcode isolation, missing diagnostics"
