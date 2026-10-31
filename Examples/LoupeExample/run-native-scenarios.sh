@@ -590,6 +590,7 @@ grep -q '"className" : "WKWebView"' "$INSPECT_PATH"
 grep -q '"role" : "webView"' "$INSPECT_PATH"
 grep -q '"webView"' "$INSPECT_PATH"
 grep -q '"url" : "https:\\/\\/loupe.local\\/fixture"' "$INSPECT_PATH"
+Examples/LoupeExample/verify-web-accessibility.sh "$HOST" "$DEVICE"
 
 launch_app fixtures.keyboard
 .build/debug/loupe act wait visible --host "$HOST" --test-id example.fixtures.keyboard.firstName --timeout 5 >/tmp/loupe-native-wait-keyboard.json

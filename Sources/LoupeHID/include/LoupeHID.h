@@ -23,6 +23,7 @@ int LoupeHIDDrag(
 );
 int LoupeHIDType(const char *udid, const char *text, char **errorMessage);
 int LoupeHIDPress(const char *udid, const char *button, char **errorMessage);
+int LoupeSimulatorWebElements(const char *udid, int appPID, double x, double y, double width, double height, double timeout, char **json, char **errorMessage);
 int LoupeSimulatorCopyPNG(const char *udid, void **bytes, size_t *count, char **errorMessage);
 void LoupeSimulatorFreeBuffer(void *bytes);
 void LoupeHIDFreeCString(char *string);

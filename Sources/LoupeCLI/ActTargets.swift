@@ -10,14 +10,16 @@ struct ActTargetsOptions {
     var search: String?
     var limit: Int
     var includeAll: Bool
+    var includeWeb: Bool
 
     init(_ arguments: [String]) throws {
         host = nil
         var udid: String?
-        var timeout: TimeInterval = 5
+        var timeout: TimeInterval?
         var search: String?
         var limit = 30
         var includeAll = false
+        var includeWeb = false
         var index = 0
 
         while index < arguments.count {
@@ -49,6 +51,8 @@ struct ActTargetsOptions {
                 limit = value
             case "--all":
                 includeAll = true
+            case "--include-web":
+                includeWeb = true
             default:
                 throw CLIError("Unknown targets option: \(argument)")
             }
@@ -56,10 +60,11 @@ struct ActTargetsOptions {
         }
 
         self.udid = udid
-        self.timeout = timeout
+        self.timeout = timeout ?? (includeWeb ? 15 : 5)
         self.search = search
         self.limit = limit
         self.includeAll = includeAll
+        self.includeWeb = includeWeb
     }
 
     private static func value(after option: String, in arguments: [String], index: inout Int) throws -> String {
@@ -91,7 +96,11 @@ extension LoupeCLI {
             throw CLIError("Loupe runtime did not report a bundle identifier; cannot cache action targets")
         }
 
-        let observation = try await fetchAccessibilityActionObservation(host: host, timeout: options.timeout)
+        var observation = try await fetchAccessibilityActionObservation(host: host, timeout: options.timeout)
+        if options.includeWeb {
+            try await addWebTargets(snapshot: &observation.snapshot, identity: runtimeState.identity, timeout: options.timeout)
+            FileHandle.standardError.write(Data("Web targets are sampled from visible content and may be incomplete.\n".utf8))
+        }
         let cache = ActionTargetAliasPlanner.makeCache(
             snapshot: observation.snapshot,
             accessibilityTree: observation.tree,

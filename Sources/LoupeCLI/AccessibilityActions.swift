@@ -91,7 +91,26 @@ extension LoupeCLI {
         let focusSelector: LoupeSelector
         let retryTargetArguments: [String]
         if let alias = tapOptions.targetAlias {
-            let entry = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: tapOptions.host)).load().target(at: alias)
+            let cache = try ActionTargetAliasCacheStore(url: ActionTargetAliasCacheStore.defaultURL(host: tapOptions.host)).load()
+            let entry = try cache.target(at: alias)
+            if entry.ref.hasPrefix("web:") {
+                guard ["textField", "textArea"].contains(entry.role) else {
+                    throw CLIError("Web input target is not a text field")
+                }
+                let state = try await fetchRuntimeState(host: tapOptions.host, timeout: tapOptions.timeout)
+                try cache.validate(host: tapOptions.host, runtimeIdentity: state.identity)
+                try await action(command: "tap", arguments: options.targetArguments + options.commonArguments)
+                let snapshot = try await fetchSnapshot(host: tapOptions.host, timeout: tapOptions.timeout)
+                var elements = try await webElements(snapshot: snapshot, identity: state.identity, timeout: tapOptions.timeout, near: entry.point)
+                if !elements.contains(where: { "web:\($0.id)" == entry.ref }) {
+                    elements = try await webElements(snapshot: snapshot, identity: state.identity, timeout: tapOptions.timeout)
+                }
+                guard elements.contains(where: { "web:\($0.id)" == entry.ref && $0.focused && $0.enabled }) else {
+                    throw CLIError("Web input target did not report focus after tap")
+                }
+                try await action(command: "type", arguments: [options.text] + options.commonArguments)
+                return
+            }
             focusSelector = try inputFocusSelector(forSavedAliasTestID: entry.testID)
             retryTargetArguments = try inputRetryTargetArguments(focusSelector)
         } else if let selector = tapOptions.selector {
