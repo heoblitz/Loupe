@@ -94,6 +94,31 @@ loupe debug trace summary /tmp/loupe-tap
 loupe debug trace diff /tmp/loupe-tap/before-snapshot.json /tmp/loupe-tap/after-snapshot.json --changed-only
 ```
 
+For WKWebView content on iOS Simulator, discover web accessibility elements
+and include them in action targets:
+
+```bash
+loupe ui web --udid <simulator-udid>
+loupe act targets --udid <simulator-udid> --include-web --search "Submit"
+loupe act tap '#1' --udid <simulator-udid>
+# List targets again before using an alias for a text field.
+loupe act targets --udid <simulator-udid> --include-web --search "Name"
+loupe act input '#1' "Loupe" --udid <simulator-udid>
+```
+
+Web discovery samples points in visible WKWebView regions, so it can miss
+small or offscreen elements and is not a complete accessibility tree. The
+app must be frontmost. Web targets are rechecked before input; a changed or
+ambiguous target fails instead of using an old coordinate. Physical-device
+web discovery is not currently supported.
+Web discovery defaults to a 15-second timeout because it makes many
+cross-process accessibility requests; `--timeout` overrides this limit.
+
+Simulator input uses the available DTUHID service when present, including
+with Xcode 27 Device Hub, and retains the legacy transport on older simulator
+toolchains. The Device Hub regression covers the main display; secondary
+displays have not been verified.
+
 ## Agent Workflow
 
 A compact starting prompt:

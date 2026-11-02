@@ -736,7 +736,13 @@ private struct MacSwiftUIFixtureView: View {
 private struct MacSwiftUIScreenView: View {
     @State private var enabled = true
     @State private var value = 0.42
-    @State private var mode = "Inspect"
+    @State private var mode: String
+
+    init() {
+        // Keep the fixture's reflected value eager on SDKs that otherwise
+        // store a deferred state initializer instead of the value.
+        _mode = State(initialValue: "Inspect")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

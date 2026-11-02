@@ -83,6 +83,8 @@ extension LoupeCLI {
             } else {
                 try await liveAccessibility(rest)
             }
+        case "web":
+            try await webAccessibility(rest)
         case "screenshot":
             try screenshot(rest)
         case "node":

@@ -21,6 +21,7 @@ extension LoupeCLI {
       tree                    Print view or accessibility trees.
       screen                  Print visible semantic and styled elements.
       accessibility           Export an accessibility tree.
+      web                     Discover visible web accessibility elements.
       screenshot              Save a platform screenshot to a path.
       node                    Inspect one matched node with local context.
       query                   Query by selector.
@@ -45,7 +46,7 @@ extension LoupeCLI {
     Usage: loupe act <subcommand>
 
     SUBCOMMANDS:
-      targets                 List verified accessibility action targets (--search, --limit, --all).
+      targets                 List action targets (--search, --limit, --all, --include-web).
       perform                 Perform an Apple accessibility action on a target.
       tap                     Tap a selector, ref, or coordinate.
       swipe                   Dispatch a one-finger swipe.
@@ -109,6 +110,8 @@ extension LoupeCLI {
             return "Usage: loupe ui screen [snapshot.json | --host <url> | --bundle-id <id>] [--udid <sim>] [--include-hidden] [--include-containers] [--limit <n>]"
         case "ui accessibility":
             return "Usage: loupe ui accessibility [snapshot.json | --host <url> | --bundle-id <id>] [--udid <sim>] [--include-hidden] [--output <path>]"
+        case "ui web":
+            return "Usage: loupe ui web [--host <url>] [--udid <sim>] [--bundle-id <id>] [--output <path>] [--timeout <seconds>]\n\nSamples visible WKWebView regions on iOS Simulator; small or offscreen elements may be missed."
         case "ui screenshot":
             return "Usage: loupe ui screenshot --udid <sim> --output <path> [--timeout <seconds>]"
         case "ui node":
@@ -146,7 +149,7 @@ extension LoupeCLI {
         case "ui apply-design-suggestions":
             return ApplyDesignSuggestionsOptions.usage
         case "act targets":
-            return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]\nOptions: [--search <text>] [--limit <n>] [--all]\n\nExample: loupe act targets"
+            return "Usage: loupe act targets [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]\nOptions: [--search <text>] [--limit <n>] [--all] [--include-web]\n\n--include-web samples visible WKWebView regions on iOS Simulator; small or offscreen elements may be missed.\nExample: loupe act targets"
         case "act perform":
             return "Usage: loupe act perform ('#N' <action> | --test-id <id> --action <action> | --ref <ref> --action <action>) [--host <url>] [--bundle-id <id>] [--udid <sim>] [--timeout <seconds>]\n\nExample: loupe act perform '#4' increment"
         case "act tap":
@@ -161,7 +164,7 @@ extension LoupeCLI {
         case "act drag":
             return "Usage: loupe act drag --from x,y --to x,y [--udid <sim>] [--host <url>] [--bundle-id <id>] [--duration <seconds>] [--hold-duration <seconds>] [--trace-dir <path>] [--timeout <seconds>]"
         case "act input":
-            return "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]\n\nSaved input aliases require a testID.\nExample: loupe act input --test-id card.number --text \"4242 4242 4242 4242\""
+            return "Usage: loupe act input ('#N' <text> | --test-id <id> --text <text> | --ref <ref> --text <text>) [--udid <sim>] [--host <url>] [--bundle-id <id>] [--timeout <seconds>]\n\nSaved input aliases require a testID, except sampled web text fields on iOS Simulator.\nExample: loupe act input --test-id card.number --text \"4242 4242 4242 4242\""
         case "act press":
             return "Usage: loupe act press up|down|left|right|select|menu|playPause [--udid <sim>] [--host <url>] [--bundle-id <id>] [--trace-dir <path>] [--expect-visible <testID>] [--timeout <seconds>]"
         case "act wait":

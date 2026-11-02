@@ -26,13 +26,13 @@ struct RuntimeFetchOptions {
         self.timeout = timeout
     }
 
-    init(_ arguments: [String], usage: String) throws {
+    init(_ arguments: [String], usage: String, defaultTimeout: TimeInterval = 5) throws {
         host = URL(string: "http://127.0.0.1:8765")!
         hostWasExplicit = false
         var udid: String?
         var bundleID: String?
         var outputURL: URL?
-        var timeout: TimeInterval = 5
+        var timeout = defaultTimeout
         var index = 0
         while index < arguments.count {
             switch arguments[index] {

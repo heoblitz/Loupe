@@ -113,6 +113,25 @@ struct RuntimeActionModelsTests {
         #expect(combined.targets.first?.touchActions == [.tap, .doubleTap])
     }
 
+    @Test func touchTargetUsesVerifiedAccessibilityPoint() throws {
+        let screen = LoupeScreen(size: LoupeSize(width: 400, height: 800), scale: 3)
+        var node = viewNode(ref: "web:1")
+        node.role = "button"
+        node.label = "Web action"
+        node.frame = LoupeRect(x: 20, y: 30, width: 100, height: 50)
+        node.touchActions = [.tap]
+        node.accessibility = LoupeAccessibility(activationPoint: LoupePoint(x: 45, y: 48))
+        let snapshot = LoupeSnapshot(id: "snapshot", capturedAt: Date(), screen: screen,
+            rootRefs: [], nodes: [node.ref: node])
+        let tree = LoupeAccessibilityTree(snapshotID: snapshot.id, screen: screen, rootRefs: [], nodes: [:])
+        let cache = ActionTargetAliasPlanner.makeCache(snapshot: snapshot, accessibilityTree: tree,
+            runtimeIdentity: LoupeRuntimeIdentity(processIdentifier: 1), bundleIdentifier: "app",
+            host: URL(string: "http://localhost")!)
+        let saved = try #require(cache.targets.first)
+        #expect(saved.point == LoupePoint(x: 45, y: 48))
+        #expect(try ActionTargetAliasPlanner.resolveTapTarget(saved, snapshot: snapshot, accessibilityTree: tree).point == saved.point)
+    }
+
     @Test func actionTargetPlannerFiltersOrdersAndConservativelyDeduplicates() throws {
         let screen = LoupeScreen(size: LoupeSize(width: 400, height: 800), scale: 3)
         let snapshot = LoupeSnapshot(

@@ -2393,10 +2393,21 @@ struct LoupeCLI {
         host: URL, timeout: TimeInterval, tapCount: Int, duration: Double?
     ) async throws -> ActionTarget {
         let saved = try cache.target(at: alias)
-        let observation = try await fetchAccessibilityActionObservation(host: host, timeout: timeout)
+        var observation = try await fetchAccessibilityActionObservation(host: host, timeout: timeout)
+        if saved.ref.hasPrefix("web:") {
+            let state = try await fetchRuntimeState(host: host, timeout: timeout)
+            try cache.validate(host: host, runtimeIdentity: state.identity)
+            try await addWebTargets(snapshot: &observation.snapshot, identity: state.identity, timeout: timeout, near: saved.point)
+            if observation.snapshot.nodes[saved.ref] == nil {
+                try await addWebTargets(snapshot: &observation.snapshot, identity: state.identity, timeout: timeout)
+            }
+        }
         let target = try ActionTargetAliasPlanner.resolveTapTarget(
             saved, snapshot: observation.snapshot, accessibilityTree: observation.tree
         )
+        if saved.ref.hasPrefix("web:"), target.ref != saved.ref {
+            throw CLIError("The web target changed. Rerun `loupe act targets --include-web`")
+        }
         guard target.supportsTap(count: tapCount, duration: duration) else {
             throw CLIError("The target's touch contract changed. Rerun `loupe act targets`")
         }

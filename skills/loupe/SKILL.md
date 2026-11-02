@@ -27,6 +27,10 @@ loupe ui query --host <host> --tree accessibility --test-id <expected-id>
   If the app-owned testID is known, use `act tap --test-id <id>` directly.
 - Discover through accessibility; inspect layout/style through the view tree.
   Zero matches means not found; multiple matches require a more precise target.
+- For visible WKWebView content on iOS Simulator, use `loupe ui web --host <host>`
+  and `loupe act targets --host <host> --include-web`. Discovery samples a
+  point grid, so a missing element is not proof that it does not exist.
+  Rediscover aliases after every action and verify the resulting web state.
 - Refs belong to a snapshot/session. Use `--snapshot <file>` for saved-ref
   actions and mutations. Text is for discovery, not tap targeting.
 - Verify the expected change with a focused query, wait, value, screenshot,

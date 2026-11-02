@@ -1,4 +1,5 @@
 #import "LoupeHID.h"
+#import "LoupeDTUHID.h"
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
@@ -88,6 +89,7 @@ static int const LoupeHIDTouchEventKind = 0x0b;
 static int const LoupeHIDDigitizerTarget = 0x32;
 
 static NSString *LoupeDeveloperDir(void);
+static id LoupeSimulatorObject(id target, NSString *name);
 
 static void LoupeHIDSetError(char **errorMessage, NSString *message)
 {
@@ -110,7 +112,13 @@ static NSString *LoupeDeveloperDir(void)
 {
     NSString *environmentDeveloperDir = [NSProcessInfo processInfo].environment[@"DEVELOPER_DIR"];
     if (environmentDeveloperDir.length > 0) {
-        return environmentDeveloperDir;
+        NSString *path = [environmentDeveloperDir stringByStandardizingPath];
+        // xcode-select and xcrun accept either Xcode.app or Contents/Developer.
+        // CoreSimulator and our framework lookup need the latter form.
+        if ([[path pathExtension] caseInsensitiveCompare:@"app"] == NSOrderedSame) {
+            return [path stringByAppendingPathComponent:@"Contents/Developer"];
+        }
+        return path;
     }
 
     NSTask *task = [[NSTask alloc] init];
@@ -220,13 +228,27 @@ static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
         return nil;
     }
 
+    // A caller supplying a UDID normally targets a booted device. Resolve it
+    // directly instead of asking every simulator for its state, which can
+    // exhaust the accessibility deadline on a busy host. Retain the original
+    // available-devices path for older CoreSimulator versions and other states.
+    if (![udid isEqualToString:@"booted"] &&
+        [deviceSet respondsToSelector:NSSelectorFromString(@"devicesByUDID")]) {
+        NSUUID *requested = [[NSUUID alloc] initWithUUIDString:udid];
+        if (requested) {
+            LoupeHIDLookupStage("device-by-udid");
+            NSDictionary *devices = ((id (*)(id, SEL))objc_msgSend)(deviceSet, NSSelectorFromString(@"devicesByUDID"));
+            id device = devices[requested];
+            if (device && [((id (*)(id, SEL))objc_msgSend)(device, NSSelectorFromString(@"stateString")) isEqualToString:@"Booted"]) return device;
+        }
+    }
+
     LoupeHIDLookupStage("available-devices");
     NSArray *devices = ((id (*)(id, SEL))objc_msgSend)(deviceSet, NSSelectorFromString(@"availableDevices"));
     LoupeHIDLookupStage("select-device");
     for (id device in devices) {
-        NSString *state = ((id (*)(id, SEL))objc_msgSend)(device, NSSelectorFromString(@"stateString"));
         NSUUID *deviceUDID = ((id (*)(id, SEL))objc_msgSend)(device, NSSelectorFromString(@"UDID"));
-        if (([udid isEqualToString:@"booted"] && [state isEqualToString:@"Booted"]) || [[deviceUDID UUIDString] isEqualToString:udid]) {
+        if (([udid isEqualToString:@"booted"] && [((id (*)(id, SEL))objc_msgSend)(device, NSSelectorFromString(@"stateString")) isEqualToString:@"Booted"]) || [[deviceUDID UUIDString] isEqualToString:udid]) {
             return device;
         }
     }
@@ -235,30 +257,198 @@ static id LoupeHIDDeviceForUDID(NSString *udid, char **errorMessage)
     return nil;
 }
 
-static id LoupeHIDClientForUDID(NSString *udid, char **errorMessage)
+// AXP request numbers and attributes are documented by the MIT-licensed idb
+// implementation in FBSimulatorBridgeProtocol/BridgeAXTranslatorAttribute.swift.
+// CoreSimulator sends these requests to the simulator's accessibility service.
+static id LoupeAXRequest(id device, Class requestClass, id translation, NSUInteger type, NSDictionary *parameters, NSTimeInterval deadline, char **errorMessage)
 {
-    id device = LoupeHIDDeviceForUDID(udid, errorMessage);
-    if (device == nil) {
+    if (deadline <= NSProcessInfo.processInfo.systemUptime) {
+        LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"simulator accessibility request timed out before request type %lu", (unsigned long)type]); return nil;
+    }
+    id request = ((id (*)(id, SEL, id))objc_msgSend)(requestClass, NSSelectorFromString(@"requestWithTranslation:"), translation);
+    if (request == nil) { LoupeHIDSetError(errorMessage, @"failed to create accessibility request"); return nil; }
+    [request setValue:@(type) forKey:@"requestType"];
+    [request setValue:parameters forKey:@"parameters"];
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    __block id response = nil;
+    ((void (*)(id, SEL, id, dispatch_queue_t, id))objc_msgSend)(device,
+        NSSelectorFromString(@"sendAccessibilityRequestAsync:completionQueue:completionHandler:"),
+        request, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(id result) {
+            response = result;
+            dispatch_semaphore_signal(semaphore);
+        });
+    NSTimeInterval remaining = deadline - NSProcessInfo.processInfo.systemUptime;
+    if (remaining <= 0 || dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(remaining * NSEC_PER_SEC))) != 0) {
+        LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"simulator accessibility request type %lu timed out waiting for response", (unsigned long)type]); return nil;
+    }
+    if (response == nil) { LoupeHIDSetError(errorMessage, @"simulator accessibility service returned no response"); return nil; }
+    NSNumber *responseError = [response valueForKey:@"error"];
+    if (responseError.unsignedLongLongValue != 0) {
+        // A hit-test may report no element at a sampled point.
+        if (type == 6 && responseError.unsignedLongLongValue == 8) return [NSNull null];
+        LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"simulator accessibility request failed: %@", responseError]); return nil;
+    }
+    return [response valueForKey:@"resultData"] ?: [NSNull null];
+}
+
+// Keep a bounded number of requests in flight without blocking one worker
+// thread per request or waiting for the slowest response in each batch.
+static NSArray *LoupeAXGridHits(id device, Class requestClass, Class translationClass,
+    double x, double y, NSUInteger columns, NSUInteger total, NSTimeInterval deadline, char **errorMessage)
+{
+    NSMutableArray *hits = [NSMutableArray arrayWithCapacity:total];
+    for (NSUInteger i = 0; i < total; i++) [hits addObject:[NSNull null]];
+    dispatch_semaphore_t slots = dispatch_semaphore_create(64);
+    dispatch_group_t group = dispatch_group_create();
+    __block NSString *failure = nil;
+    for (NSUInteger index = 0; index < total; index++) {
+        NSTimeInterval remaining = deadline - NSProcessInfo.processInfo.systemUptime;
+        if (remaining <= 0 || dispatch_semaphore_wait(slots, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(remaining * NSEC_PER_SEC))) != 0) {
+            LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"simulator accessibility grid timed out after scheduling %lu of %lu points", (unsigned long)index, (unsigned long)total]);
+            return nil;
+        }
+        id request = ((id (*)(id, SEL, id))objc_msgSend)(requestClass, NSSelectorFromString(@"requestWithTranslation:"), [translationClass new]);
+        if (!request) {
+            dispatch_semaphore_signal(slots);
+            LoupeHIDSetError(errorMessage, @"failed to create accessibility request");
+            return nil;
+        }
+        double px = x + 12.5 + 25 * (index % columns);
+        double py = y + 12.5 + 25 * (index / columns);
+        [request setValue:@6 forKey:@"requestType"];
+        [request setValue:@{@"point": [NSValue valueWithPoint:NSMakePoint(px, py)], @"displayId": @0} forKey:@"parameters"];
+        dispatch_group_enter(group);
+        ((void (*)(id, SEL, id, dispatch_queue_t, id))objc_msgSend)(device,
+            NSSelectorFromString(@"sendAccessibilityRequestAsync:completionQueue:completionHandler:"),
+            request, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(id response) {
+                @synchronized (hits) {
+                    NSNumber *responseError = [response valueForKey:@"error"];
+                    if (!response && !failure) failure = @"simulator accessibility service returned no response";
+                    else if (responseError.unsignedLongLongValue != 0 && responseError.unsignedLongLongValue != 8 && !failure)
+                        failure = [NSString stringWithFormat:@"simulator accessibility request failed: %@", responseError];
+                    else if (responseError.unsignedLongLongValue == 0)
+                        hits[index] = [response valueForKey:@"resultData"] ?: [NSNull null];
+                }
+                dispatch_semaphore_signal(slots);
+                dispatch_group_leave(group);
+            });
+    }
+    NSTimeInterval remaining = deadline - NSProcessInfo.processInfo.systemUptime;
+    if (remaining <= 0 || dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(remaining * NSEC_PER_SEC))) != 0) {
+        LoupeHIDSetError(errorMessage, @"simulator accessibility grid timed out waiting for responses");
         return nil;
     }
+    if (failure) { LoupeHIDSetError(errorMessage, failure); return nil; }
+    return hits;
+}
 
+int LoupeSimulatorWebElements(const char *udid, int appPID, double x, double y, double width, double height, double timeout, char **json, char **errorMessage)
+{
+    @autoreleasepool {
+        if (json == NULL || udid == NULL || appPID <= 0 || !isfinite(x) || !isfinite(y) ||
+            !isfinite(width) || !isfinite(height) || !isfinite(timeout) || timeout <= 0 || timeout > 3600 || width <= 0 || height <= 0 || width * height > 4000000) {
+            LoupeHIDSetError(errorMessage, @"invalid web accessibility search region"); return 1;
+        }
+        *json = NULL;
+        NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+        NSTimeInterval deadline = started + timeout;
+        @try {
+            if (!LoupeLoadCoreSimulator(errorMessage)) return 1;
+            NSTimeInterval coreLoaded = NSProcessInfo.processInfo.systemUptime;
+            if (dlopen("/System/Library/PrivateFrameworks/AccessibilityPlatformTranslation.framework/AccessibilityPlatformTranslation", RTLD_NOW | RTLD_GLOBAL) == NULL) {
+                LoupeHIDSetError(errorMessage, @"failed to load AccessibilityPlatformTranslation"); return 1;
+            }
+            NSTimeInterval translationLoaded = NSProcessInfo.processInfo.systemUptime;
+            id device = LoupeHIDDeviceForUDID([NSString stringWithUTF8String:udid], errorMessage);
+            if (!device) return 1;
+            NSTimeInterval deviceLoaded = NSProcessInfo.processInfo.systemUptime;
+            Class requestClass = NSClassFromString(@"AXPTranslatorRequest");
+            Class translationClass = NSClassFromString(@"AXPTranslationObject");
+            if (!requestClass || !translationClass ||
+                ![device respondsToSelector:NSSelectorFromString(@"sendAccessibilityRequestAsync:completionQueue:completionHandler:")]) {
+                LoupeHIDSetError(errorMessage, @"simulator accessibility translation is unavailable"); return 1;
+            }
+            NSDictionary *display = @{@"displayId": @0};
+            id front = LoupeAXRequest(device, requestClass, [translationClass new], 4, display, deadline, errorMessage);
+            if (!front) {
+                NSString *reason = errorMessage && *errorMessage ? [NSString stringWithUTF8String:*errorMessage] : @"simulator accessibility request failed";
+                if (errorMessage) { free(*errorMessage); *errorMessage = NULL; }
+                LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"%@ (initialization: CoreSimulator %.3fs, translation %.3fs, device %.3fs)", reason, coreLoaded-started, translationLoaded-coreLoaded, deviceLoaded-translationLoaded]);
+                return 1;
+            }
+            if (front == [NSNull null] || [[front valueForKey:@"pid"] intValue] != appPID) {
+                LoupeHIDSetError(errorMessage, @"runtime app is not the frontmost simulator app"); return 1;
+            }
+            NSMutableSet *seen = [NSMutableSet set];
+            NSMutableArray *elements = [NSMutableArray array];
+            // Sampling only sees elements intersecting a point in the visible
+            // region; it must never be presented as a complete web tree.
+            NSUInteger columns = width > 12.5 ? (NSUInteger)ceil((width - 12.5) / 25.0) : 0;
+            NSUInteger rows = height > 12.5 ? (NSUInteger)ceil((height - 12.5) / 25.0) : 0;
+            NSUInteger total = columns * rows;
+            NSArray *hits = LoupeAXGridHits(device, requestClass, translationClass, x, y, columns, total, deadline, errorMessage);
+            if (!hits) return 1;
+            // Process in grid order so discovery and aliases remain stable.
+            for (id hit in hits) {
+                    if (hit == [NSNull null]) continue;
+                    NSString *key = [NSString stringWithFormat:@"%@:%@", [hit valueForKey:@"pid"], [hit valueForKey:@"objectID"]];
+                    if ([seen containsObject:key]) continue;
+                    [seen addObject:key];
+                    id attributes = LoupeAXRequest(device, requestClass, hit, 5,
+                        @{@"attributes": @[@21, @25, @27, @28, @33, @45, @53, @77]}, deadline, errorMessage);
+                    if (!attributes) return 1;
+                    if (![attributes isKindOfClass:[NSDictionary class]] || ([attributes[@77] unsignedLongLongValue] & (1ULL << 17)) == 0) continue;
+                    NSValue *frameValue = attributes[@21];
+                    if (![frameValue isKindOfClass:[NSValue class]]) continue;
+                    NSRect frame = frameValue.rectValue;
+                    if (NSIsEmptyRect(frame) || !isfinite(frame.origin.x) || !isfinite(frame.origin.y) ||
+                        !isfinite(frame.size.width) || !isfinite(frame.size.height)) continue;
+                    // AX hit-testing can return nearby elements outside their
+                    // frames. Only expose a tap point after rechecking the
+                    // frame center against the same remote object.
+                    double centerX = NSMidX(frame), centerY = NSMidY(frame);
+                    if (centerX < x || centerX >= x + width || centerY < y || centerY >= y + height) continue;
+                    id centerHit = LoupeAXRequest(device, requestClass, [translationClass new], 6,
+                        @{@"point": [NSValue valueWithPoint:NSMakePoint(centerX, centerY)], @"displayId": @0}, deadline, errorMessage);
+                    if (!centerHit) return 1;
+                    if (centerHit == [NSNull null] || ![[NSString stringWithFormat:@"%@:%@", [centerHit valueForKey:@"pid"], [centerHit valueForKey:@"objectID"]] isEqualToString:key]) continue;
+                    NSMutableDictionary *element = [@{@"id": key, @"role": attributes[@45] ?: @0,
+                        @"enabled": [NSNumber numberWithBool:(!attributes[@27] || [attributes[@27] boolValue])],
+                        @"focused": [NSNumber numberWithBool:[attributes[@28] boolValue]],
+                        @"point": @{@"x": @(centerX), @"y": @(centerY)},
+                        @"frame": @{@"x": @(frame.origin.x), @"y": @(frame.origin.y),
+                                     @"width": @(frame.size.width), @"height": @(frame.size.height)}} mutableCopy];
+                    for (NSNumber *attribute in @[@25, @33, @53]) {
+                        if (attribute.intValue == 53 && ([attributes[@77] unsignedLongLongValue] & (1ULL << 24)) != 0) continue;
+                        id value = attributes[attribute];
+                        if ([value isKindOfClass:[NSString class]]) element[attribute.intValue == 25 ? @"identifier" : (attribute.intValue == 33 ? @"label" : @"value")] = value;
+                    }
+                    [elements addObject:element];
+            }
+            NSError *error = nil;
+            NSData *data = [NSJSONSerialization dataWithJSONObject:elements options:0 error:&error];
+            if (!data) { LoupeHIDSetError(errorMessage, error.localizedDescription ?: @"failed to encode web accessibility"); return 1; }
+            *json = strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
+            if (!*json) { LoupeHIDSetError(errorMessage, @"failed to allocate web accessibility result"); return 1; }
+            return 0;
+        } @catch (NSException *exception) {
+            LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"simulator accessibility translation failed: %@", exception.reason]);
+            return 1;
+        }
+    }
+}
+
+static id LoupeHIDLegacyClient(id device, char **errorMessage)
+{
     Class clientClass = NSClassFromString(@"SimulatorKit.SimDeviceLegacyHIDClient");
     if (clientClass == Nil) {
         LoupeHIDSetError(errorMessage, @"SimulatorKit SimDeviceLegacyHIDClient is unavailable");
         return nil;
     }
-
     NSError *error = nil;
     id client = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(
-        [clientClass alloc],
-        NSSelectorFromString(@"initWithDevice:error:"),
-        device,
-        &error
-    );
-    if (client == nil) {
-        LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to create HID client: %@", error]);
-        return nil;
-    }
+        [clientClass alloc], NSSelectorFromString(@"initWithDevice:error:"), device, &error);
+    if (client == nil) LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"failed to create HID client: %@", error]);
     return client;
 }
 
@@ -372,8 +562,17 @@ static void LoupeHIDRunGesture(dispatch_block_t gesture)
 
 static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseMessage, CGPoint ratio, int direction)
 {
-    LoupeIndigoMessage *seed = mouseMessage(&ratio, NULL, LoupeHIDDigitizerTarget, (NSEventType)direction, NSMakeSize(1, 1), 0);
+    uint32_t target = 0x32;
+    LoupeIndigoMessage *seed = mouseMessage(&ratio, NULL, target, (NSEventType)direction, NSMakeSize(1, 1), 0);
     if (seed == NULL) {
+        return NULL;
+    }
+    size_t stride = seed->innerSize;
+    size_t payloadOffset = offsetof(LoupeIndigoMessage, payload);
+    size_t seedSize = malloc_size(seed);
+    if (stride < sizeof(LoupeIndigoPayload) || seedSize < payloadOffset ||
+        stride > seedSize - payloadOffset || stride > (SIZE_MAX - payloadOffset) / 2) {
+        free(seed);
         return NULL;
     }
     seed->payload.event.touch.xRatio = ratio.x;
@@ -387,38 +586,68 @@ static LoupeIndigoMessage *LoupeHIDTouchMessage(LoupeMouseMessageFunction mouseM
             touch.field11, touch.field12, touch.field13);
     }
 
-    size_t messageSize = sizeof(LoupeIndigoMessage) + sizeof(LoupeIndigoPayload);
-    size_t stride = sizeof(LoupeIndigoPayload);
-    LoupeIndigoMessage *message = calloc(1, messageSize);
-    if (message == NULL) {
-        free(seed);
-        return NULL;
-    }
-    message->innerSize = sizeof(LoupeIndigoPayload);
-    message->eventType = LoupeHIDEventTypeTouch;
-    message->payload.field1 = LoupeHIDTouchEventKind;
+    // Preserve the legacy main-digitizer envelope and Mach-time convention,
+    // while retaining the builder's actual payload stride and event tail.
+    LoupeIndigoMessage *message = calloc(1, payloadOffset + 2 * stride);
+    if (message == NULL) { free(seed); return NULL; }
+    message->innerSize = (uint32_t)stride;
+    message->eventType = 2;
+    message->payload.field1 = 0x0b;
     message->payload.timestamp = mach_absolute_time();
-    memcpy(&(message->payload.event.touch), &(seed->payload.event.touch), sizeof(LoupeIndigoTouch));
-
-    LoupeIndigoPayload *second = (LoupeIndigoPayload *)((char *)&message->payload + stride);
+    memcpy(&message->payload.event, &seed->payload.event, stride - offsetof(LoupeIndigoPayload, event));
+    LoupeIndigoPayload *second = (void *)((char *)&message->payload + stride);
     memcpy(second, &message->payload, stride);
     second->event.touch.field1 = 1;
     second->event.touch.field2 = 2;
-
     free(seed);
     return message;
 }
 
 static bool LoupeHIDPrepare(NSString *udid, id *client, LoupeHIDFunctions *functions, char **errorMessage)
 {
-    if (!LoupeHIDLoadFrameworks(errorMessage)) {
+    *functions = (LoupeHIDFunctions){0};
+    if (!LoupeLoadCoreSimulator(errorMessage)) return false;
+    id device = LoupeHIDDeviceForUDID(udid, errorMessage);
+    if (!device) return false;
+    NSString *state = LoupeSimulatorObject(device, @"stateString");
+    if (![state isEqualToString:@"Booted"]) {
+        LoupeHIDSetError(errorMessage, [NSString stringWithFormat:@"simulator %@ is not booted (%@)", udid, state]);
         return false;
     }
-    if (!LoupeHIDLoadFunctions(functions, errorMessage)) {
+    BOOL unsupported = NO;
+    NSError *error = nil;
+    *client = [LoupeDTUHIDClient clientForDevice:device unsupported:&unsupported error:&error];
+    if (*client) return true;
+    if (!unsupported) {
+        LoupeHIDSetError(errorMessage, error.localizedDescription ?: @"failed to connect to DTUHID");
         return false;
     }
-    *client = LoupeHIDClientForUDID(udid, errorMessage);
+    if (!LoupeHIDLoadFrameworks(errorMessage) || !LoupeHIDLoadFunctions(functions, errorMessage)) return false;
+    *client = LoupeHIDLegacyClient(device, errorMessage);
     return *client != nil;
+}
+
+static bool LoupeHIDSendPoint(id client, LoupeHIDFunctions functions, CGPoint ratio, int direction, char **errorMessage)
+{
+    if ([client isKindOfClass:LoupeDTUHIDClient.class]) {
+        NSError *error = nil;
+        BOOL sent = [(LoupeDTUHIDClient *)client sendTouchAtRatio:ratio direction:direction error:&error];
+        if (!sent) LoupeHIDSetError(errorMessage, error.localizedDescription);
+        return sent;
+    }
+    return LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, direction), errorMessage);
+}
+
+static bool LoupeHIDFinish(id client, char **errorMessage)
+{
+    if ([client isKindOfClass:LoupeDTUHIDClient.class]) {
+        NSError *error = nil;
+        BOOL finished = [(LoupeDTUHIDClient *)client finishWithError:&error];
+        if (!finished) LoupeHIDSetError(errorMessage, error.localizedDescription);
+        return finished;
+    }
+    LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + 0.025);
+    return true;
 }
 
 int LoupeHIDTap(const char *udid, double x, double y, double width, double height, char **errorMessage)
@@ -449,20 +678,19 @@ static int LoupeHIDPerformTapCount(const char *udid, double x, double y, double 
                 LoupeHIDWaitUntil(MAX(startedAt + index * 0.155, previousUpAcknowledgedAt + 0.016));
             }
             CGPoint ratio = LoupeHIDRatio(x, y, width, height);
-            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, LoupeHIDDirectionDown), errorMessage)) {
+            if (!LoupeHIDSendPoint(client, functions, ratio, LoupeHIDDirectionDown, errorMessage)) {
                 return 1;
             }
             // ACK latency must not consume the contact's minimum dwell. If
             // down takes longer than 50ms to acknowledge, an enqueue-based
             // deadline otherwise sends up immediately after that acknowledgement.
             LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + 0.050);
-            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, LoupeHIDDirectionUp), errorMessage)) {
+            if (!LoupeHIDSendPoint(client, functions, ratio, LoupeHIDDirectionUp, errorMessage)) {
                 return 1;
             }
             previousUpAcknowledgedAt = NSProcessInfo.processInfo.systemUptime;
         }
-        LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + 0.025);
-        return 0;
+        return LoupeHIDFinish(client, errorMessage) ? 0 : 1;
     }
 }
 
@@ -506,7 +734,7 @@ static int LoupeHIDPerformDragWithHold(
 
         int steps = MAX(1, (int)ceil(hypot(endX - startX, endY - startY) / 20.0));
         CGPoint startRatio = LoupeHIDRatio(startX, startY, width, height);
-        if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, startRatio, LoupeHIDDirectionDown), errorMessage)) {
+        if (!LoupeHIDSendPoint(client, functions, startRatio, LoupeHIDDirectionDown, errorMessage)) {
             return 1;
         }
         if (holdDuration > 0) LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + holdDuration);
@@ -517,19 +745,18 @@ static int LoupeHIDPerformDragWithHold(
             double x = startX + ((endX - startX) * progress);
             double y = startY + ((endY - startY) * progress);
             CGPoint ratio = LoupeHIDRatio(x, y, width, height);
-            if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, ratio, LoupeHIDDirectionDown), errorMessage)) {
+            if (!LoupeHIDSendPoint(client, functions, ratio, LoupeHIDDirectionDown, errorMessage)) {
                 // Release the same contact after a failed move; never replay it.
                 CGPoint endRatio = LoupeHIDRatio(endX, endY, width, height);
-                LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, endRatio, LoupeHIDDirectionUp), NULL);
+                LoupeHIDSendPoint(client, functions, endRatio, LoupeHIDDirectionUp, NULL);
                 return 1;
             }
         }
         CGPoint endRatio = LoupeHIDRatio(endX, endY, width, height);
-        if (!LoupeHIDSendTouchMessage(client, LoupeHIDTouchMessage(functions.mouseMessage, endRatio, LoupeHIDDirectionUp), errorMessage)) {
+        if (!LoupeHIDSendPoint(client, functions, endRatio, LoupeHIDDirectionUp, errorMessage)) {
             return 1;
         }
-        LoupeHIDWaitUntil(NSProcessInfo.processInfo.systemUptime + 0.025);
-        return 0;
+        return LoupeHIDFinish(client, errorMessage) ? 0 : 1;
     }
 }
 
@@ -600,9 +827,16 @@ static LoupeHIDKeyEvent LoupeHIDKeyEventForUnichar(unichar character)
     }
 }
 
-static void LoupeHIDSendKey(id client, LoupeKeyboardMessageFunction keyboardMessage, uint32_t keyCode, int direction)
+static bool LoupeHIDSendKey(id client, LoupeKeyboardMessageFunction keyboardMessage, uint32_t keyCode, int direction, char **errorMessage)
 {
+    if ([client isKindOfClass:LoupeDTUHIDClient.class]) {
+        NSError *error = nil;
+        BOOL sent = [(LoupeDTUHIDClient *)client sendKeyCode:keyCode direction:direction error:&error];
+        if (!sent) LoupeHIDSetError(errorMessage, error.localizedDescription);
+        return sent;
+    }
     LoupeHIDSendMessage(client, keyboardMessage(keyCode, direction));
+    return true;
 }
 
 static uint32_t LoupeHIDRemoteKeyCode(NSString *button)
@@ -636,17 +870,16 @@ int LoupeHIDType(const char *udid, const char *text, char **errorMessage)
                 return 1;
             }
             if (event.shift) {
-                LoupeHIDSendKey(client, functions.keyboardMessage, 225, LoupeHIDDirectionDown);
+                if (!LoupeHIDSendKey(client, functions.keyboardMessage, 225, LoupeHIDDirectionDown, errorMessage)) return 1;
             }
-            LoupeHIDSendKey(client, functions.keyboardMessage, event.keyCode, LoupeHIDDirectionDown);
-            LoupeHIDSendKey(client, functions.keyboardMessage, event.keyCode, LoupeHIDDirectionUp);
+            if (!LoupeHIDSendKey(client, functions.keyboardMessage, event.keyCode, LoupeHIDDirectionDown, errorMessage)) return 1;
+            if (!LoupeHIDSendKey(client, functions.keyboardMessage, event.keyCode, LoupeHIDDirectionUp, errorMessage)) return 1;
             if (event.shift) {
-                LoupeHIDSendKey(client, functions.keyboardMessage, 225, LoupeHIDDirectionUp);
+                if (!LoupeHIDSendKey(client, functions.keyboardMessage, 225, LoupeHIDDirectionUp, errorMessage)) return 1;
             }
             usleep(20 * 1000);
         }
-        usleep(25 * 1000);
-        return 0;
+        return LoupeHIDFinish(client, errorMessage) ? 0 : 1;
     }
 }
 
@@ -666,11 +899,10 @@ int LoupeHIDPress(const char *udid, const char *button, char **errorMessage)
             return 1;
         }
 
-        LoupeHIDSendKey(client, functions.keyboardMessage, keyCode, LoupeHIDDirectionDown);
+        if (!LoupeHIDSendKey(client, functions.keyboardMessage, keyCode, LoupeHIDDirectionDown, errorMessage)) return 1;
         usleep(40 * 1000);
-        LoupeHIDSendKey(client, functions.keyboardMessage, keyCode, LoupeHIDDirectionUp);
-        usleep(25 * 1000);
-        return 0;
+        if (!LoupeHIDSendKey(client, functions.keyboardMessage, keyCode, LoupeHIDDirectionUp, errorMessage)) return 1;
+        return LoupeHIDFinish(client, errorMessage) ? 0 : 1;
     }
 }
 

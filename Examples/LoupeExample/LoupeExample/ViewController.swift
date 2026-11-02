@@ -1247,7 +1247,9 @@ final class WebFixtureController: UIViewController {
             <body>
               <h1>Web Fixture</h1>
               <p id="status">Loaded inside WKWebView</p>
-              <button aria-label="Web action">Action</button>
+              <button aria-label="Web action" onclick="document.getElementById('status').textContent = 'Web action activated'; const input = document.getElementById('web-name'); input.style.top = input.style.top === '50px' ? '0px' : '50px'">Action</button>
+              <label for="web-name">Name</label>
+              <input id="web-name" type="text" style="position: relative">
             </body>
             </html>
             """,

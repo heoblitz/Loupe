@@ -235,7 +235,7 @@ package enum ActionTargetAliasPlanner {
             let result = LoupeAccessibilityQueryResult(node: LoupeAccessibilityNode(
                 ref: node.ref, sourceRef: node.ref, role: node.role ?? "gesture",
                 label: node.label ?? node.text ?? node.semanticText,
-                testID: node.testID, frame: node.frame, activationPoint: node.frame?.center,
+                testID: node.testID, frame: node.frame, activationPoint: node.accessibility?.activationPoint ?? node.frame?.center,
                 isVisible: true, isEnabled: true, isInteractive: true, actions: []
             ))
             guard actionPoint(for: result, screen: accessibilityTree.screen) != nil else { continue }

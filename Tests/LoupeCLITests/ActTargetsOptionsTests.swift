@@ -8,10 +8,21 @@ import Testing
 
         #expect(options.host == nil)
         #expect(!options.includeAll)
+        #expect(!options.includeWeb)
     }
 
     @Test func allIncludesAuxiliaryTargets() throws {
         #expect(try ActTargetsOptions(["--all"]).includeAll)
+        #expect(try ActTargetsOptions(["--include-web"]).includeWeb)
+    }
+
+    @Test func webSearchHasItsOwnDefaultDeadlineAndRespectsExplicitTimeout() throws {
+        #expect(try ActTargetsOptions([]).timeout == 5)
+        #expect(try ActTargetsOptions(["--include-web"]).timeout == 15)
+        #expect(try ActTargetsOptions(["--timeout", "2", "--include-web"]).timeout == 2)
+        #expect(try ActTargetsOptions(["--include-web", "--timeout", "3"]).timeout == 3)
+        #expect(try RuntimeFetchOptions([], usage: "web", defaultTimeout: 15).timeout == 15)
+        #expect(try RuntimeFetchOptions(["--timeout", "1"], usage: "web", defaultTimeout: 15).timeout == 1)
     }
 
     @Test func supportsBundleSelection() throws {

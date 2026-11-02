@@ -11,10 +11,14 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 cat >"$TEST_DIR/probe.m" <<'EOF'
 #import "LoupeHID.m"
 
-int main(void) {
+int main(int argc, char **argv) {
     @autoreleasepool {
         char *error = NULL;
         bool loaded = LoupeHIDLoadFrameworks(&error);
+        if (loaded && argc > 1 && strcmp(argv[1], "--check-symbols") == 0) {
+            LoupeHIDFunctions functions = {0};
+            loaded = LoupeHIDLoadFunctions(&functions, &error);
+        }
         if (error != NULL) {
             fprintf(stderr, "%s\n", error);
             LoupeHIDFreeCString(error);
@@ -26,7 +30,7 @@ EOF
 
 xcrun clang -fobjc-arc -framework AppKit -framework CoreImage -framework IOSurface -framework ImageIO \
   -I "$ROOT_DIR/Sources/LoupeHID" -I "$ROOT_DIR/Sources/LoupeHID/include" \
-  "$TEST_DIR/probe.m" -o "$TEST_DIR/probe"
+  "$TEST_DIR/probe.m" "$ROOT_DIR/Sources/LoupeHID/LoupeDTUHID.m" -o "$TEST_DIR/probe"
 printf 'void LoupeFrameworkFixture(void) {}\n' | \
   xcrun clang -x c -dynamiclib -o "$TEST_DIR/fixture" -
 
@@ -54,6 +58,7 @@ mkdir -p "$shared"
 make_framework "$(dirname "$shared")/SharedFrameworks/SimulatorKit.framework"
 DEVELOPER_DIR="$shared" "$TEST_DIR/probe"
 DEVELOPER_DIR="$shared/" "$TEST_DIR/probe"
+DEVELOPER_DIR="$(dirname "$(dirname "$shared")")" "$TEST_DIR/probe"
 
 # An existing but unloadable legacy bundle must not prevent the fallback.
 make_framework "$shared/Library/PrivateFrameworks/SimulatorKit.framework"
@@ -77,4 +82,12 @@ for expected in \
   fi
 done
 
-echo "HID framework loading passed: legacy, shared, trailing slash, unloadable fallback, missing diagnostics"
+# Fixture bundles prove path selection, but cannot prove that the selected
+# Xcode's real framework and the symbols used for input are loadable.
+"$TEST_DIR/probe" --check-symbols
+selected_developer_dir="$(xcode-select -p)"
+if [[ "$selected_developer_dir" == */Contents/Developer ]]; then
+  DEVELOPER_DIR="${selected_developer_dir%/Contents/Developer}" "$TEST_DIR/probe" --check-symbols
+fi
+
+echo "HID framework loading passed: legacy, shared, fallback, diagnostics, selected Xcode and HID symbols"
