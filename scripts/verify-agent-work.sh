@@ -12,6 +12,8 @@ run_step() {
 }
 
 run_step "swift test" swift test
+run_step "CI simulator readiness" bash scripts/verify-ci-simulator-readiness.sh
+run_step "Device Hub drag threshold" python3 Examples/LoupeExample/test-devicehub-drag-threshold.py
 run_step "HID framework loading" bash scripts/verify-hid-framework-loading.sh
 run_step "HID touch messages" bash scripts/verify-hid-touch-messages.sh
 run_step "Accessibility grid" bash scripts/verify-ax-grid.sh
