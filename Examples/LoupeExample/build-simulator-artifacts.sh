@@ -17,15 +17,16 @@ configure_loupe_ios_verification() {
 }
 
 loupe_ios_verification_device() {
-  python3 - "${1:-${LOUPE_DEVICE:-}}" <<'DEVICE_PY'
-import json, os, platform, subprocess, sys
+  python3 - "${1:-${LOUPE_DEVICE:-}}" "$ROOT_DIR/scripts" <<'DEVICE_PY'
+import json, os, platform, sys
+sys.path.insert(0, sys.argv[2])
+from simctl_inventory import list_devices
 architecture = platform.machine()
 expected = os.environ.get('LOUPE_TOUCH_ARCHITECTURE', 'arm64')
 assert architecture == expected, f'Expected native {expected}, got {architecture}'
 version = os.environ.get('LOUPE_TOUCH_RUNTIME_VERSION', '26.2')
 runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-' + version.replace('.', '-')
-inventory = json.loads(subprocess.check_output(
-    ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'], timeout=60))
+inventory = json.loads(list_devices('--json'))
 requested = sys.argv[1]
 model = 'iPhone 17 Pro' if version.startswith('26.') else 'iPhone 16 Pro'
 candidates = [d for d in inventory['devices'].get(runtime, [])
