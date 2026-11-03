@@ -42,14 +42,15 @@ ATTEMPTS="$(positive_int_or_default "${LOUPE_CI_SIMCTL_LIST_ATTEMPTS:-3}" 3)"
 STATUS=0
 
 for attempt in $(seq 1 "$ATTEMPTS"); do
-  LOG_PATH="/tmp/loupe-ci-simctl-list-devices-attempt-${attempt}.log"
+  LOG_PATH="${LOUPE_CI_LOG_DIR:-/tmp}/loupe-ci-simctl-list-devices-attempt-${attempt}.log"
   echo "simctl list devices available attempt ${attempt}/${ATTEMPTS} (timeout ${TIMEOUT}s)"
-  if perl -e 'alarm shift @ARGV; exec @ARGV' "$TIMEOUT" xcrun simctl list devices available >"$LOG_PATH" 2>&1; then
+  if perl -e 'alarm shift @ARGV; exec @ARGV' "$TIMEOUT" xcrun simctl list devices available --json >"$LOG_PATH" 2>&1; then
     cat "$LOG_PATH"
     exit 0
+  else
+    STATUS=$?
   fi
 
-  STATUS=$?
   echo "::warning title=simctl list attempt ${attempt} failed::xcrun simctl list devices available exited with ${STATUS}; see ${LOG_PATH}"
   tail -40 "$LOG_PATH" || true
   if [[ "$attempt" -lt "$ATTEMPTS" ]]; then
