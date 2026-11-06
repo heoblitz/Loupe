@@ -78,6 +78,9 @@ jobs:
       - name: Run SwiftPM tests
         run: swift test
 
+      - name: Verify CI scripts
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Verify SimulatorKit framework loading
         run: scripts/verify-hid-framework-loading.sh
       - name: Verify simulator input transport
@@ -260,7 +263,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Print toolchain
-        run: scripts/ci-print-toolchain.sh
+        run: scripts/ci-print-toolchain.sh --simulators
 
       - name: Run native scenario E2E
         run: scripts/ci-run-with-diagnostics.sh "iOS Native Scenario E2E" Examples/LoupeExample/run-native-scenarios.sh

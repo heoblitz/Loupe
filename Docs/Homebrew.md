@@ -75,26 +75,8 @@ shasum -a 256 /tmp/loupe-vX.Y.Z.tar.gz
 Update the source URL and checksum, remove the previous `bottle do` block, and
 commit the Formula change to `main`.
 
-4. In GitHub Actions, run **Homebrew Bottles** from `main` and enter `X.Y.Z`.
-The workflow verifies the Formula and immutable source tag, then:
-
-- builds the Apple Silicon bottle;
-- installs each generated bottle and requires `poured_from_bottle: true`;
-- runs the Formula test and verifies the CLI and both injector code signatures
-  on Apple Silicon;
-- verifies that the matching GitHub Release is still a draft before uploading;
-- uploads the bottle to the draft Release; and
-- generates and commits the new Formula `bottle do` block.
-
-Pull requests that change the Formula or bottle workflow run the build and pour
-checks plus UIKit/SwiftUI touch and input E2E with the poured CLI and injector.
-The harness builds only the fixture app. It never rebuilds the installed CLI
-or injector, uploads release assets, or modifies `main` during PR checks.
-
-5. After the bottle workflow completes, run **Verify** from `main`. The workflow's
-Formula commit uses `GITHUB_TOKEN`, so its push does not start another workflow
-automatically. Wait for all Verify jobs to pass on that commit, then publish the
-draft Release:
+4. Run **Verify** from `main` after updating the Formula. Wait for all jobs to
+pass on that commit, then publish the draft Release:
 
 ```bash
 gh workflow run verify.yml --ref main
@@ -102,7 +84,37 @@ gh workflow run verify.yml --ref main
 gh release edit vX.Y.Z --draft=false
 ```
 
-6. Verify both the public bottle and source-build paths:
+5. In GitHub Actions, run **Homebrew Bottles** from `main` and enter `X.Y.Z`.
+The workflow verifies the Formula and immutable source tag, then:
+
+- builds the Apple Silicon bottle;
+- installs each generated bottle and requires `poured_from_bottle: true`;
+- runs the Formula test and verifies the CLI and both injector code signatures
+  on Apple Silicon;
+- requires the matching GitHub Release to be public before uploading;
+- uploads the bottle without replacing existing release assets;
+- downloads it without GitHub authentication and checks its SHA-256; and
+- generates and commits the new Formula `bottle do` block.
+
+The Formula remains source-only until the bottle is publicly downloadable.
+A failed bottle build or publication check therefore cannot advertise a private
+download URL. If an upload succeeds but a later step fails, inspect the existing
+asset before retrying; the workflow will not overwrite it.
+
+Pull requests that change the Formula or bottle workflow run the build and pour
+checks plus UIKit/SwiftUI touch and input E2E with the poured CLI and injector.
+The harness builds only the fixture app. It never rebuilds the installed CLI
+or injector, uploads release assets, or modifies `main` during PR checks.
+
+6. After the bottle workflow completes, run **Verify** from `main`. The workflow's
+Formula commit uses `GITHUB_TOKEN`, so its push does not start another workflow
+automatically. This checks the final bottle metadata; the release is already public:
+
+```bash
+gh workflow run verify.yml --ref main
+```
+
+7. Verify both the public bottle and source-build paths:
 
 ```bash
 brew update

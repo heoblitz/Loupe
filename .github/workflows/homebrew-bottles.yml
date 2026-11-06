@@ -12,6 +12,7 @@ on:
       - Sources/**
       - Examples/LoupeExample/**
       - skills/loupe/**
+      - scripts/simctl_inventory.py
   workflow_dispatch:
     inputs:
       version:
@@ -312,10 +313,9 @@ jobs:
           set -euo pipefail
           grep -F "refs/tags/$TAG.tar.gz" Formula/loupe.rb >/dev/null
           grep -F "  sha256 \"$SOURCE_CHECKSUM\"" Formula/loupe.rb >/dev/null
-          # The publication token already has push access, which draft lookup requires.
           release_json="$(gh release view "$TAG" --json isDraft,tagName)"
-          if [[ "$(jq -r .isDraft <<<"$release_json")" != "true" || "$(jq -r .tagName <<<"$release_json")" != "$TAG" ]]; then
-            echo "::error::$TAG must exist as a draft GitHub Release before bottles are published."
+          if [[ "$(jq -r .isDraft <<<"$release_json")" != "false" || "$(jq -r .tagName <<<"$release_json")" != "$TAG" ]]; then
+            echo "::error::$TAG must be a public GitHub Release before its bottle URLs are committed."
             exit 1
           fi
 
@@ -358,7 +358,7 @@ jobs:
           }
           grep -F "releases/download/$TAG" Formula/loupe.rb >/dev/null
 
-      - name: Upload bottles to the draft release
+      - name: Upload bottles to the public release
         shell: bash
         run: |
           set -euo pipefail
@@ -375,7 +375,24 @@ jobs:
             echo "::error::Expected one Apple Silicon bottle, found ${#bottles[@]}."
             exit 1
           fi
-          gh release upload "$TAG" "${bottles[@]}" --clobber
+          gh release upload "$TAG" "${bottles[@]}"
+
+      - name: Verify public bottle downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          for metadata in bottle-output/*.bottle.json; do
+            public_filename="$(jq -r '.[] .bottle.tags[].filename' "$metadata")"
+            checksum="$(jq -r '.[] .bottle.tags[].sha256' "$metadata")"
+            download="$(mktemp)"
+            trap 'rm -f "$download"' EXIT
+            curl --disable --fail --location --retry 3 --retry-all-errors \
+              --connect-timeout 15 --max-time 120 \
+              "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$public_filename" \
+              --output "$download"
+            printf '%s  %s\n' "$checksum" "$download" | shasum -a 256 --check
+            rm "$download"
+          done
 
       - name: Commit the Formula bottle block
         shell: bash
@@ -393,7 +410,6 @@ jobs:
           {
             echo "## Homebrew bottles published"
             echo
-            echo "- Release: $TAG (still draft)"
+            echo "- Release: $TAG (public downloads verified)"
             echo "- Formula bottle block committed to $DEFAULT_BRANCH"
-            echo "- Publish the GitHub Release after the main Verify workflow passes"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -11,6 +11,7 @@ run_step() {
   "$@"
 }
 
+run_step "CI script tests" python3 -m unittest discover -s scripts/tests -v
 run_step "swift test" swift test
 run_step "HID framework loading" bash scripts/verify-hid-framework-loading.sh
 run_step "HID touch messages" bash scripts/verify-hid-touch-messages.sh
